@@ -1,0 +1,95 @@
+.startpage-navigation {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: white !important;
+}
+
+/* Fix: SVG paths use 'fill', not 'color' */
+path {
+  fill: white;
+}
+
+.button-toolbar button,
+.panelbtn {
+  transition: none;
+}
+
+/* Hide Bookmark and Notes Previews */
+.addbookmark-cardwrapper .preview,
+.notes-cardwrapper .upper-half .preview {
+  display: none;
+}
+
+/* Tabs section — pinned to top */
+#footer {
+  order: -1;
+  box-sizing: revert;
+  height: 1.95rem;
+}
+
+/* 
+================================================================================
+  URL BAR — merged rules + auto-hide
+================================================================================
+*/
+.mainbar {
+  order: 100;
+  border-top: solid #22151c;
+  background-color: transparent;
+  backdrop-filter: blur(40px);
+  position: relative;
+  z-index: 100;
+
+  /* Use only opacity — visibility:hidden blocks all interaction */
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out !important;
+}
+
+/* Show on hover OR when the address field is focused (Ctrl+L) */
+.mainbar:hover,
+.mainbar:focus-within {
+  opacity: 1;
+}
+
+/* Show when the address field is focused (e.g. Ctrl+L) */
+.mainbar:focus-within {
+  opacity: 1;
+  visibility: visible;
+}
+
+.toolbar-mainbar {
+  justify-content: center;
+  align-items: center;
+}
+
+/* Input field wrapper */
+/* Input field wrapper */
+.UrlBar-AddressField {
+  height: 1.85rem;
+  backdrop-filter: blur(10px);
+  border-radius: 12px !important;
+}
+
+/* Input field layout */
+.UrlField {
+  border-radius: 12px !important;
+}
+
+/* Input text */
+#urlFieldInput {
+  text-align: center;
+  font-weight: 400;
+  font-size: 1.3em;
+  border-radius: 12px !important;
+}
+
+.OmniLinkItemDeprecated-DisplayText {
+  color: #FAFAF5;
+}
+
+/* The suggestions dropdown */
+.OmniDropdown {
+  opacity: 0.8;
+  border-radius: 12px 12px 0px 0px !important;
+  overflow: hidden !important;
+}

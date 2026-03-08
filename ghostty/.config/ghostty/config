@@ -1,0 +1,34 @@
+
+# Dynamic theme colors
+
+# Font
+font-family = "JetBrains Mono Nerd Font"
+font-style = Regular
+font-size = 12
+
+# Window
+window-theme = ghostty
+window-padding-x = 5
+window-padding-y = 5
+
+confirm-close-surface=false
+resize-overlay = never
+gtk-toolbar-style = flat
+
+# Cursor styling
+cursor-style = "block"
+cursor-style-blink = true
+shell-integration-features = no-cursor, ssh-env
+
+# Keyboard bindings
+keybind = shift+insert=paste_from_clipboard
+keybind = control+insert=copy_to_clipboard
+
+shell-integration = zsh
+
+quit-after-last-window-closed = true
+quit-after-last-window-closed-delay = 5m
+keybind = shift+enter=text:\x1b\r
+
+# Slowdown mouse scrolling
+mouse-scroll-multiplier = 0.95
