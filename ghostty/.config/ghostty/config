@@ -1,6 +1,7 @@
 
 # Dynamic theme colors
-
+background-opacity=0.8
+background-blur=true
 # Font
 font-family = "JetBrains Mono Nerd Font"
 font-style = Regular
