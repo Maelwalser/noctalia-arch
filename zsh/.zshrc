@@ -197,7 +197,45 @@ ai() {
     python3 "${LOCAL_ENV}/ai_client.py"
   )
 }
+
+# (wt) - "Git Worktree Add"
+# Atomically creates a new branch and a sibling git worktree.
+wt() {
+  # 1. Validate input parameters
+  if [[ -z "$1" ]]; then
+    echo "Usage: wt <branch-name>"
+    return 1
+  fi
+
+  local wt_name="$1"
+  # 2. Define the path as a sibling directory to avoid nesting repositories
+  local wt_path="../$wt_name" 
+
+  # 3. Verify execution environment
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: Current directory is not part of a Git repository."
+    return 1
+  fi
+
+  # 4. Execute atomic creation
+  echo "Provisioning branch and worktree: '$wt_name'..."
+  git worktree add -b "$wt_name" "$wt_path"
+  
+  # 5. Output result and navigate (optional)
+  if [[ $? -eq 0 ]]; then
+    echo "✅ Worktree initialized successfully."
+    echo "To enter the worktree, run: cd $wt_path"
+    # Uncomment the line below if you want the shell to automatically jump into the new worktree
+    # cd "$wt_path"
+  else
+    echo "❌ Worktree creation failed. Verify that the branch name does not already exist."
+  fi
+}
+
+
+
+
+
 export PATH="$HOME/development/flutter/bin:$PATH"
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 
-. "$HOME/.local/share/../bin/env"
