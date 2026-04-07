@@ -31,16 +31,31 @@ return {
           if count then
             table.insert(entries, { row = i, count = count, label = " lines" })
           end
-        elseif entry and entry.type == "directory" then
+        elseif entry and entry.type == "directory" and entry.name ~= ".." then
           local path = dir .. entry.name
-          local result = vim.fn.system({ "ls", "-1A", path })
-          local count = 0
-          if vim.v.shell_error == 0 then
+          local result = vim.fn.system({ "find", path, "-maxdepth", "1", "-mindepth", "1", "-type", "f" })
+          local file_count = 0
+          if vim.v.shell_error == 0 and result ~= "" then
             for _ in result:gmatch("[^\n]+") do
-              count = count + 1
+              file_count = file_count + 1
             end
           end
-          table.insert(entries, { row = i, count = tostring(count), label = " files" })
+          local result_d = vim.fn.system({ "find", path, "-maxdepth", "1", "-mindepth", "1", "-type", "d" })
+          local dir_count = 0
+          if vim.v.shell_error == 0 and result_d ~= "" then
+            for _ in result_d:gmatch("[^\n]+") do
+              dir_count = dir_count + 1
+            end
+          end
+          local parts = {}
+          if file_count > 0 then
+            table.insert(parts, file_count .. (file_count == 1 and " file" or " files"))
+          end
+          if dir_count > 0 then
+            table.insert(parts, dir_count .. (dir_count == 1 and " dir" or " dirs"))
+          end
+          local label = #parts > 0 and table.concat(parts, ", ") or "empty"
+          table.insert(entries, { row = i, count = "", label = label })
         end
       end
 
