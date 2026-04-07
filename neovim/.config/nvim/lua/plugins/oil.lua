@@ -16,14 +16,9 @@ return {
 
       local line_count = vim.api.nvim_buf_line_count(bufnr)
       local entries = {}
-      local max_width = 0
 
       for i = 0, line_count - 1 do
         local entry = oil.get_entry_on_line(bufnr, i + 1)
-        local line_width = vim.fn.strdisplaywidth(vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or "")
-        if line_width > max_width then
-          max_width = line_width
-        end
         if entry and entry.type == "file" then
           local path = dir .. entry.name
           local result = vim.fn.system({ "wc", "-l", path })
@@ -59,10 +54,18 @@ return {
         end
       end
 
-      local col = max_width + 2
+      local win = vim.fn.bufwinid(bufnr)
+      if win == -1 then return end
+      local win_width = vim.api.nvim_win_get_width(win)
+      local textoff = vim.fn.getwininfo(win)[1].textoff
+      local usable = win_width - textoff
       for _, e in ipairs(entries) do
+        local text = e.count .. e.label
+        local text_width = vim.fn.strdisplaywidth(text)
+        local col = usable - text_width - 1
+        if col < 0 then col = 0 end
         vim.api.nvim_buf_set_extmark(bufnr, ns, e.row, 0, {
-          virt_text = { { e.count .. e.label, "Comment" } },
+          virt_text = { { text, "Comment" } },
           virt_text_win_col = col,
         })
       end
@@ -111,6 +114,17 @@ return {
             update_linecounts(bufnr)
           end
         end, 50)
+      end,
+    })
+
+    vim.api.nvim_create_autocmd("WinResized", {
+      callback = function()
+        for _, win in ipairs(vim.v.event.windows) do
+          local bufnr = vim.api.nvim_win_get_buf(win)
+          if vim.bo[bufnr].filetype == "oil" then
+            update_linecounts(bufnr)
+          end
+        end
       end,
     })
   end,
