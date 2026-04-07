@@ -29,15 +29,25 @@ return {
           local result = vim.fn.system({ "wc", "-l", path })
           local count = result:match("^%s*(%d+)")
           if count then
-            table.insert(entries, { row = i, count = count })
+            table.insert(entries, { row = i, count = count, label = " lines" })
           end
+        elseif entry and entry.type == "directory" then
+          local path = dir .. entry.name
+          local result = vim.fn.system({ "ls", "-1A", path })
+          local count = 0
+          if vim.v.shell_error == 0 then
+            for _ in result:gmatch("[^\n]+") do
+              count = count + 1
+            end
+          end
+          table.insert(entries, { row = i, count = tostring(count), label = " files" })
         end
       end
 
       local col = max_width + 2
       for _, e in ipairs(entries) do
         vim.api.nvim_buf_set_extmark(bufnr, ns, e.row, 0, {
-          virt_text = { { e.count .. " lines", "Comment" } },
+          virt_text = { { e.count .. e.label, "Comment" } },
           virt_text_win_col = col,
         })
       end
