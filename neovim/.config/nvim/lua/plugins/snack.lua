@@ -22,7 +22,14 @@ return {
     bigfile = { enabled = true },
     dashboard = {
       preset = {
-        pick = nil,
+        pick = function(cmd, opts)
+          local cmds = {
+            files = "find_files",
+            live_grep = "live_grep",
+            oldfiles = "oldfiles",
+          }
+          require("telescope.builtin")[cmds[cmd] or cmd](opts or {})
+        end,
         ---@type snacks.dashboard.Item[]
         keys = {
           { icon = " ", key = "f", desc = "Find File", action = ":lua Snacks.dashboard.pick('files')" },
