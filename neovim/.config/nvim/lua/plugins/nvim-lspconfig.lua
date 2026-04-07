@@ -108,7 +108,6 @@ return {
 				"jsonls",
 				"ast_grep",
 				"ruff",
-				"ts_ls",
 				"vtsls",
 			},
 			auto_installation = true,
@@ -168,16 +167,11 @@ return {
 									unusedparams = true,
 									nilness = true,
 									unusedwrite = true,
+									shadow = true,
 								},
-
-								diagnostics = {
-									completeUnimported = true,
-									usePlaceholders = true,
-									staticcheck = true,
-									analyses = {
-										unusedparams = true,
-									}
-								},
+								staticcheck = true,
+								completeUnimported = true,
+								usePlaceholders = true,
 							},
 						},
 
@@ -245,19 +239,36 @@ return {
 		local mason_tool_installer = require("mason-tool-installer")
 		mason_tool_installer.setup({
 			ensure_installed = {
+				-- Debuggers
 				"java-debug-adapter",
 				"java-test",
 				"go-debug-adapter",
-				"eslint_d",
-				"jsonlint",
-				"goimports", -- Auto-importer/Formatter
-				"gomodifytags", -- Tool to modify struct tags
-				"impl",
-				"yamllint",
-				"yamlfix",
-				"jq",
+				"js-debug-adapter",
+				-- Formatters
+				"goimports",
 				"shfmt",
 				"prettier",
+				"prettierd",
+				"black",
+				"isort",
+				"stylua",
+				"taplo",
+				-- Linters
+				"eslint_d",
+				"jsonlint",
+				"yamllint",
+				"yamlfix",
+				"shellcheck",
+				"hadolint",
+				"golangci-lint",
+				"ruff",
+				"checkstyle",
+				"markdownlint",
+				-- Go tools
+				"gomodifytags",
+				"impl",
+				-- Other
+				"jq",
 			},
 			auto_update = true,
 			run_on_start = true,

@@ -117,6 +117,11 @@ return {
       -- require('dapui').close()
     end
     
+    -- Load language-specific DAP configurations
+    require("config.dap.python")
+    require("config.dap.go")
+    require("config.dap.javascript")
+
     -- dap configurations based on language/adapter settings
     dap.configurations.java = {
       {
