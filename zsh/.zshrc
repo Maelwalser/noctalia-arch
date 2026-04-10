@@ -231,3 +231,7 @@ wt() {
     echo "❌ Worktree creation failed. Verify that the branch name does not already exist."
   fi
 }
+
+gemini_api_key() {
+  export GEMINI_API_KEY="${GEMINI_API_KEY:-$(pass show gemini/api_key)}"
+}
