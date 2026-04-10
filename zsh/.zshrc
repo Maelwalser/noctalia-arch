@@ -231,11 +231,3 @@ wt() {
     echo "❌ Worktree creation failed. Verify that the branch name does not already exist."
   fi
 }
-
-
-
-
-
-export PATH="$HOME/development/flutter/bin:$PATH"
-export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
-
