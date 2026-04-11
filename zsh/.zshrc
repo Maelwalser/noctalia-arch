@@ -233,17 +233,11 @@ wt() {
   echo "Provisioning branch and worktree: '$wt_name'..."
   git worktree add -b "$wt_name" "$wt_path"
   
-  # 5. Output result and navigate (optional)
+  # 5. Output result and navigate
   if [[ $? -eq 0 ]]; then
     echo "✅ Worktree initialized successfully."
-    echo "To enter the worktree, run: cd $wt_path"
-    # Uncomment the line below if you want the shell to automatically jump into the new worktree
-    # cd "$wt_path"
+    cd "$wt_path"
   else
     echo "❌ Worktree creation failed. Verify that the branch name does not already exist."
   fi
-}
-
-gemini_api_key() {
-  export GEMINI_API_KEY="${GEMINI_API_KEY:-$(pass show gemini/api_key)}"
 }
