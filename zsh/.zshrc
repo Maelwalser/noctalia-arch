@@ -5,13 +5,21 @@ alias vim='nvim'
 alias lg='lazygit'
 alias ld='lazydocker'
 alias ka='killall'
+alias cl='claude'
+
+export EDITOR='nvim'
+export VISUAL='nvim'
+export SUDO_EDITOR='nvim'
+
 # Plugins
  plugins=(
   git
   zsh-autosuggestions
   vi-mode
   zsh-syntax-highlighting
+  kollzsh
   )
+
 source $ZSH/oh-my-zsh.sh
 
 # Plugins settings
@@ -19,6 +27,10 @@ ZSH_VI_MODE_SET_CURSOR=false
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#6b5d5a,standout"
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE="20"
 ZSH_AUTOSUGGEST_USE_ASYNC=1
+
+KOLLZSH_MODEL="qwen2.5-coder:3b"
+KOLLZSH_HOTKEY="^o"
+KOLLZSH_COMMAND_COUNT=5
 
 
 # Tools

@@ -1,7 +1,7 @@
 return {
     "nvim-treesitter/nvim-treesitter",
     event = { "BufReadPost", "BufNewFile" },
-    branch = "master",
+    branch = "main",
     dependencies = {
         { 'nvim-treesitter/nvim-treesitter-textobjects', lazy = true },
         { "nvim-treesitter/nvim-treesitter-context",     lazy = true },
@@ -10,43 +10,29 @@ return {
     build = ':TSUpdate',
     cmd = { "TSUpdateSync", "TSInstall", "TSUpdate", "TSBufEnable", "TSEnable" },
     config = function()
-        local configs = require("nvim-treesitter.configs")
-        configs.setup({
+        require("nvim-treesitter.config").setup({})
 
-            ensure_installed = { "lua", "vim", "vimdoc", "java", "javascript", "typescript", "json", "html", "css", "markdown", "dockerfile", "git_rebase", "gitattributes", "gitcommit", "gitignore", "json5", "jsonc", "markdown_inline", "python", "regex", "tsx", "sql", "yaml", "vue", "go", "gomod", "gosum", "gowork", "c" },
+        -- Install parsers that should always be present
+        local ensure_installed = {
+            "lua", "vim", "vimdoc", "java", "javascript", "typescript",
+            "json", "html", "css", "markdown", "dockerfile", "git_rebase",
+            "gitattributes", "gitcommit", "gitignore", "json5",
+            "markdown_inline", "python", "regex", "tsx", "sql", "yaml",
+            "vue", "go", "gomod", "gosum", "gowork", "c",
+        }
 
-            sync_install = true,
+        local installed = require("nvim-treesitter.config").get_installed()
+        local installed_set = {}
+        for _, lang in ipairs(installed) do
+            installed_set[lang] = true
+        end
 
-            auto_install = true,
+        local to_install = vim.tbl_filter(function(lang)
+            return not installed_set[lang]
+        end, ensure_installed)
 
-
-            highlight = {
-                enable = true,
-                additional_vim_regex_highlighting = false,
-            },
-
-            indent = {
-                enable = true
-            },
-
-            textobjects = {
-                select = {
-                    enable = true,
-                    lookahead = true,
-                },
-                move = {
-                    enable = true,
-                    set_jumps = true,
-                }
-            }
-
-        })
-        require('nvim-treesitter.install').prefer_git = true
-
-        -- Set up parser cache directory
-        local cache_dir = vim.fn.stdpath("cache") .. "/treesitter"
-        vim.fn.mkdir(cache_dir, "p")                                      -- Ensure directory exists
-        require("nvim-treesitter.install").parser_install_dir = cache_dir -- Direct assignment
-        vim.opt.runtimepath:append(cache_dir)
+        if #to_install > 0 then
+            require("nvim-treesitter.install").install(to_install)
+        end
     end,
 }
