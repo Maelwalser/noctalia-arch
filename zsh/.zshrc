@@ -5,7 +5,7 @@ alias vim='nvim'
 alias lg='lazygit'
 alias ld='lazydocker'
 alias ka='killall'
-alias cl='claude'
+alias cl='claude --dangerously-skip-permissions'
 
 export EDITOR='nvim'
 export VISUAL='nvim'
@@ -32,6 +32,8 @@ KOLLZSH_MODEL="qwen2.5-coder:3b"
 KOLLZSH_HOTKEY="^o"
 KOLLZSH_COMMAND_COUNT=5
 
+
+export _ZO_DOCTOR=0
 
 # Tools
 eval "$(zoxide init zsh --cmd cd)"
