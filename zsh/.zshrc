@@ -22,6 +22,9 @@ export SUDO_EDITOR='nvim'
 
 source $ZSH/oh-my-zsh.sh
 
+# Don't exit the shell on Ctrl+D (EOF). Use `exit` to close deliberately.
+setopt IGNORE_EOF
+
 # Plugins settings
 ZSH_VI_MODE_SET_CURSOR=false
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#6b5d5a,standout"
@@ -156,6 +159,37 @@ bindkey -r -M viins '^Xm'
 bindkey -r -M viins '^Xn'
 bindkey -r -M viins '^Xt'
 bindkey -r -M viins '^X~'
+
+# Escape is the ONLY key that enters normal (vicmd) mode
+bindkey -M viins '^[' vi-cmd-mode
+
+# Ghostty uses the Kitty keyboard protocol: Ctrl+<letter> arrives as "^[[<codepoint>;5u".
+# Without explicit bindings, zsh sees the leading ^[ and jumps to vicmd before the rest arrives.
+# Map every Ctrl+letter CSI u sequence to a no-op in both modes, then re-bind the two we care about.
+for _code in 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122; do
+  bindkey -M viins "^[[${_code};5u" undefined-key
+  bindkey -M vicmd "^[[${_code};5u" undefined-key
+done
+unset _code
+# Ctrl+I (code 105) → tab completion
+bindkey -M viins '^[[105;5u' expand-or-complete
+# Ctrl+M (code 109) → accept-line (run the command)
+bindkey -M viins '^[[109;5u' accept-line
+bindkey -M vicmd '^[[109;5u' accept-line
+
+# Plain Tab / Enter bytes (when kitty protocol isn't active)
+bindkey -M viins '^I' expand-or-complete
+bindkey -M vicmd '^M' accept-line
+
+# In vicmd, strip all Ctrl-key combos so nothing switches back to insert mode.
+for _ctrl_key in '^A' '^B' '^C' '^D' '^E' '^F' '^G' '^H' '^J' '^K' '^L' '^N' '^O' '^P' '^Q' '^R' '^S' '^T' '^U' '^V' '^W' '^X' '^Y' '^Z'; do
+  bindkey -r -M vicmd "$_ctrl_key"
+done
+unset _ctrl_key
+
+# Give zsh 50ms to read multi-byte escape sequences (CSI u, arrow keys)
+# before deciding a lone ^[ means "enter vicmd".
+KEYTIMEOUT=5
 
 
 
