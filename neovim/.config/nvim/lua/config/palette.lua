@@ -27,7 +27,8 @@ return {
 
   -- Foregrounds (Snow Storm family, slightly muted)
   fg         = "#d8dee9", -- Nord snow-storm 1
-  fg_dim     = "#6a7694",
+  fg_dim     = "#6a7694", -- line numbers, inactive, punctuation
+  comment    = "#465068", -- comments: ~3:1 contrast so code reads louder
 
   -- Frost (cool accents)
   blue       = "#81a1c1", -- Nord frost 3 — functions

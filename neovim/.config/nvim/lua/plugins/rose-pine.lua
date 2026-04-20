@@ -44,7 +44,7 @@ return {
         c.fg              = p.fg
         c.fg_dark         = p.fg_dim
         c.fg_gutter       = p.fg_dim
-        c.comment         = p.fg_dim
+        c.comment         = p.comment
 
         -- Accents — tokyonight generates most highlight groups from these.
         c.blue            = p.blue
@@ -199,10 +199,10 @@ return {
         hl["@property"]           = { fg = p.cyan }
         hl["@field"]              = { fg = p.cyan }
 
-        -- Comments = dim italic, secondary by design
-        hl.Comment                = { fg = p.fg_dim, italic = true }
-        hl["@comment"]            = { fg = p.fg_dim, italic = true }
-        hl["@comment.documentation"] = { fg = p.fg_dim, italic = true }
+        -- Comments = faded italic, secondary by design (~3:1 contrast)
+        hl.Comment                = { fg = p.comment, italic = true }
+        hl["@comment"]            = { fg = p.comment, italic = true }
+        hl["@comment.documentation"] = { fg = p.comment, italic = true }
         hl["@comment.todo"]       = { fg = p.bg, bg = p.yellow, bold = true }
         hl["@comment.note"]       = { fg = p.bg, bg = p.blue, bold = true }
         hl["@comment.warning"]    = { fg = p.bg, bg = p.orange, bold = true }

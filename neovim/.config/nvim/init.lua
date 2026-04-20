@@ -47,7 +47,7 @@ vim.opt.syntax = "on"        -- Enable syntax highlighting
 vim.opt.guicursor =
 "n-v-c:block-blinkon0,i:block-blinkwait700-blinkoff400-blinkon250-Cursor,ci-ve:ver25-blinkon0,r-cr:hor20-blinkon0,o:hor50-blinkon0,sm:block-blinkwait175-blinkoff150-blinkon175"
 vim.o.background = "dark"                         -- Set background to dark
-vim.opt.guifont = "JetBrainsMonoNL Nerd Font:h12" -- Set editor font
+vim.opt.guifont = "JetBrainsMonoNL Nerd Font:h14" -- Set editor font
 
 -- Line numbers and wrapping
 vim.wo.wrap = false          -- Disable line wrapping
@@ -56,8 +56,8 @@ vim.wo.relativenumber = true -- Show relative line numbers
 vim.opt.numberwidth = 2      -- Minimal number of columns for the line number
 
 -- Display
-vim.opt.scrolloff = 8 -- Number of screen lines to keep above and below the cursor
-vim.opt.sidescrolloff = 8 -- Number of screen columns to keep to the left and right of the cursor
+vim.opt.scrolloff = 12 -- Viewport starts sliding before the cursor reaches the edge
+vim.opt.sidescrolloff = 12 -- Horizontal equivalent
 vim.opt.showmode = false -- Don't show mode in command line (already in statusline)
 vim.opt.cursorline = true -- Highlight current line
 vim.opt.pumheight = 10 -- Maximum number of items to show in popup menu

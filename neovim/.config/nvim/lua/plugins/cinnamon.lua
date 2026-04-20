@@ -1,128 +1,73 @@
+-- Smooth viewport scrolling via cinnamon.nvim (v2).
+--
+-- Philosophy:
+--   • j/k/h/l and arrows are NEVER wrapped by cinnamon — held motion goes
+--     at native Vim speed (instant, zero per-keypress overhead).
+--   • Only large jumps (<C-d>, <C-u>, <C-f>, <C-b>, gg, G, zz/zt/zb,
+--     search next/prev, paragraph motion, %) glide through cinnamon so
+--     the viewport reveals the target with a smooth acceleration curve.
+--   • Cursor itself is never animated (`mode = "window"`).
+--
+-- Why `basic = false`: enabling the built-in basic keymaps wraps j/k/h/l
+-- through cinnamon's scroll() even with count_only skipping the animation.
+-- That still runs view-capture + bookkeeping on every keystroke, so holding
+-- j/k feels noticeably slower than stock Vim. Skipping basic and mapping
+-- only the big-jump keys keeps held motion snappy.
 return {
-    "declancm/cinnamon.nvim",
-    event = "VeryLazy", -- Load it lazily
-    opts = {
-        keymaps = {
-            basic = true,
-            extra = false,
+  "declancm/cinnamon.nvim",
+  event = "VeryLazy",
+  config = function()
+    local cinnamon = require("cinnamon")
+
+    cinnamon.setup({
+      keymaps = {
+        basic = false, -- leave j/k/h/l/arrows native-fast
+        extra = false,
+      },
+      options = {
+        mode = "window",    -- cursor jumps; only viewport glides
+        delay = 0,          -- no startup delay
+        max_delta = {
+          line = false,
+          column = false,
+          time = 220,       -- animation budget for big jumps
         },
-    -- Window-only mode is fastest
-    options = {
-      mode = "window",
-        }
-    },
-    config = function(_, opts)
-        require("cinnamon").setup({
-            opts,
-            enabled = true,
+        step_size = {
+          vertical = 1,     -- finest granularity → smoothest easing curve
+          horizontal = 2,
+        },
+        count_only = false,
+      },
+    })
 
-            show_scrollbars = true,
-            --
-            -- Default: { "alpha", "beta", "diff", "dropbar", "fugitive", "gitcommit", "help", "hgcommit", "log", "markdown", "NvimTree", "Outline", "quickfix", "git", "neo-tree" }
-            -- excluded_filetypes = { "neo-tree", "NvimTree", "Trouble", "lazy", "mason", "help", "alpha", "dashboard" },
-            -- Maximum width of the scrollbar.
-            use_window_highlight = false,
-            
-            -- Highlight group for the scrollbar.
-            -- Default: "Visual"
-            scrollbar_highlight = "CursorLineNr", -- Or "Visual", "ColorColumn"
-            
-            -- Highlight group for the scrollbar handle.
-            -- Default: "Search"
-            thumb_highlight = "PmenuSel", -- Or "Search", "Visual"
-
-            smooth_scroll = true,
-            -- Configuration for smooth scrolling.
-            smooth_scroll_config = {
-                
-                -- Duration of the smooth scroll animation in milliseconds.
-                -- Default: 200
-                duration = 100,
-                
-                -- Interval between scroll steps in milliseconds.
-                -- Default: 10
-                interval = 5,
-                
-                -- Easing function for the smooth scroll animation.
-                -- Available options: "linear", "ease_in_quad", "ease_out_quad", "ease_in_out_quad",
-                -- "ease_in_cubic", "ease_out_cubic", "ease_in_out_cubic", "ease_in_quart", "ease_out_quart",
-                -- "ease_in_out_quart", "ease_in_quint", "ease_out_quint", "ease_in_out_quint"
-                -- Default: "ease_out_quad"
-                easing = "ease_out_quad",
-            },
-
-            -- Whether to show diagnostics on the scrollbar.
-            -- Default: true
-            show_diagnostics = true,
-
-            -- Highlight group for error diagnostics on the scrollbar.
-            -- Default: "DiagnosticError"
-            error_highlight = "DiagnosticSignError",
-
-            -- Highlight group for warning diagnostics on the scrollbar.
-            -- Default: "DiagnosticWarn"
-            warn_highlight = "DiagnosticSignWarn",
-
-            -- Highlight group for info diagnostics on the scrollbar.
-            -- Default: "DiagnosticInfo"
-            info_highlight = "DiagnosticSignInfo",
-
-            -- Highlight group for hint diagnostics on the scrollbar.
-            -- Default: "DiagnosticHint"
-            hint_highlight = "DiagnosticSignHint",
-
-            delay_ms = 30,
-
-            -- Maximum number of lines to render on the scrollbar.
-            -- Default: nil (no limit)
-            max_length = nil,
-
-            -- Priority of the extmark used for the scrollbar.
-            -- Default: 100
-            priority = 100,
-
-            -- Z-index of the floating window used for the scrollbar.
-            -- Default: 100
-            z_index = 100,
-
-            -- Whether to override the default keymaps for scrolling.
-            -- Default: true
-            override_default_keymaps = true,
-
-        })
+    -- Animate only the motions that meaningfully shift the viewport.
+    -- Small motions (j/k/h/l/w/b/etc.) stay native.
+    local scroll = cinnamon.scroll
+    local map = function(lhs, cmd)
+      vim.keymap.set({ "n", "x" }, lhs, function() scroll(cmd) end,
+        { silent = true, desc = "Cinnamon: " .. cmd })
     end
-    
-    --     opts = {
-    --         delay = 5,
-    --         max_delta = {
-    --             -- Maximum distance for line movements before scroll
-    --             -- animation is skipped. Set to `false` to disable
-    --             line = false,
-    --             -- Maximum distance for column movements before scroll
-    --             -- animation is skipped. Set to `false` to disable
-    --             column = false,
-    --             -- Maximum duration for a movement (in ms). Automatically scales the
-    --             -- delay and step size
-    --             time = 1000,
-    --         },
 
-    --         step_size = {
-    --             -- Number of cursor/window lines moved per step
-    --             vertical = 1,
-    --             -- Number of cursor/window columns moved per step
-    --             horizontal = 2,
-    --         },
-    --         keymaps = {
-    --             basic = true,
-    --             extra = true,
-    --         },
-    --         mode = "cursor",
-    --         -- step_size = {
-    --         --     vertical = 7,
-    --         --     horizontal = 8,
-    --         -- },
-    --         -- max_delta = {
-    --         --     time = 400,
-    --         -- },
-    --     },
+    -- Half / full page
+    map("<C-d>", "<C-d>")
+    map("<C-u>", "<C-u>")
+    map("<C-f>", "<C-f>")
+    map("<C-b>", "<C-b>")
+    -- File jumps
+    map("gg", "gg")
+    map("G", "G")
+    -- Recenter
+    map("zz", "zz")
+    map("zt", "zt")
+    map("zb", "zb")
+    -- Search / match jumps
+    map("n", "n")
+    map("N", "N")
+    map("*", "*")
+    map("#", "#")
+    map("%", "%")
+    -- Paragraph jumps
+    map("{", "{")
+    map("}", "}")
+  end,
 }

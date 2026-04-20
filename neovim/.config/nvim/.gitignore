@@ -7,3 +7,22 @@ foo.*
 *.log
 data
 tmp/*
+
+# Vim / Neovim runtime files
+*.swp
+*.swo
+*.swn
+.*.swp
+*~
+*.bak
+Session.vim
+view/
+spell/*.spl
+spell/*.sug
+
+# Compiled lua
+*.luac
+luac.out
+
+# OS metadata
+.DS_Store
