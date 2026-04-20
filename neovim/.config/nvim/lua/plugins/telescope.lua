@@ -68,10 +68,18 @@ return {
 			vim.keymap.set("n", "<leader>fb", builtin.buffers, { desc = "[F]ind Existing [B]uffers" })
 			vim.keymap.set("n", "<leader>cd", find_and_change_directory, { desc = "[C]hange [D]irectory" })
 
+			local p = require("config.palette")
+
 			-- Configuration
 			telescope.setup({
 				defaults = {
 					file_ignore_patterns = { "bin", ".gitignore", "node_modules", "PackageCache", ".git", "/build" },
+					prompt_prefix = "  ",
+					selection_caret = "▌ ",
+					entry_prefix = "  ",
+					multi_icon = "+ ",
+					results_title = false,
+					borderchars = { "─", "│", "─", "│", "┌", "┐", "┘", "└" },
 					mappings = {
 						i = {
 							["<C-j>"] = actions.move_selection_next,
@@ -113,6 +121,27 @@ return {
 					},
 				},
 			})
+
+			-- Cyberpunk highlight overrides
+			local set = function(name, val) vim.api.nvim_set_hl(0, name, val) end
+			set("TelescopeNormal",         { fg = p.fg, bg = p.bg_alt })
+			set("TelescopeBorder",         { fg = p.border, bg = p.bg_alt })
+			set("TelescopePromptNormal",   { fg = p.fg, bg = p.bg_float })
+			set("TelescopePromptBorder",   { fg = p.cyan, bg = p.bg_float })
+			set("TelescopePromptTitle",    { fg = p.bg, bg = p.cyan, bold = true })
+			set("TelescopePromptPrefix",   { fg = p.cyan, bg = p.bg_float, bold = true })
+			set("TelescopePromptCounter",  { fg = p.fg_dim, bg = p.bg_float })
+			set("TelescopeResultsNormal",  { fg = p.fg, bg = p.bg_alt })
+			set("TelescopeResultsBorder",  { fg = p.border, bg = p.bg_alt })
+			set("TelescopeResultsTitle",   { fg = p.bg_alt, bg = p.bg_alt })
+			set("TelescopePreviewNormal",  { fg = p.fg, bg = p.bg })
+			set("TelescopePreviewBorder",  { fg = p.border, bg = p.bg })
+			set("TelescopePreviewTitle",   { fg = p.bg, bg = p.magenta, bold = true })
+			set("TelescopeSelection",      { fg = p.cyan, bg = p.selection, bold = true })
+			set("TelescopeSelectionCaret", { fg = p.cyan, bg = p.selection, bold = true })
+			set("TelescopeMultiSelection", { fg = p.magenta })
+			set("TelescopeMultiIcon",      { fg = p.magenta })
+			set("TelescopeMatching",       { fg = p.magenta, bold = true })
 
 			-- Load extensions
 			vim.api.nvim_create_autocmd("User", {

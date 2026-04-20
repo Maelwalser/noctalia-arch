@@ -34,7 +34,7 @@ return {
         keys = {
           { icon = " ", key = "f", desc = "Find File", action = ":lua Snacks.dashboard.pick('files')" },
           { icon = " ", key = "n", desc = "New File", action = ":ene | startinsert" },
-          { icon = " ", key = "g", desc = "Find Text", action = ":lua Snacks.dashboard.pick('live_grep')" },
+          { icon = " ", key = "t", desc = "Find Text", action = ":lua Snacks.dashboard.pick('live_grep')" },
           { icon = " ", key = "r", desc = "Recent Files", action = ":lua Snacks.dashboard.pick('oldfiles')" },
           { icon = " ", key = "c", desc = "Config", action = ":lua Snacks.dashboard.pick('files', {cwd = vim.fn.stdpath('config')})" },
           { icon = " ", key = "s", desc = "Restore Session", section = "session" },
@@ -42,17 +42,16 @@ return {
           { icon = " ", key = "q", desc = "Quit", action = ":qa" },
         },
         header = [[
-███▄ ▄███▓ ▄▄▄       ▓█████  ██▓    ██▒   █▓ ██▓ ███▄ ▄███▓
-▓██▒▀█▀ ██▒▒████▄     ▓█   ▀ ▓██▒   ▓██░   █▒▓██▒▓██▒▀█▀ ██▒
-▓██    ▓██░▒██  ▀█▄   ▒███   ▒██░    ▓██  █▒░▒██▒▓██    ▓██░
-▒██    ▒██ ░██▄▄▄▄██  ▒▓█  ▄ ▒██░     ▒██ █░░░██░▒██    ▒██
-▒██▒   ░██▒ ▓█   ▓██▒▒█████▓░██████▒  ▒▀█░  ░██░▒██▒   ░██▒
-░ ▒░   ░  ░ ▒▒   ▓▒█░░▒▓▒ ▒ ▒▒ ▒▓▒ ▒  ░ ▐░  ░▓  ░ ▒░   ░  ░
-░  ░      ░  ░   ▒▒ ░░░▒░ ░ ░░ ░▒  ░  ░ ░░   ▒ ░░  ░      ░
+    ███╗   ███╗ █████╗ ███████╗██╗         ██╗   ██╗██╗███╗   ███╗
+    ████╗ ████║██╔══██╗██╔════╝██║         ██║   ██║██║████╗ ████║
+    ██╔████╔██║███████║█████╗  ██║         ██║   ██║██║██╔████╔██║
+    ██║╚██╔╝██║██╔══██║██╔══╝  ██║         ╚██╗ ██╔╝██║██║╚██╔╝██║
+    ██║ ╚═╝ ██║██║  ██║███████╗███████╗     ╚████╔╝ ██║██║ ╚═╝ ██║
+    ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝      ╚═══╝  ╚═╝╚═╝     ╚═╝
       ]],
       },
       sections = {
-        { section = 'header' },
+        { section = 'header', enabled = function() return vim.o.columns >= 70 end },
         {
           section = "keys",
           indent = 1,
@@ -89,6 +88,18 @@ return {
   },
   config = function(_, opts)
     require("snacks").setup(opts)
+
+    local p = require("config.palette")
+    local set = function(name, val) vim.api.nvim_set_hl(0, name, val) end
+    set("SnacksDashboardHeader", { fg = p.purple, bold = true })
+    set("SnacksDashboardTitle",  { fg = p.magenta, bold = true })
+    set("SnacksDashboardIcon",   { fg = p.pink })
+    set("SnacksDashboardKey",    { fg = p.yellow, bold = true })
+    set("SnacksDashboardDesc",   { fg = p.fg })
+    set("SnacksDashboardFile",   { fg = p.fg })
+    set("SnacksDashboardDir",    { fg = p.fg_dim })
+    set("SnacksDashboardFooter", { fg = p.fg_dim, italic = true })
+    set("SnacksDashboardSpecial",{ fg = p.purple })
 
     Snacks.toggle.new({
       id = "ufo",

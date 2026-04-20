@@ -5,6 +5,12 @@ return {
   config = function()
     local ns = vim.api.nvim_create_namespace("oil_linecount")
 
+    -- Counts (lines / directory contents) are OFF by default; press <C-t>
+    -- inside an Oil buffer to toggle them on. Per-buffer state overrides.
+    if vim.g.oil_counts_hidden == nil then
+      vim.g.oil_counts_hidden = true
+    end
+
     local function update_linecounts(bufnr)
       local oil = require("oil")
       local dir = oil.get_current_dir(bufnr)
@@ -13,6 +19,11 @@ return {
       end
 
       vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+
+      -- Honor toggle: buffer-local first, then global default.
+      local hidden = vim.b[bufnr].oil_counts_hidden
+      if hidden == nil then hidden = vim.g.oil_counts_hidden end
+      if hidden then return end
 
       local line_count = vim.api.nvim_buf_line_count(bufnr)
       local entries = {}
@@ -71,13 +82,30 @@ return {
       end
     end
 
+    local function toggle_linecounts()
+      local bufnr = vim.api.nvim_get_current_buf()
+      local current = vim.b[bufnr].oil_counts_hidden
+      if current == nil then current = vim.g.oil_counts_hidden end
+      local next_state = not current
+      vim.g.oil_counts_hidden = next_state -- propagate to future Oil buffers
+      for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype == "oil" then
+          vim.b[buf].oil_counts_hidden = next_state
+          update_linecounts(buf)
+        end
+      end
+    end
+
     require("oil").setup({
       keymaps = {
 
         -- Your other keymaps
         ["<C-s>"] = "actions.select_vsplit",
         ["<C-v>"] = "actions.select_split",
-        ["<C-t>"] = "actions.select_tab",
+        ["<C-t>"] = {
+          desc = "Toggle lines / directory content counts",
+          callback = toggle_linecounts,
+        },
         ["<C-p>"] = "actions.preview",
         ["<C-h>"] = false,
         ["<C-j>"] = false,

@@ -271,7 +271,9 @@ return {
 				"golangci-lint",
 				-- Pinned: the mason-registry tracks ruff 0.15.11 which was
 				-- yanked from PyPI; 0.15.10 is the latest working release.
-				{ "ruff", version = "0.15.10" },
+				-- auto_update=false prevents the global auto_update from
+				-- trying to re-fetch the broken 0.15.11 on every boot.
+				{ "ruff", version = "0.15.10", auto_update = false },
 				"checkstyle",
 				"markdownlint",
 				-- Go tools

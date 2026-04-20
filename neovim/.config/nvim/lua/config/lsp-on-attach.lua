@@ -1,22 +1,5 @@
 local M = {}
 
-local doc_highlight_group = vim.api.nvim_create_augroup("LspDocumentHighlight", { clear = false })
-
-local function setup_doc_highlight(client, bufnr)
-	if not client:supports_method("textDocument/documentHighlight") then return end
-	vim.api.nvim_clear_autocmds({ group = doc_highlight_group, buffer = bufnr })
-	vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
-		group = doc_highlight_group,
-		buffer = bufnr,
-		callback = vim.lsp.buf.document_highlight,
-	})
-	vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-		group = doc_highlight_group,
-		buffer = bufnr,
-		callback = vim.lsp.buf.clear_references,
-	})
-end
-
 local function setup_inlay_hints(client, bufnr)
 	if client:supports_method("textDocument/inlayHint") then
 		-- Defer one tick: some servers (vtsls) negotiate inlayHintProvider
@@ -91,7 +74,6 @@ function M.on_attach(client, bufnr)
 	vim.bo[bufnr].omnifunc = "v:lua.vim.lsp.omnifunc"
 	setup_keymaps(client, bufnr)
 	setup_inlay_hints(client, bufnr)
-	setup_doc_highlight(client, bufnr)
 	setup_navic(client, bufnr)
 end
 

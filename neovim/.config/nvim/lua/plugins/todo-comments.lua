@@ -3,29 +3,40 @@ return {
     "folke/todo-comments.nvim",
     lazy = false,
     event = "BufEnter",
-    opts = {
-      signs = true,      -- show icons in the signs column
-      sign_priority = 8, -- sign priority
-
-      -- keywords recognized as todo comments
-      keywords = {
-        FIX = {
-          alt = { "FIXME", "BUG", "FIXIT", "ISSUE" }, -- a set of other keywords that all map to this FIX keywords
+    opts = function()
+      local p = require("config.palette")
+      return {
+        signs = true,
+        sign_priority = 8,
+        keywords = {
+          FIX   = { icon = " ", color = "fix",  alt = { "FIXME", "BUG", "FIXIT", "ISSUE" } },
+          TODO  = { icon = " ", color = "todo" },
+          HACK  = { icon = " ", color = "hack" },
+          WARN  = { icon = " ", color = "warn", alt = { "WARNING" } },
+          PERF  = { icon = " ", color = "perf", alt = { "OPTIM", "PERFORMANCE", "OPTIMIZE" } },
+          NOTE  = { icon = " ", color = "info", alt = { "INFO" } },
+          TEST  = { icon = "⏲ ", color = "test", alt = { "TESTING", "PASSED", "FAILED" } },
         },
-        WARN = { alt = { "WARNING" } },
-        PERF = { alt = { "OPTIM", "PERFORMANCE", "OPTIMIZE" } },
-      },
-
-      highlight = {
-        before = "",                     -- "fg" or "bg" or empty
-        keyword = "wide",                -- "fg", "bg", "wide" or empty. (wide is the same as bg, but will also highlight surrounding characters)
-        after = "fg",                    -- "fg" or "bg" or empty
-        pattern = [[.*<(KEYWORDS)\s*:]], -- pattern or table of patterns, used for highlightng (vim regex)
-        comments_only = true,            -- uses treesitter to match keywords in comments only
-        max_line_len = 400,              -- ignore lines longer than this
-        exclude = {},                    -- list of file types to exclude highlighting
-      },
-    },
+        colors = {
+          fix  = { p.red },
+          todo = { p.cyan },
+          hack = { p.pink },
+          warn = { p.yellow },
+          perf = { p.purple },
+          info = { p.cyan },
+          test = { p.orange },
+        },
+        highlight = {
+          before = "",
+          keyword = "wide",
+          after = "fg",
+          pattern = [[.*<(KEYWORDS)\s*:]],
+          comments_only = true,
+          max_line_len = 400,
+          exclude = {},
+        },
+      }
+    end,
     keys = {
       { "<leader>wt", function() Snacks.picker.todo_comments() end,                                          desc = "Todo" },
       { "<leader>wT", function() Snacks.picker.todo_comments({ keywords = { "TODO", "FIX", "FIXME" } }) end, desc = "Todo/Fix/Fixme" },

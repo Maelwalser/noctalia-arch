@@ -1,5 +1,44 @@
 vim.loader.enable()
 
+-- Compat shim: telescope 0.1.8 depends on the nvim-treesitter v0.x surface
+-- (`nvim-treesitter.configs` module + `parsers.ft_to_lang` / `parsers.get_parser`).
+-- The `main` branch removed both. Inject thin back-compat adapters via
+-- `package.preload` so they're returned the first (and only) time telescope's
+-- previewer requires them.
+package.preload["nvim-treesitter.configs"] = function()
+	return {
+		is_enabled = function(_, lang, _)
+			if type(lang) ~= "string" or lang == "" then return false end
+			local ok = pcall(vim.treesitter.language.add, lang)
+			return ok
+		end,
+		get_module = function(_)
+			return { additional_vim_regex_highlighting = false }
+		end,
+	}
+end
+
+package.preload["nvim-treesitter.parsers"] = function()
+	-- Load the real parsers table once, then patch on the helper methods
+	-- telescope expects. Clearing preload first avoids recursion.
+	package.preload["nvim-treesitter.parsers"] = nil
+	local ok, real = pcall(require, "nvim-treesitter.parsers")
+	if not ok or type(real) ~= "table" then real = {} end
+	if real.ft_to_lang == nil then
+		real.ft_to_lang = function(ft)
+			return vim.treesitter.language.get_lang(ft) or ft
+		end
+	end
+	if real.get_parser == nil then
+		real.get_parser = function(bufnr, lang)
+			local ok2, parser = pcall(vim.treesitter.get_parser, bufnr, lang)
+			return ok2 and parser or nil
+		end
+	end
+	package.loaded["nvim-treesitter.parsers"] = real
+	return real
+end
+
 -- -----------------------------------------------------------------------------
 -- UI & APPEARANCE
 -- -----------------------------------------------------------------------------
@@ -30,6 +69,20 @@ vim.opt.title = true -- Set terminal title
 vim.opt.fillchars.eob = " " -- Remove ugly ~ from end of buffer
 vim.opt.list = true -- Show invisible characters (tabs, trailing whitespace)
 vim.opt.showbreak = "↳" -- Character to show before wrapped lines
+vim.opt.fillchars:append({
+	vert = "│",
+	horiz = "─",
+	horizup = "┴",
+	horizdown = "┬",
+	vertleft = "┤",
+	vertright = "├",
+	verthoriz = "┼",
+	fold = " ",
+	foldsep = "│",
+	diff = "╱",
+})
+vim.opt.pumblend = 10   -- Completion menu translucency
+vim.opt.winblend = 0    -- Keep floats fully readable
 
 -- -----------------------------------------------------------------------------
 -- LEADER KEYS
@@ -101,9 +154,9 @@ vim.opt.conceallevel = 2                        -- Hide concealed text (e.g. mar
 -- -----------------------------------------------------------------------------
 -- DIAGNOSTICS & LSP
 -- -----------------------------------------------------------------------------
--- Nvim 0.11+ native rounded borders for all LSP/diagnostic floats
+-- Nvim 0.11+ native single borders for all LSP/diagnostic floats (cyberpunk edge)
 if vim.fn.has("nvim-0.11") == 1 then
-	vim.o.winborder = "rounded"
+	vim.o.winborder = "single"
 end
 
 vim.diagnostic.config({
@@ -111,11 +164,11 @@ vim.diagnostic.config({
 	underline = { severity = vim.diagnostic.severity.WARN },
 	update_in_insert = false,
 	severity_sort = true,
-	float = { border = "rounded", source = "if_many" },
+	float = { border = "single", source = "if_many" },
 	virtual_text = {
 		spacing = 4,
 		source = "if_many",
-		prefix = "●",
+		prefix = "▎",
 	},
 	virtual_lines = false, -- toggle with <leader>dv
 })
@@ -235,7 +288,7 @@ vim.keymap.set("n", "<leader>dv", function()
 		virtual_text = enabling and false or {
 			spacing = 4,
 			source = "if_many",
-			prefix = "●",
+			prefix = "▎",
 		},
 	})
 end, { desc = "Toggle diagnostic virtual lines" })
@@ -301,7 +354,10 @@ vim.api.nvim_create_autocmd("VimResized", {
 
 -- Macro recording indicator
 vim.fn.sign_define("MacroRecording", { text = "●", texthl = "MacroRecording" })
-vim.api.nvim_set_hl(0, "MacroRecording", { fg = "red" })
+do
+	local ok, palette = pcall(require, "config.palette")
+	vim.api.nvim_set_hl(0, "MacroRecording", { fg = ok and palette.red or "#ff3b6b", bold = true })
+end
 
 local macro_recording_group = vim.api.nvim_create_augroup("MacroRecording", { clear = true })
 vim.api.nvim_create_autocmd("RecordingEnter", {

@@ -36,10 +36,10 @@ return {
 			documentation = {
 				auto_show = true,
 				auto_show_delay_ms = 200,
-				window = { border = "rounded" },
+				window = { border = "single" },
 			},
 			menu = {
-				border = "rounded",
+				border = "single",
 				draw = {
 					treesitter = { "lsp" },
 					columns = {
@@ -60,7 +60,7 @@ return {
 			},
 		},
 		snippets = { preset = "luasnip" },
-		signature = { enabled = true, window = { border = "rounded" } },
+		signature = { enabled = true, window = { border = "single" } },
 		cmdline = {
 			enabled = true,
 			keymap = {
@@ -72,4 +72,65 @@ return {
 		fuzzy = { implementation = "prefer_rust_with_warning" },
 	},
 	opts_extend = { "sources.default" },
+	config = function(_, opts)
+		require("blink.cmp").setup(opts)
+
+		local p = require("config.palette")
+		local set = function(name, val) vim.api.nvim_set_hl(0, name, val) end
+
+		set("BlinkCmpMenu",           { fg = p.fg, bg = p.bg_alt })
+		set("BlinkCmpMenuBorder",     { fg = p.border, bg = p.bg_alt })
+		set("BlinkCmpMenuSelection",  { fg = p.cyan, bg = p.selection, bold = true })
+		set("BlinkCmpScrollBarThumb", { bg = p.border })
+		set("BlinkCmpScrollBarGutter",{ bg = p.bg_alt })
+		set("BlinkCmpLabel",          { fg = p.fg })
+		set("BlinkCmpLabelMatch",     { fg = p.magenta, bold = true })
+		set("BlinkCmpLabelDeprecated",{ fg = p.fg_dim, strikethrough = true })
+		set("BlinkCmpGhostText",      { fg = p.fg_dim, italic = true })
+		set("BlinkCmpDoc",            { fg = p.fg, bg = p.bg_float })
+		set("BlinkCmpDocBorder",      { fg = p.border, bg = p.bg_float })
+		set("BlinkCmpSignatureHelp",  { fg = p.fg, bg = p.bg_float })
+		set("BlinkCmpSignatureHelpBorder", { fg = p.border, bg = p.bg_float })
+		set("BlinkCmpSignatureHelpActiveParameter", { fg = p.cyan, bold = true })
+
+		-- Kind icons (mirrors the in-buffer syntax role map:
+		-- function=blue, type=yellow, keyword=purple, field=cyan,
+		-- string=green, number/const=orange, accent=pink)
+		local kinds = {
+			Function      = p.blue,
+			Method        = p.blue,
+			Constructor   = p.yellow,
+			Keyword       = p.purple,
+			Operator      = p.cyan,
+			Variable      = p.fg,
+			Field         = p.cyan,
+			Property      = p.cyan,
+			Class         = p.yellow,
+			Interface     = p.yellow,
+			Struct        = p.yellow,
+			Enum          = p.yellow,
+			EnumMember    = p.orange,
+			Module        = p.magenta,
+			Namespace     = p.magenta,
+			Package       = p.magenta,
+			Constant      = p.orange,
+			Number        = p.orange,
+			Boolean       = p.orange,
+			String        = p.green,
+			Text          = p.green,
+			Snippet       = p.pink,
+			File          = p.cyan,
+			Folder        = p.cyan,
+			Reference     = p.teal,
+			Color         = p.pink,
+			Event         = p.orange,
+			Unit          = p.orange,
+			Value         = p.orange,
+			TypeParameter = p.yellow,
+		}
+		for k, fg in pairs(kinds) do
+			set("BlinkCmpKind" .. k, { fg = fg, bg = "NONE" })
+		end
+		set("BlinkCmpKind", { fg = p.fg_dim, bg = "NONE" })
+	end,
 }
