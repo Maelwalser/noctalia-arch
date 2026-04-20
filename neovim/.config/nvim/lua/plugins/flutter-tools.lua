@@ -4,14 +4,13 @@ return {
   dependencies = {
     'nvim-lua/plenary.nvim',
     'stevearc/dressing.nvim',
-    'hrsh7th/cmp-nvim-lsp',
+    'saghen/blink.cmp',
   },
   config = function()
-    -- Create the capabilities for auto-import (completions)
     local capabilities = vim.lsp.protocol.make_client_capabilities()
-    local cmp_ok, cmp_lsp = pcall(require, "cmp_nvim_lsp")
-    if cmp_ok then
-      capabilities = cmp_lsp.default_capabilities(capabilities)
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    if blink_ok and blink.get_lsp_capabilities then
+      capabilities = blink.get_lsp_capabilities(capabilities)
     end
 
     require("flutter-tools").setup({
@@ -45,38 +44,25 @@ return {
             suggestFromUnimportedLibraries = true, 
           }
         },
-        on_attach = function(client, bufnr)
-          local opts = { buffer = bufnr, noremap = true, silent = true }
+        on_attach = function(_, bufnr)
+          -- Shared LSP keymaps (gD/gd/K/<leader>g*/<leader>rn/...) come from
+          -- the global LspAttach autocmd. Dart-specific overrides only below.
 
-          -- 1. Code Actions (Your request: <leader>ga)
-          vim.keymap.set({ "n", "v" }, "<leader>ga", vim.lsp.buf.code_action,
-            vim.tbl_extend("force", opts, { desc = "Flutter Code Action" }))
-
-          -- Standard Navigation
-          vim.keymap.set('n', 'gd', vim.lsp.buf.definition, opts)
-          vim.keymap.set('n', 'K', vim.lsp.buf.hover, opts)
-          vim.keymap.set('n', '<leader>rr', vim.lsp.buf.rename, opts)
-
-          -- Navigation through errors
+          -- Error-only diagnostic navigation (generic <leader>gn/gp jumps any severity)
           vim.keymap.set("n", "<leader>gn", function()
             vim.diagnostic.jump({ count = 1, severity = vim.diagnostic.severity.ERROR, float = true })
-          end, vim.tbl_extend("force", opts, { desc = "Next Error" }))
-
+          end, { buffer = bufnr, desc = "Next Dart error" })
           vim.keymap.set("n", "<leader>gp", function()
             vim.diagnostic.jump({ count = -1, severity = vim.diagnostic.severity.ERROR, float = true })
-          end, vim.tbl_extend("force", opts, { desc = "Previous Error" }))
+          end, { buffer = bufnr, desc = "Previous Dart error" })
 
-          -- AUTOMATION: Organize Imports on Save
-          -- This triggers the LSP "source.organizeImports" action before saving
+          -- Organize imports on save (Dart-specific LSP action)
           vim.api.nvim_create_autocmd("BufWritePre", {
             buffer = bufnr,
             callback = function()
               vim.lsp.buf.code_action({
                 apply = true,
-                context = {
-                  only = { "source.organizeImports" },
-                  diagnostics = {},
-                },
+                context = { only = { "source.organizeImports" }, diagnostics = {} },
               })
             end,
           })

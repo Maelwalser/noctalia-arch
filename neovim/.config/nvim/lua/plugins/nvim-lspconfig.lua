@@ -1,23 +1,16 @@
 return {
-	-- LSP Configuration
 	"neovim/nvim-lspconfig",
 	event = { "BufReadPre", "BufNewFile" },
 	cmd = { "LspInfo", "LspInstall", "LspUninstall" },
 	dependencies = {
-		-- LSP Management
 		{ "williamboman/mason.nvim",                   cmd = "Mason", build = ":MasonUpdate" },
 		{ "williamboman/mason-lspconfig.nvim",         lazy = true },
-
-		-- Auto-Install LSPs, linters, formatters, debuggers
 		{ "WhoIsSethDaniel/mason-tool-installer.nvim", lazy = true },
-
-		-- Useful status updates for LSP
 		{ "j-hui/fidget.nvim",                         opts = {},     lazy = true },
-
-		-- Additional lua configuration, makes nvim stuff amazing!
 		{ "folke/neodev.nvim",                         opts = {},     ft = "lua" },
-
 		{ "SmiteshP/nvim-navic",                       lazy = true },
+		{ "b0o/SchemaStore.nvim",                      lazy = true,   version = false },
+		{ "saghen/blink.cmp" },
 	},
 	config = function()
 		require("mason").setup({
@@ -38,62 +31,190 @@ return {
 			},
 		})
 
-		local lspconfig = require("lspconfig")
-		local util = require("lspconfig.util")
-		local capabilities = require("cmp_nvim_lsp").default_capabilities()
+		local on_attach = require("config.lsp-on-attach").on_attach
 
-		-- Common on_attach function
-		local common_on_attach = function(client, bufnr)
-			vim.bo[bufnr].omnifunc = "v:lua.vim.lsp.omnifunc"
-
-			local opts = { buffer = bufnr, noremap = true, silent = true }
-			vim.keymap.set("n", "gD", vim.lsp.buf.declaration, opts)
-			vim.keymap.set("n", "gd", vim.lsp.buf.definition, opts)
-			vim.keymap.set("n", "K", vim.lsp.buf.hover, opts)
-			vim.keymap.set("n", "gi", vim.lsp.buf.implementation, opts)
-			vim.keymap.set("n", "<leader>wa", vim.lsp.buf.add_workspace_folder, opts)
-			vim.keymap.set("n", "<leader>wr", vim.lsp.buf.remove_workspace_folder, opts)
-			vim.keymap.set("n", "<leader>wl", function()
-				print(vim.inspect(vim.lsp.buf.list_workspace_folders()))
-			end, opts)
-			vim.keymap.set("n", "<leader>f", function()
-				vim.lsp.buf.format({ async = true })
-			end, opts)
-
-			-- Keybindings from your init.lua (LSP section)
-			vim.keymap.set("n", "<leader>gg", "<cmd>lua vim.lsp.buf.hover()<CR>", opts)
-			vim.keymap.set("n", "<leader>gD", "<cmd>lua vim.lsp.buf.declaration()<CR>", opts)
-			vim.keymap.set("n", "<leader>gI", "<cmd>lua vim.lsp.buf.implementation()<CR>", opts)
-			vim.keymap.set("n", "<leader>gt", "<cmd>lua vim.lsp.buf.type_definition()<CR>", opts)
-			vim.keymap.set("n", "<leader>gr", "<cmd>lua vim.lsp.buf.references()<CR>", opts)
-			vim.keymap.set("n", "<leader>gs", "<cmd>lua vim.lsp.buf.signature_help()<CR>", opts)
-			vim.keymap.set("n", "<leader>rr", "<cmd>lua vim.lsp.buf.rename()<CR>", opts)
-			vim.keymap.set({ "n", "v" }, "<leader>ga", vim.lsp.buf.code_action, opts)
-			vim.keymap.set("n", "<leader>gl", "<cmd>lua vim.diagnostic.open_float()<CR>", opts)
-			vim.keymap.set("n", "<leader>gp", function() vim.diagnostic.jump({count=-1, float=true}) end, opts)
-			vim.keymap.set("n", "<leader>gn", function() vim.diagnostic.jump({count=1, float=true}) end, opts)
-			vim.keymap.set("n", "<leader>tr", "<cmd>lua vim.lsp.buf.document_symbol()<CR>", opts)
-
-			if client.server_capabilities.documentSymbolProvider then
-				local navic_ok, navic = pcall(require, "nvim-navic")
-				if navic_ok then
-					local is_navic_attached = false
-					for _, existing_client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
-						if navic.is_attached(bufnr, existing_client.id) then
-							is_navic_attached = true
-							break
-						end
-					end
-					if not is_navic_attached then
-						navic.attach(client, bufnr)
-					end
-				end
-			end
+		local capabilities
+		local ok_blink, blink = pcall(require, "blink.cmp")
+		if ok_blink and blink.get_lsp_capabilities then
+			capabilities = blink.get_lsp_capabilities()
+		else
+			capabilities = vim.lsp.protocol.make_client_capabilities()
 		end
 
-		local mason_lspconfig = require("mason-lspconfig")
+		-- --- Nvim 0.11+ vim.lsp.config API -----------------------------------
+		-- Default capabilities apply to every server. We intentionally do NOT
+		-- set on_attach here because nvim-lspconfig's shipped lsp/<server>.lua
+		-- files define their own on_attach, and the merge overrides ours. The
+		-- LspAttach autocmd below is the reliable place to run our on_attach
+		-- for every client regardless of what the per-server config does.
+		vim.lsp.config("*", {
+			capabilities = capabilities,
+			root_markers = { ".git" },
+		})
 
-		mason_lspconfig.setup({
+		vim.api.nvim_create_autocmd("LspAttach", {
+			group = vim.api.nvim_create_augroup("UserLspAttach", { clear = true }),
+			callback = function(ev)
+				local client = vim.lsp.get_client_by_id(ev.data.client_id)
+				if client then on_attach(client, ev.buf) end
+			end,
+		})
+
+		local ts_inlay_hints = {
+			parameterNames = { enabled = "literals" },
+			parameterTypes = { enabled = true },
+			variableTypes = { enabled = false },
+			propertyDeclarationTypes = { enabled = true },
+			functionLikeReturnTypes = { enabled = true },
+			enumMemberValues = { enabled = true },
+		}
+
+		vim.lsp.config("vtsls", {
+			settings = {
+				complete_function_calls = true,
+				vtsls = {
+					enableMoveToFileCodeAction = true,
+					autoUseWorkspaceTsdk = true,
+					experimental = { completion = { enableServerSideFuzzyMatch = true } },
+				},
+				typescript = {
+					updateImportsOnFileMove = { enabled = "always" },
+					suggest = { completeFunctionCalls = true },
+					inlayHints = ts_inlay_hints,
+					preferences = { importModuleSpecifier = "non-relative" },
+				},
+				javascript = {
+					updateImportsOnFileMove = { enabled = "always" },
+					suggest = { completeFunctionCalls = true },
+					inlayHints = ts_inlay_hints,
+				},
+			},
+		})
+
+		vim.lsp.config("lua_ls", {
+			settings = {
+				Lua = {
+					diagnostics = { globals = { "vim" } },
+					hint = { enable = true },
+					workspace = { checkThirdParty = false },
+				},
+			},
+		})
+
+		vim.lsp.config("gopls", {
+			settings = {
+				gopls = {
+					gofumpt = true,
+					codelenses = {
+						gc_details = false,
+						generate = true,
+						regenerate_cgo = true,
+						run_govulncheck = true,
+						test = true,
+						tidy = true,
+						upgrade_dependency = true,
+						vendor = true,
+					},
+					hints = {
+						assignVariableTypes = true,
+						compositeLiteralFields = true,
+						compositeLiteralTypes = true,
+						constantValues = true,
+						functionTypeParameters = true,
+						parameterNames = true,
+						rangeVariableTypes = true,
+					},
+					analyses = {
+						unusedparams = true,
+						nilness = true,
+						unusedwrite = true,
+						shadow = true,
+						useany = true,
+					},
+					staticcheck = true,
+					completeUnimported = true,
+					usePlaceholders = true,
+					semanticTokens = true,
+				},
+			},
+		})
+
+		vim.lsp.config("pyright", {
+			on_init = function(client)
+				local path = client.workspace_folders
+					and client.workspace_folders[1]
+					and client.workspace_folders[1].name
+				local venv = vim.env.VIRTUAL_ENV
+				if venv then
+					client.config.settings.python.pythonPath = venv .. "/bin/python"
+				elseif path then
+					local local_venv = path .. "/.venv/bin/python"
+					if vim.fn.executable(local_venv) == 1 then
+						client.config.settings.python.pythonPath = local_venv
+					end
+				end
+				client.notify("workspace/didChangeConfiguration", { settings = client.config.settings })
+				return true
+			end,
+			settings = {
+				python = {
+					analysis = {
+						autoSearchPaths = true,
+						useLibraryCodeForTypes = true,
+						diagnosticMode = "openFilesOnly",
+						typeCheckingMode = "basic",
+						-- Defer lint/style diagnostics to ruff
+						diagnosticSeverityOverrides = {
+							reportUnusedImport = "none",
+							reportUnusedVariable = "none",
+							reportUnusedFunction = "none",
+							reportDuplicateImport = "none",
+						},
+					},
+				},
+			},
+		})
+
+		-- Let pyright own hover; ruff owns lint/fix/organize-imports.
+		-- Doing this in a ruff-scoped LspAttach autocmd keeps the single
+		-- shared on_attach path intact.
+		vim.api.nvim_create_autocmd("LspAttach", {
+			group = vim.api.nvim_create_augroup("UserRuffDisableHover", { clear = true }),
+			callback = function(ev)
+				local client = vim.lsp.get_client_by_id(ev.data.client_id)
+				if client and client.name == "ruff" then
+					client.server_capabilities.hoverProvider = false
+				end
+			end,
+		})
+
+		vim.lsp.config("jsonls", {
+			settings = {
+				json = {
+					schemas = require("schemastore").json.schemas(),
+					validate = { enable = true },
+				},
+			},
+		})
+
+		vim.lsp.config("yamlls", {
+			settings = {
+				yaml = {
+					schemaStore = { enable = false, url = "" },
+					schemas = require("schemastore").yaml.schemas(),
+					validate = true,
+					format = { enable = true },
+					keyOrdering = false,
+				},
+			},
+		})
+
+		-- taplo + ast_grep just use the defaults (capabilities + on_attach)
+		vim.lsp.config("taplo", {})
+		vim.lsp.config("ast_grep", {})
+
+		-- --- mason-lspconfig 2.0 automatic_enable ----------------------------
+		require("mason-lspconfig").setup({
 			ensure_installed = {
 				"jdtls",
 				"lua_ls",
@@ -109,141 +230,28 @@ return {
 				"ast_grep",
 				"ruff",
 				"vtsls",
+				"taplo",
 			},
 			auto_installation = true,
-			handlers = {
-				["vtsls"] = function()
-					lspconfig.vtsls.setup({
-						capabilities = capabilities,
-						on_attach = common_on_attach,
-						filetypes = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
-						root_dir = util.root_pattern("package.json", "tsconfig.json", "jsconfig.json", ".git"),
-					})
-				end,
-				["lua_ls"] = function()
-					lspconfig.lua_ls.setup({
-						capabilities = capabilities,
-						on_attach = common_on_attach,
-						settings = {
-							Lua = {
-								diagnostics = {
-									globals = { "vim" },
-								},
-							},
-						},
-					})
-				end,
-				["jdtls"] = function() end,
-
-				["gopls"] = function()
-					lspconfig.gopls.setup({
-						capabilities = capabilities,
-						on_attach = common_on_attach,
-						filetypes = { "go", "gomod", "gowork", "gotmpl" },
-						root_dir = util.root_pattern("go.work", "go.mod", ".git"),
-						settings = {
-							gopls = {
-								gofumpt = true,
-								codelenses = {
-									gc_details = false,
-									generate = true,
-									regenerate_cgo = true,
-									run_govulncheck = true,
-									test = true,
-									tidy = true,
-									upgrade_dependency = true,
-									vendor = true,
-								},
-								hints = {
-									assignVariableTypes = true,
-									compositeLiteralFields = true,
-									compositeLiteralTypes = true,
-									constantValues = true,
-									functionTypeParameters = true,
-									parameterNames = true,
-									rangeVariableTypes = true,
-								},
-								analyses = {
-									unusedparams = true,
-									nilness = true,
-									unusedwrite = true,
-									shadow = true,
-								},
-								staticcheck = true,
-								completeUnimported = true,
-								usePlaceholders = true,
-							},
-						},
-
-					})
-				end,
-
-				["pyright"] = function()
-					lspconfig.pyright.setup({
-						capabilities = capabilities,
-						on_attach = common_on_attach,
-						on_init = function(client)
-							-- Determine the workspace path
-							local path = client.workspace_folders and client.workspace_folders[1] and client.workspace_folders[1].name
-							local venv = vim.env.VIRTUAL_ENV
-
-							-- 1. Check if a virtual environment is activated in the shell
-							if venv then
-								client.config.settings.python.pythonPath = venv .. "/bin/python"
-								-- 2. Fallback to checking for a local '.venv' directory in the project root
-							elseif path then
-								local local_venv = path .. "/.venv/bin/python"
-								if vim.fn.executable(local_venv) == 1 then
-									client.config.settings.python.pythonPath = local_venv
-								end
-							end
-
-							-- Notify Pyright of the updated configuration
-							client.notify("workspace/didChangeConfiguration", { settings = client.config.settings })
-							return true
-						end,
-						settings = {
-							python = {
-								analysis = {
-									autoSearchPaths = true,
-									useLibraryCodeForTypes = true,
-									diagnosticMode = "openFilesOnly",
-								},
-							},
-						},
-					})
-				end,
-				["ast_grep"] = function()
-					lspconfig.ast_grep.setup({
-						capabilities = capabilities,
-						on_attach = common_on_attach,
-					})
-				end,
-
-				function(server_name) lspconfig[server_name].setup({ capabilities = capabilities, on_attach = common_on_attach, })
-				end,
-			},
+			-- automatic_enable calls vim.lsp.enable() for every installed server,
+			-- picking up the vim.lsp.config() merges above. Exclude servers we
+			-- own ourselves or want to avoid duplicating.
+			automatic_enable = { exclude = { "jdtls", "rust_analyzer", "ts_ls" } },
 		})
 
 		if pcall(require, "fidget") then
 			require("fidget").setup({})
 		end
 
-		local open_floating_preview_orig = vim.lsp.util.open_floating_preview
-		function vim.lsp.util.open_floating_preview(contents, syntax, opts, ...)
-			opts = opts or {}
-			opts.border = opts.border or "rounded"
-			return open_floating_preview_orig(contents, syntax, opts, ...)
-		end
-
-		local mason_tool_installer = require("mason-tool-installer")
-		mason_tool_installer.setup({
+		require("mason-tool-installer").setup({
 			ensure_installed = {
+				"rust-analyzer",
 				-- Debuggers
 				"java-debug-adapter",
 				"java-test",
 				"go-debug-adapter",
 				"js-debug-adapter",
+				"codelldb",
 				-- Formatters
 				"goimports",
 				"shfmt",
@@ -261,7 +269,9 @@ return {
 				"shellcheck",
 				"hadolint",
 				"golangci-lint",
-				"ruff",
+				-- Pinned: the mason-registry tracks ruff 0.15.11 which was
+				-- yanked from PyPI; 0.15.10 is the latest working release.
+				{ "ruff", version = "0.15.10" },
 				"checkstyle",
 				"markdownlint",
 				-- Go tools

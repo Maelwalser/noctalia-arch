@@ -15,9 +15,9 @@ end
 local mason_path = vim.fn.stdpath('data') .. '/mason'
 
 local capabilities = vim.lsp.protocol.make_client_capabilities()
-local cmp_lsp_status_ok, cmp_nvim_lsp = pcall(require, "cmp_nvim_lsp")
-if cmp_lsp_status_ok then
-    capabilities = cmp_nvim_lsp.default_capabilities(capabilities)
+local blink_ok, blink = pcall(require, "blink.cmp")
+if blink_ok and blink.get_lsp_capabilities then
+    capabilities = blink.get_lsp_capabilities(capabilities)
 end
 
 -- Function to find root directory

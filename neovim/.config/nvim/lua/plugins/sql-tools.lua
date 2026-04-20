@@ -11,7 +11,12 @@ return {
     local pg_port = vim.env.PGPORT or "5432"
     local pg_db = vim.env.PGDATABASE or "postgres"
 
-    require('lspconfig').sqls.setup({
+    -- sqls.nvim registers its own user commands via its on_attach; the shared
+    -- LSP on_attach runs via the global LspAttach autocmd.
+    vim.lsp.config('sqls', {
+      on_attach = function(client, bufnr)
+        require('sqls').on_attach(client, bufnr)
+      end,
       settings = {
         sqls = {
           connections = {
@@ -26,5 +31,6 @@ return {
         },
       },
     })
+    vim.lsp.enable('sqls')
   end,
 }

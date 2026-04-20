@@ -31,37 +31,4 @@ return {
     },
   },
 
-  config = function(_, opts)
-    require("noice").setup(opts)
-
-    -- Defer cmp integration to when cmp is actually loaded
-    vim.api.nvim_create_autocmd("User", {
-      pattern = "CmpReady",
-      callback = function()
-        local cmp = require("cmp")
-        cmp.setup({
-          window = {
-            documentation = cmp.config.window.bordered(),
-          },
-        })
-
-        -- Configure cmp.entry.get_documentation
-        local cmp_orig = require("cmp.entry").get_documentation
-        require("cmp.entry").get_documentation = function(entry)
-          local result = cmp_orig(entry)
-          if result and vim.g.noice_cmp_enabled then
-            return result
-          end
-          return result
-        end
-        vim.g.noice_cmp_enabled = true
-      end,
-      once = true,
-    })
-
-    -- Trigger the event when cmp is loaded
-    if package.loaded["cmp"] then
-      vim.api.nvim_exec_autocmds("User", { pattern = "CmpReady" })
-    end
-  end,
 }

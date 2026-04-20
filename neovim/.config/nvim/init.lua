@@ -101,11 +101,23 @@ vim.opt.conceallevel = 2                        -- Hide concealed text (e.g. mar
 -- -----------------------------------------------------------------------------
 -- DIAGNOSTICS & LSP
 -- -----------------------------------------------------------------------------
+-- Nvim 0.11+ native rounded borders for all LSP/diagnostic floats
+if vim.fn.has("nvim-0.11") == 1 then
+	vim.o.winborder = "rounded"
+end
+
 vim.diagnostic.config({
-	float = { border = "rounded" }, -- Add border to diagnostic popups
-    underline = {
-        severity = vim.diagnostic.severity.WARN,
-    },
+	signs = true,
+	underline = { severity = vim.diagnostic.severity.WARN },
+	update_in_insert = false,
+	severity_sort = true,
+	float = { border = "rounded", source = "if_many" },
+	virtual_text = {
+		spacing = 4,
+		source = "if_many",
+		prefix = "●",
+	},
+	virtual_lines = false, -- toggle with <leader>dv
 })
 
 -- -----------------------------------------------------------------------------
@@ -141,7 +153,7 @@ local highlight_group = vim.api.nvim_create_augroup("YankHighlight", { clear = t
 -- Create an autocommand for the "TextYankPost" event (after text is yanked)
 vim.api.nvim_create_autocmd("TextYankPost", {
 	callback = function()
-		vim.highlight.on_yank()
+		(vim.hl or vim.highlight).on_yank()
 	end,
 	group = highlight_group,
 	pattern = "*",
@@ -213,6 +225,25 @@ vim.keymap.set("n", "-", "<CMD>Oil<CR>", { desc = "Open parent directory" })
 vim.keymap.set("n", "<leader>fm", function()
 	require("telescope.builtin").treesitter({ symbols = { "function", "method" } })
 end)
+
+-- Toggle diagnostic virtual lines (rich multi-line diagnostic rendering, Nvim 0.11+)
+vim.keymap.set("n", "<leader>dv", function()
+	local cfg = vim.diagnostic.config()
+	local enabling = not (cfg and cfg.virtual_lines)
+	vim.diagnostic.config({
+		virtual_lines = enabling and { current_line = true } or false,
+		virtual_text = enabling and false or {
+			spacing = 4,
+			source = "if_many",
+			prefix = "●",
+		},
+	})
+end, { desc = "Toggle diagnostic virtual lines" })
+
+-- Global inlay-hint toggle (fallback; buffer-local `<leader>ih` also exists via on_attach)
+vim.keymap.set("n", "<leader>iH", function()
+	vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled())
+end, { desc = "Toggle inlay hints (global)" })
 
 -- DIAGNOSTIC (Keymaps moved to nvim-lspconfig on_attach)
 -- Debugging

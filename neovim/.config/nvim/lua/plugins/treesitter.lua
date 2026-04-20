@@ -12,13 +12,14 @@ return {
     config = function()
         require("nvim-treesitter.config").setup({})
 
-        -- Install parsers that should always be present
         local ensure_installed = {
-            "lua", "vim", "vimdoc", "java", "javascript", "typescript",
-            "json", "html", "css", "markdown", "dockerfile", "git_rebase",
-            "gitattributes", "gitcommit", "gitignore", "json5",
-            "markdown_inline", "python", "regex", "tsx", "sql", "yaml",
-            "vue", "go", "gomod", "gosum", "gowork", "c",
+            "bash", "c", "css", "diff", "dockerfile", "git_rebase",
+            "gitattributes", "gitcommit", "gitignore", "go", "gomod",
+            "gosum", "gowork", "html", "java", "javascript", "json",
+            "json5", "lua", "luadoc", "make", "markdown",
+            "markdown_inline", "printf", "python", "query", "regex",
+            "ron", "rust", "sql", "toml", "tsx", "typescript", "vim",
+            "vimdoc", "vue", "xml", "yaml",
         }
 
         local installed = require("nvim-treesitter.config").get_installed()
@@ -34,5 +35,14 @@ return {
         if #to_install > 0 then
             require("nvim-treesitter.install").install(to_install)
         end
+
+        -- main branch of nvim-treesitter no longer auto-enables highlight;
+        -- attach it per-buffer for the filetypes we ensure.
+        vim.api.nvim_create_autocmd("FileType", {
+            pattern = ensure_installed,
+            callback = function(ev)
+                pcall(vim.treesitter.start, ev.buf)
+            end,
+        })
     end,
 }

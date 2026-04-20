@@ -24,7 +24,8 @@ return {
 
     vim.api.nvim_create_autocmd({ "BufWritePost", "BufReadPost" }, {
       callback = function()
-        require("lint").try_lint()
+        -- Suppress error if a linter binary isn't installed yet
+        pcall(require("lint").try_lint)
       end,
     })
   end
