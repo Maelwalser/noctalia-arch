@@ -1,6 +1,5 @@
 {
     "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
-
     "logo": {
         "source": "~/.config/fastfetch/logo.txt",
         "type": "file",
@@ -16,22 +15,17 @@
             "left": 1
         }
     },
-
     "display": {
-        "separator": "  ▸  ",
+        "separator": " ❯ ",
         "color": {
             "keys": "magenta",
             "title": "cyan",
             "output": "white"
         },
-        "key": {
-            "width": 4
-        },
         "constants": [
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ]
     },
-
     "modules": [
         {
             "type": "title",
@@ -46,45 +40,79 @@
             "type": "custom",
             "format": "\u001b[36m{$1}\u001b[0m"
         },
-
-        { "type": "os",       "key": "OS"  },
-        { "type": "kernel",   "key": "KRN" },
-        { "type": "uptime",   "key": "UP " },
+        {
+            "type": "os",
+            "key": "OS"
+        },
+        {
+            "type": "kernel",
+            "key": "KRN"
+        },
+        {
+            "type": "uptime",
+            "key": "UP"
+        },
         {
             "type": "packages",
             "key": "PKG",
             "format": "{pacman}"
         },
-        { "type": "shell",        "key": "SH " },
-        { "type": "wm",           "key": "WM " },
-        { "type": "de",           "key": "DE " },
-        { "type": "terminal",     "key": "TRM" },
-        { "type": "terminalfont", "key": "FNT" },
+        {
+            "type": "shell",
+            "key": "SH"
+        },
+        {
+            "type": "wm",
+            "key": "WM"
+        },
+        {
+            "type": "de",
+            "key": "DE"
+        },
+        {
+            "type": "terminal",
+            "key": "TRM"
+        },
+        {
+            "type": "terminalfont",
+            "key": "FNT"
+        },
         {
             "type": "command",
             "key": "EDT",
             "shell": "/bin/sh",
             "text": "echo \"${EDITOR:-not set}\""
         },
-
         {
             "type": "custom",
             "format": "\u001b[36m{$1}\u001b[0m"
         },
-
-        { "type": "cpu",    "key": "CPU" },
+        {
+            "type": "cpu",
+            "key": "CPU",
+            "format": "{name}"
+        },
         {
             "type": "gpu",
-            "key": "GPU",
-            "format": "{name} [{driver-name}]"
+            "key": "iGPU",
+            "format": "{name}",
+            "hideType": "discrete"
         },
-        { "type": "memory", "key": "MEM" },
+        {
+            "type": "gpu",
+            "key": "dGPU",
+            "format": "{name}",
+            "hideType": "integrated"
+        },
+        {
+            "type": "memory",
+            "key": "MEM"
+        },
         {
             "type": "disk",
             "key": "DSK",
             "folders": "/"
         },
-
         "break",
         {
             "type": "colors",

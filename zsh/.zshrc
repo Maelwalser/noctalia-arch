@@ -376,5 +376,13 @@ ask() {
 }
 
 if [[ -o interactive ]] && [[ -z "$TMUX" ]] && (( SHLVL == 1 )); then
-  fastfetch
+  local _ff_cfg_dir="$HOME/.config/fastfetch"
+  local _ff_cols=${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}
+  if (( _ff_cols >= 100 )); then
+    fastfetch
+  elif (( _ff_cols >= 60 )); then
+    fastfetch -c "$_ff_cfg_dir/config-compact.jsonc"
+  else
+    fastfetch -c "$_ff_cfg_dir/config-mini.jsonc"
+  fi
 fi
