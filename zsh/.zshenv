@@ -10,3 +10,5 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 export GOPROXY=https://proxy.golang.org,direct
 
 export PATH=$PATH:$(go env GOPATH)/bin
+
+export PATH="$HOME/.npm-global/bin:$PATH"

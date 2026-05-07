@@ -40,12 +40,36 @@ return {
       },
     })
 
+    -- Filetypes where cinnamon's scroll wrapper misbehaves (special / non-file
+    -- buffers). In these, keep gg/G/<C-d>/etc. as native Vim motions so basic
+    -- navigation keeps working.
+    local skip_ft = {
+      oil = true,
+      ["oil-preview"] = true,
+      ["oil-progress"] = true,
+      NvimTree = true,
+      ["neo-tree"] = true,
+      trouble = true,
+      Trouble = true,
+      TelescopePrompt = true,
+      qf = true,
+      help = true,
+      lazy = true,
+      mason = true,
+    }
+
     -- Animate only the motions that meaningfully shift the viewport.
     -- Small motions (j/k/h/l/w/b/etc.) stay native.
     local scroll = cinnamon.scroll
     local map = function(lhs, cmd)
-      vim.keymap.set({ "n", "x" }, lhs, function() scroll(cmd) end,
-        { silent = true, desc = "Cinnamon: " .. cmd })
+      vim.keymap.set({ "n", "x" }, lhs, function()
+        if skip_ft[vim.bo.filetype] then
+          local keys = vim.api.nvim_replace_termcodes(cmd, true, false, true)
+          vim.api.nvim_feedkeys(vim.v.count > 0 and (vim.v.count .. keys) or keys, "nx", false)
+          return
+        end
+        scroll(cmd)
+      end, { silent = true, desc = "Cinnamon: " .. cmd })
     end
 
     -- Half / full page

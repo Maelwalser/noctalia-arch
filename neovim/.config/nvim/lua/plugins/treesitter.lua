@@ -16,7 +16,7 @@ return {
             "bash", "c", "css", "diff", "dockerfile", "git_rebase",
             "gitattributes", "gitcommit", "gitignore", "go", "gomod",
             "gosum", "gowork", "html", "java", "javascript", "json",
-            "json5", "lua", "luadoc", "make", "markdown",
+            "json5", "latex", "lua", "luadoc", "make", "markdown",
             "markdown_inline", "printf", "python", "query", "regex",
             "ron", "rust", "sql", "toml", "tsx", "typescript", "vim",
             "vimdoc", "vue", "xml", "yaml",

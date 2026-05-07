@@ -6,54 +6,58 @@ vim.loader.enable()
 -- `package.preload` so they're returned the first (and only) time telescope's
 -- previewer requires them.
 package.preload["nvim-treesitter.configs"] = function()
-	return {
-		is_enabled = function(_, lang, _)
-			if type(lang) ~= "string" or lang == "" then return false end
-			local ok = pcall(vim.treesitter.language.add, lang)
-			return ok
-		end,
-		get_module = function(_)
-			return { additional_vim_regex_highlighting = false }
-		end,
-	}
+  return {
+    is_enabled = function(_, lang, _)
+      if type(lang) ~= "string" or lang == "" then
+        return false
+      end
+      local ok = pcall(vim.treesitter.language.add, lang)
+      return ok
+    end,
+    get_module = function(_)
+      return { additional_vim_regex_highlighting = false }
+    end,
+  }
 end
 
 package.preload["nvim-treesitter.parsers"] = function()
-	-- Load the real parsers table once, then patch on the helper methods
-	-- telescope expects. Clearing preload first avoids recursion.
-	package.preload["nvim-treesitter.parsers"] = nil
-	local ok, real = pcall(require, "nvim-treesitter.parsers")
-	if not ok or type(real) ~= "table" then real = {} end
-	if real.ft_to_lang == nil then
-		real.ft_to_lang = function(ft)
-			return vim.treesitter.language.get_lang(ft) or ft
-		end
-	end
-	if real.get_parser == nil then
-		real.get_parser = function(bufnr, lang)
-			local ok2, parser = pcall(vim.treesitter.get_parser, bufnr, lang)
-			return ok2 and parser or nil
-		end
-	end
-	package.loaded["nvim-treesitter.parsers"] = real
-	return real
+  -- Load the real parsers table once, then patch on the helper methods
+  -- telescope expects. Clearing preload first avoids recursion.
+  package.preload["nvim-treesitter.parsers"] = nil
+  local ok, real = pcall(require, "nvim-treesitter.parsers")
+  if not ok or type(real) ~= "table" then
+    real = {}
+  end
+  if real.ft_to_lang == nil then
+    real.ft_to_lang = function(ft)
+      return vim.treesitter.language.get_lang(ft) or ft
+    end
+  end
+  if real.get_parser == nil then
+    real.get_parser = function(bufnr, lang)
+      local ok2, parser = pcall(vim.treesitter.get_parser, bufnr, lang)
+      return ok2 and parser or nil
+    end
+  end
+  package.loaded["nvim-treesitter.parsers"] = real
+  return real
 end
 
 -- -----------------------------------------------------------------------------
 -- UI & APPEARANCE
 -- -----------------------------------------------------------------------------
 vim.opt.termguicolors = true -- Enable 24-bit RGB colors
-vim.opt.syntax = "on"        -- Enable syntax highlighting
+vim.opt.syntax = "on" -- Enable syntax highlighting
 vim.opt.guicursor =
-"n-v-c:block-blinkon0,i:block-blinkwait700-blinkoff400-blinkon250-Cursor,ci-ve:ver25-blinkon0,r-cr:hor20-blinkon0,o:hor50-blinkon0,sm:block-blinkwait175-blinkoff150-blinkon175"
-vim.o.background = "dark"                         -- Set background to dark
+  "n-v-c:block-blinkon0,i:block-blinkwait700-blinkoff400-blinkon250-Cursor,ci-ve:ver25-blinkon0,r-cr:hor20-blinkon0,o:hor50-blinkon0,sm:block-blinkwait175-blinkoff150-blinkon175"
+vim.o.background = "dark" -- Set background to dark
 vim.opt.guifont = "JetBrainsMonoNL Nerd Font:h14" -- Set editor font
 
 -- Line numbers and wrapping
-vim.wo.wrap = false          -- Disable line wrapping
-vim.wo.number = true         -- Show line numbers
+vim.wo.wrap = false -- Disable line wrapping
+vim.wo.number = true -- Show line numbers
 vim.wo.relativenumber = true -- Show relative line numbers
-vim.opt.numberwidth = 2      -- Minimal number of columns for the line number
+vim.opt.numberwidth = 2 -- Minimal number of columns for the line number
 
 -- Display
 vim.opt.scrolloff = 12 -- Viewport starts sliding before the cursor reaches the edge
@@ -70,19 +74,19 @@ vim.opt.fillchars.eob = " " -- Remove ugly ~ from end of buffer
 vim.opt.list = true -- Show invisible characters (tabs, trailing whitespace)
 vim.opt.showbreak = "↳" -- Character to show before wrapped lines
 vim.opt.fillchars:append({
-	vert = "│",
-	horiz = "─",
-	horizup = "┴",
-	horizdown = "┬",
-	vertleft = "┤",
-	vertright = "├",
-	verthoriz = "┼",
-	fold = " ",
-	foldsep = "│",
-	diff = "╱",
+  vert = "│",
+  horiz = "─",
+  horizup = "┴",
+  horizdown = "┬",
+  vertleft = "┤",
+  vertright = "├",
+  verthoriz = "┼",
+  fold = " ",
+  foldsep = "│",
+  diff = "╱",
 })
-vim.opt.pumblend = 10   -- Completion menu translucency
-vim.opt.winblend = 0    -- Keep floats fully readable
+vim.opt.pumblend = 10 -- Completion menu translucency
+vim.opt.winblend = 0 -- Keep floats fully readable
 
 -- -----------------------------------------------------------------------------
 -- LEADER KEYS
@@ -95,24 +99,24 @@ vim.g.maplocalleader = " "
 -- -----------------------------------------------------------------------------
 -- Search
 vim.opt.ignorecase = true -- Ignore case when searching
-vim.opt.smartcase = true  -- But not if string contains uppercase letters
-vim.opt.hlsearch = true   -- Highlight search results
-vim.opt.incsearch = true  -- Show search results incrementally
+vim.opt.smartcase = true -- But not if string contains uppercase letters
+vim.opt.hlsearch = true -- Highlight search results
+vim.opt.incsearch = true -- Show search results incrementally
 
 -- Indentation
-vim.opt.expandtab = true           -- Use spaces instead of tabs
-vim.opt.shiftwidth = 2             -- Number of spaces to use for autoindent
-vim.opt.tabstop = 2                -- Number of spaces that a tab in the file counts for
-vim.opt.softtabstop = 2            -- Number of spaces that a tab counts for while performing editing operations
-vim.opt.autoindent = true          -- Copy indent from current line when starting a new line
-vim.opt.smartindent = true         -- Make indenting smarter
-vim.opt.breakindent = true         -- Preserve indentation of wrapped lines
+vim.opt.expandtab = true -- Use spaces instead of tabs
+vim.opt.shiftwidth = 2 -- Number of spaces to use for autoindent
+vim.opt.tabstop = 2 -- Number of spaces that a tab in the file counts for
+vim.opt.softtabstop = 2 -- Number of spaces that a tab counts for while performing editing operations
+vim.opt.autoindent = true -- Copy indent from current line when starting a new line
+vim.opt.smartindent = true -- Make indenting smarter
+vim.opt.breakindent = true -- Preserve indentation of wrapped lines
 vim.opt.breakindentopt = "shift:2" -- How to indent wrapped lines
-vim.opt.shiftround = true          -- Round indent to multiple of 'shiftwidth'
+vim.opt.shiftround = true -- Round indent to multiple of 'shiftwidth'
 
 -- Completion
 vim.opt.completeopt = "menuone,noselect" -- Completion options
-vim.opt.shortmess:append "c"             -- Don't pass messages to |ins-completion-menu|
+vim.opt.shortmess:append("c") -- Don't pass messages to |ins-completion-menu|
 
 -- Backspace
 vim.opt.backspace = "indent,eol,start" -- Allow backspace over autoindent, EOL, start of insert
@@ -120,57 +124,86 @@ vim.opt.backspace = "indent,eol,start" -- Allow backspace over autoindent, EOL, 
 -- Clipboard
 vim.opt.clipboard:append("unnamedplus")
 
-
 -- Other
-vim.opt.iskeyword:append "-"  -- Treat hyphenated words as single words
+vim.opt.iskeyword:append("-") -- Treat hyphenated words as single words
 vim.opt.isfname:append("@-@") -- Characters to be included in filenames
 
 -- -----------------------------------------------------------------------------
 -- FILES, BACKUP & SESSIONS
 -- -----------------------------------------------------------------------------
-vim.opt.backup = false                                -- No backup files
-vim.opt.writebackup = false                           -- No backup before overwriting files
-vim.opt.swapfile = false                              -- No swap files
-vim.opt.undofile = true                               -- Enable persistent undo
-vim.opt.undodir = vim.fn.stdpath "data" .. "/undodir" -- Set undo directory
-vim.opt.hidden = true                                 -- Allow modified buffers to be hidden without saving
+vim.opt.backup = false -- No backup files
+vim.opt.writebackup = false -- No backup before overwriting files
+vim.opt.swapfile = false -- No swap files
+vim.opt.undofile = true -- Enable persistent undo
+vim.opt.undodir = vim.fn.stdpath("data") .. "/undodir" -- Set undo directory
+vim.opt.hidden = true -- Allow modified buffers to be hidden without saving
+vim.opt.autoread = true -- Auto-reload files changed outside of Neovim
 vim.opt.sessionoptions = "blank,buffers,curdir,folds,help,tabpages,winsize,winpos,terminal,localoptions"
+
+-- Trigger :checktime when regaining focus, switching buffers, or going idle —
+-- 'autoread' alone never re-checks the file on its own.
+local autoread_group = vim.api.nvim_create_augroup("AutoReloadOnChange", { clear = true })
+vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold", "CursorHoldI", "TermClose", "TermLeave" }, {
+  group = autoread_group,
+  pattern = "*",
+  callback = function()
+    if vim.fn.mode() ~= "c" and vim.bo.buftype == "" then
+      vim.cmd("checktime")
+    end
+  end,
+})
+
+-- Surface a quiet notification when a buffer is reloaded from disk.
+vim.api.nvim_create_autocmd("FileChangedShellPost", {
+  group = autoread_group,
+  pattern = "*",
+  callback = function()
+    vim.notify("File changed on disk — buffer reloaded", vim.log.levels.INFO)
+  end,
+})
 
 -- -----------------------------------------------------------------------------
 -- BUFFERS & WINDOWS
 -- -----------------------------------------------------------------------------
-vim.opt.splitbelow = true            -- When splitting, new window appears below current window
-vim.opt.splitright = true            -- When splitting, new window appears to the right of current window
-vim.opt.viewoptions:remove "options" -- Make viewoptions more minimal (e.g., for :mkview)
+vim.opt.splitbelow = true -- When splitting, new window appears below current window
+vim.opt.splitright = true -- When splitting, new window appears to the right of current window
+vim.opt.viewoptions:remove("options") -- Make viewoptions more minimal (e.g., for :mkview)
 
 -- ----------------------------------------------------------------------------- FOLDING
 -- -----------------------------------------------------------------------------
-vim.opt.foldenable = false                      -- Disable folding by default
-vim.opt.foldlevel = 99                          -- Keep folds open by default
+vim.opt.foldenable = false -- Disable folding by default
+vim.opt.foldlevel = 99 -- Keep folds open by default
 vim.opt.foldmethod = "expr"
 vim.opt.foldexpr = "nvim_treesitter#foldexpr()" -- Utilize Treesitter folds
-vim.opt.conceallevel = 2                        -- Hide concealed text (e.g. markdown formatting)
+vim.opt.conceallevel = 2 -- Hide concealed text (e.g. markdown formatting)
 
 -- -----------------------------------------------------------------------------
 -- DIAGNOSTICS & LSP
 -- -----------------------------------------------------------------------------
 -- Nvim 0.11+ native single borders for all LSP/diagnostic floats (cyberpunk edge)
 if vim.fn.has("nvim-0.11") == 1 then
-	vim.o.winborder = "single"
+  vim.o.winborder = "single"
 end
 
 vim.diagnostic.config({
-	signs = true,
-	underline = { severity = vim.diagnostic.severity.WARN },
-	update_in_insert = false,
-	severity_sort = true,
-	float = { border = "single", source = "if_many" },
-	virtual_text = {
-		spacing = 4,
-		source = "if_many",
-		prefix = "▎",
-	},
-	virtual_lines = false, -- toggle with <leader>dv
+  signs = true,
+  underline = { severity = vim.diagnostic.severity.WARN },
+  update_in_insert = false,
+  severity_sort = true,
+  float = { border = "single", source = "if_many" },
+  virtual_text = {
+    spacing = 4,
+    source = "if_many",
+    prefix = "▎",
+    format = function(diagnostic)
+      local bufnr = diagnostic.bufnr or vim.api.nvim_get_current_buf()
+      if vim.bo[bufnr].filetype == "markdown" then
+        return nil
+      end
+      return diagnostic.message
+    end,
+  },
+  virtual_lines = false, -- toggle with <leader>dv
 })
 
 -- -----------------------------------------------------------------------------
@@ -179,17 +212,15 @@ vim.diagnostic.config({
 vim.opt.updatetime = 100 -- Time in ms to wait before triggering CursorHold
 vim.opt.timeoutlen = 300 -- Time in ms to wait for a mapped sequence to complete
 vim.opt.ttimeoutlen = 50 -- Time to wait for a key code sequence (default 50ms)
-vim.opt.mouse = ""       -- Disable mouse
+vim.opt.mouse = "" -- Disable mouse
 -- -----------------------------------------------------------------------------
 -- SYSTEM & ENCODING
 -- -----------------------------------------------------------------------------
 -- Language and encoding
-vim.cmd [[
+vim.cmd([[
   language en_US.UTF-8
-]]
+]])
 vim.opt.fileencoding = "utf-8" -- File encoding
-
-
 
 -- Performance related options
 -- vim.opt.lazyredraw = true -- Don't redraw while executing macros (good for performance)
@@ -199,17 +230,16 @@ vim.opt.fileencoding = "utf-8" -- File encoding
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
 
-
 -- Create an augroup named "YankHighlight", clearing any existing one with the same name
 local highlight_group = vim.api.nvim_create_augroup("YankHighlight", { clear = true })
 
 -- Create an autocommand for the "TextYankPost" event (after text is yanked)
 vim.api.nvim_create_autocmd("TextYankPost", {
-	callback = function()
-		(vim.hl or vim.highlight).on_yank()
-	end,
-	group = highlight_group,
-	pattern = "*",
+  callback = function()
+    (vim.hl or vim.highlight).on_yank()
+  end,
+  group = highlight_group,
+  pattern = "*",
 })
 
 -- --------------------------------------------------------
@@ -228,7 +258,7 @@ vim.keymap.set("t", "<Esc><Esc>", "<C-\\><C-n>", { desc = "Exit Terminal mode" }
 --
 -- GITLEAKS
 vim.keymap.set("n", "<leader>gS", function()
-	vim.cmd("split | term gitleaks detect -v --source .")
+  vim.cmd("split | term gitleaks detect -v --source .")
 end, { desc = "(G)it (S)can for leaks" })
 -- FILES SAVING & QUITTING
 vim.keymap.set("n", "<leader>wq", ":wq<CR>", { desc = "save and quit" })
@@ -244,17 +274,17 @@ vim.keymap.set("n", "<Leader>h", "0", { desc = "Move to end of line" })
 vim.keymap.set("n", "<Leader>l", "$", { desc = "Move to beginning of line" })
 
 -- TAB MANAGEMENT
-vim.keymap.set("n", "<leader>to", ":tabnew<CR>")   -- open a new tab
+vim.keymap.set("n", "<leader>to", ":tabnew<CR>") -- open a new tab
 vim.keymap.set("n", "<leader>tx", ":tabclose<CR>") -- close a tab
-vim.keymap.set("n", "<leader>tn", ":tabn<CR>")     -- next tab
-vim.keymap.set("n", "<leader>tp", ":tabp<CR>")     -- previous tab
+vim.keymap.set("n", "<leader>tn", ":tabn<CR>") -- next tab
+vim.keymap.set("n", "<leader>tp", ":tabp<CR>") -- previous tab
 
 -- QUICKFIX KEYMAPS
-vim.keymap.set("n", "<leader>qo", ":copen<CR>")  -- open quickfix list
+vim.keymap.set("n", "<leader>qo", ":copen<CR>") -- open quickfix list
 vim.keymap.set("n", "<leader>qf", ":cfirst<CR>") -- jump to first quickfix list item
-vim.keymap.set("n", "<leader>qn", ":cnext<CR>")  -- jump to next quickfix list item
-vim.keymap.set("n", "<leader>qp", ":cprev<CR>")  -- jump to prev quickfix list item
-vim.keymap.set("n", "<leader>ql", ":clast<CR>")  -- jump to last quickfix list item
+vim.keymap.set("n", "<leader>qn", ":cnext<CR>") -- jump to next quickfix list item
+vim.keymap.set("n", "<leader>qp", ":cprev<CR>") -- jump to prev quickfix list item
+vim.keymap.set("n", "<leader>ql", ":clast<CR>") -- jump to last quickfix list item
 vim.keymap.set("n", "<leader>qx", ":cclose<CR>") -- close quickfix list
 
 -- VIM REST CONSOLE
@@ -266,7 +296,7 @@ vim.keymap.set("n", "<leader>wh", ":split<cr>", { desc = "[W]indow Split [H]oriz
 vim.keymap.set("n", "<leader>we", "<C-w>=", { desc = "[W]indow Split Equal WIdth" })
 vim.keymap.set("n", "<leader>wx", ":close<CR>", { desc = "Close split [W]indow" })
 vim.keymap.set("n", "<leader>wj", "<C-w>-", { desc = "make split [W]indow height shorter" }) -- make split window height shorter
-vim.keymap.set("n", "<leader>wk", "<C-w>+", { desc = "make split [W]indow height taller" })  -- make split windows height taller
+vim.keymap.set("n", "<leader>wk", "<C-w>+", { desc = "make split [W]indow height taller" }) -- make split windows height taller
 vim.keymap.set("n", "<leader>wl", "<C-w>>5", { desc = "make split [W]indow width bigger" }) -- make split windows width bigger
 -- STAY IN INDENT MODE
 vim.keymap.set("v", "<", "<gv", { desc = "Indent left in visual mode" })
@@ -276,26 +306,26 @@ vim.keymap.set("v", ">", ">gv", { desc = "Indent right in visual mode" })
 vim.keymap.set("n", "-", "<CMD>Oil<CR>", { desc = "Open parent directory" })
 
 vim.keymap.set("n", "<leader>fm", function()
-	require("telescope.builtin").treesitter({ symbols = { "function", "method" } })
+  require("telescope.builtin").treesitter({ symbols = { "function", "method" } })
 end)
 
 -- Toggle diagnostic virtual lines (rich multi-line diagnostic rendering, Nvim 0.11+)
 vim.keymap.set("n", "<leader>dv", function()
-	local cfg = vim.diagnostic.config()
-	local enabling = not (cfg and cfg.virtual_lines)
-	vim.diagnostic.config({
-		virtual_lines = enabling and { current_line = true } or false,
-		virtual_text = enabling and false or {
-			spacing = 4,
-			source = "if_many",
-			prefix = "▎",
-		},
-	})
+  local cfg = vim.diagnostic.config()
+  local enabling = not (cfg and cfg.virtual_lines)
+  vim.diagnostic.config({
+    virtual_lines = enabling and { current_line = true } or false,
+    virtual_text = enabling and false or {
+      spacing = 4,
+      source = "if_many",
+      prefix = "▎",
+    },
+  })
 end, { desc = "Toggle diagnostic virtual lines" })
 
 -- Global inlay-hint toggle (fallback; buffer-local `<leader>ih` also exists via on_attach)
 vim.keymap.set("n", "<leader>iH", function()
-	vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled())
+  vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled())
 end, { desc = "Toggle inlay hints (global)" })
 
 -- DIAGNOSTIC (Keymaps moved to nvim-lspconfig on_attach)
@@ -303,9 +333,9 @@ end, { desc = "Toggle inlay hints (global)" })
 vim.keymap.set("n", "<leader>bb", "<cmd>lua require'dap'.toggle_breakpoint()<cr>")
 vim.keymap.set("n", "<leader>bc", "<cmd>lua require'dap'.set_breakpoint(vim.fn.input('Breakpoint condition: '))<cr>")
 vim.keymap.set(
-	"n",
-	"<leader>bl",
-	"<cmd>lua require'dap'.set_breakpoint(nil, nil, vim.fn.input('Log point message: '))<cr>"
+  "n",
+  "<leader>bl",
+  "<cmd>lua require'dap'.set_breakpoint(nil, nil, vim.fn.input('Log point message: '))<cr>"
 )
 vim.keymap.set("n", "<leader>br", "<cmd>lua require'dap'.clear_breakpoints()<cr>")
 vim.keymap.set("n", "<leader>ba", "<cmd>Telescope dap list_breakpoints<cr>")
@@ -314,66 +344,68 @@ vim.keymap.set("n", "<leader>dj", "<cmd>lua require'dap'.step_over()<cr>")
 vim.keymap.set("n", "<leader>dk", "<cmd>lua require'dap'.step_into()<cr>")
 vim.keymap.set("n", "<leader>do", "<cmd>lua require'dap'.step_out()<cr>")
 vim.keymap.set("n", "<leader>dd", function()
-	require("dap").disconnect()
-	require("dapui").close()
+  require("dap").disconnect()
+  require("dapui").close()
 end)
 vim.keymap.set("n", "<leader>dt", function()
-	require("dap").terminate()
-	require("dapui").close()
+  require("dap").terminate()
+  require("dapui").close()
 end)
 vim.keymap.set("n", "<leader>dr", "<cmd>lua require'dap'.repl.toggle()<cr>")
 vim.keymap.set("n", "<leader>dl", "<cmd>lua require'dap'.run_last()<cr>")
 vim.keymap.set("n", "<leader>di", function()
-	require("dap.ui.widgets").hover()
+  require("dap.ui.widgets").hover()
 end)
 vim.keymap.set("n", "<leader>d?", function()
-	local widgets = require("dap.ui.widgets")
-	widgets.centered_float(widgets.scopes)
+  local widgets = require("dap.ui.widgets")
+  widgets.centered_float(widgets.scopes)
 end)
 vim.keymap.set("n", "<leader>df", "<cmd>Telescope dap frames<cr>")
 vim.keymap.set("n", "<leader>dh", "<cmd>Telescope dap commands<cr>")
 vim.keymap.set("n", "<leader>de", function()
-	require("telescope.builtin").diagnostics({ default_text = ":E:" })
+  require("telescope.builtin").diagnostics({ default_text = ":E:" })
 end)
 
 require("config.lazy")
 
-
 -- Enable spell checking for markdown and text files
 vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
-	pattern = { "*.md", "*.txt" },
-	command = "setlocal spell",
+  pattern = { "*.md", "*.txt" },
+  command = "setlocal spell",
 })
 
 -- Auto-resize splits when Neovim window is resized
 vim.api.nvim_create_autocmd("VimResized", {
-	pattern = "*",
-	command = "wincmd =",
+  pattern = "*",
+  command = "wincmd =",
 })
-
 
 -- Macro recording indicator
 vim.fn.sign_define("MacroRecording", { text = "●", texthl = "MacroRecording" })
 do
-	local ok, palette = pcall(require, "config.palette")
-	vim.api.nvim_set_hl(0, "MacroRecording", { fg = ok and palette.red or "#ff3b6b", bold = true })
+  local ok, palette = pcall(require, "config.palette")
+  vim.api.nvim_set_hl(0, "MacroRecording", { fg = ok and palette.red or "#ff3b6b", bold = true })
 end
 
 local macro_recording_group = vim.api.nvim_create_augroup("MacroRecording", { clear = true })
 vim.api.nvim_create_autocmd("RecordingEnter", {
-	group = macro_recording_group,
-	pattern = "*",
-	callback = function()
-		vim.fn.sign_place(1, "MacroRecording", "MacroRecording", vim.api.nvim_get_current_buf(), { lnum = vim.fn.line("."), priority = 100 })
-	end,
+  group = macro_recording_group,
+  pattern = "*",
+  callback = function()
+    vim.fn.sign_place(
+      1,
+      "MacroRecording",
+      "MacroRecording",
+      vim.api.nvim_get_current_buf(),
+      { lnum = vim.fn.line("."), priority = 100 }
+    )
+  end,
 })
 
 vim.api.nvim_create_autocmd("RecordingLeave", {
-	group = macro_recording_group,
-	pattern = "*",
-	callback = function()
-		vim.fn.sign_unplace("MacroRecording")
-	end,
+  group = macro_recording_group,
+  pattern = "*",
+  callback = function()
+    vim.fn.sign_unplace("MacroRecording")
+  end,
 })
-
-

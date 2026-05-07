@@ -12,16 +12,6 @@ return {
 			desc = '[F]ormat buffer',
 		},
 	},
-	opts = {
-		format_on_save = function(bufnr)
-			local disable_filetypes = { c = true, cpp = true }
-			return {
-				timeout_ms = 1000,
-				lsp_fallback = true,
-			}
-		end,
-	},
-
 	config = function()
 		vim.g.autoformat = true
 
@@ -74,6 +64,34 @@ return {
 
 			-- notify when a formatter errors
 			notify_on_error = true,
+
+			format_on_save = function(bufnr)
+				if vim.g.autoformat == false or vim.b[bufnr].autoformat == false then
+					return
+				end
+				local disable_filetypes = { c = true, cpp = true }
+				if disable_filetypes[vim.bo[bufnr].filetype] then
+					return
+				end
+				return {
+					timeout_ms = 1000,
+					lsp_format = "fallback",
+				}
+			end,
 		})
+
+		-- Toggle format-on-save globally or per-buffer
+		vim.api.nvim_create_user_command("FormatDisable", function(args)
+			if args.bang then
+				vim.b.autoformat = false
+			else
+				vim.g.autoformat = false
+			end
+		end, { bang = true, desc = "Disable format-on-save (use ! for buffer-local)" })
+
+		vim.api.nvim_create_user_command("FormatEnable", function()
+			vim.b.autoformat = nil
+			vim.g.autoformat = true
+		end, { desc = "Re-enable format-on-save" })
 	end,
 }
