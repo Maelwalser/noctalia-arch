@@ -1,0 +1,5 @@
+# Keep the VimFields JS mod out of stow — it is installed into Vivaldi's
+# resources dir by vivaldi/install.sh, not symlinked into $HOME. Only main.css
+# is stow-managed (Vivaldi loads it from its css-mods folder).
+custom\.js
+install\.sh
