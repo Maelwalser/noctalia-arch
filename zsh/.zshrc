@@ -11,6 +11,27 @@ export EDITOR='nvim'
 export VISUAL='nvim'
 export SUDO_EDITOR='nvim'
 
+# Secrets from `pass`, loaded on demand. `pass show` costs ~175 ms because it
+# spawns gpg and round-trips through keyboxd, so running it at every prompt made
+# it two thirds of shell startup. Nothing needs the key until an AI tool asks
+# for it, so it is fetched at first use and then inherited by child processes.
+load-gemini-key() {
+  [[ -n "$GEMINI_API_KEY" ]] && return 0
+  export GEMINI_API_KEY="$(pass show gemini/api_key 2>/dev/null)"
+  [[ -n "$GEMINI_API_KEY" ]]
+}
+
+# nvim plugins read GEMINI_API_KEY from the environment, so populate it just
+# before the editor starts. Keeps the old behaviour without the startup cost.
+nvim() {
+  load-gemini-key
+  command nvim "$@"
+}
+
+# Skips oh-my-zsh's compaudit world-writable-fpath scan (~7 ms, run twice).
+# Worth it on a single-user machine; drop this line on a shared host.
+ZSH_DISABLE_COMPFIX=true
+
 # Plugins
  plugins=(
   git

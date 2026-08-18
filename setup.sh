@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly DOTFILES_ROOT="$(cd "$(dirname "$0")" && pwd)"
 readonly TARGET="$HOME"
-readonly PACKAGES=(ghostty hyprland neovim obsidian sioyek tmux vivaldi zsh)
+readonly PACKAGES=(ghostty gnupg hyprland neovim obsidian sioyek tmux vivaldi zsh)
 
 command -v stow &>/dev/null || { echo "stow not found"; exit 1; }
 
@@ -25,6 +25,14 @@ if [[ -d /opt/vivaldi ]] || command -v vivaldi &>/dev/null; then
   if ! sudo bash "$DOTFILES_ROOT/vivaldi/install.sh"; then
     echo "  ⚠ Vivaldi mod failed — run manually: sudo bash vivaldi/install.sh"
   fi
+fi
+
+# ── GnuPG stale-lock cleanup unit ───────────────────────────────────
+# Stowed above; still needs enabling in the systemd user manager.
+if command -v systemctl &>/dev/null; then
+  echo "Enabling gnupg-clear-stale-locks.service..."
+  systemctl --user daemon-reload
+  systemctl --user enable gnupg-clear-stale-locks.service
 fi
 
 echo "✅ Done"
