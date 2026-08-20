@@ -44,16 +44,26 @@ hl.bind("ALT + SHIFT + T", hl.dsp.window.float({ action = "disable" }))
 hl.bind("ALT + C", hl.dsp.window.center())
 
 -- --- Window Cycling ---
+-- With misc.on_focus_under_fullscreen = 1 ("take_over"), Alt+Tab while a
+-- window is fullscreen moves the fullscreen state onto the newly focused
+-- window, so its geometry travels from its tiled slot out to the whole
+-- monitor. Two leaves drive that, which is not obvious: windowsMove for the
+-- position, and windowsIn for the *size* -- a window's size animation keeps
+-- the config it was mapped with and is never reassigned. Both are tuned for
+-- this transition in looknfeel.lua.
+local function cycle_focus(opts)
+    hl.dispatch(hl.dsp.window.cycle_next(opts))
+    hl.dispatch(hl.dsp.window.bring_to_top())
+end
+
 -- Cycle forward and bring the active window to the top of the Z-order
 hl.bind("ALT + Tab", function()
-    hl.dispatch(hl.dsp.window.cycle_next())
-    hl.dispatch(hl.dsp.window.bring_to_top())
+    cycle_focus({ next = true })
 end)
 
 -- Cycle backward using Shift
 hl.bind("ALT + SHIFT + Tab", function()
-    hl.dispatch(hl.dsp.window.cycle_next({ next = false }))
-    hl.dispatch(hl.dsp.window.bring_to_top())
+    cycle_focus({ next = false })
 end)
 
 -- --- Window Navigation (Vim-style) ---
