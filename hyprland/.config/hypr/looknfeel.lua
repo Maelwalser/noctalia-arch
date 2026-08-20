@@ -90,8 +90,43 @@ hl.animation(geometry_anim("windowsIn"))
 hl.animation({ leaf = "windowsOut", enabled = true, speed = 3, bezier = "default", style = "popin 80%" })
 hl.animation(geometry_anim("windowsMove"))
 
--- Workspace switching
-hl.animation({ leaf = "workspaces", enabled = true, speed = 2, bezier = "default", style = "slide" })
+-- Workspace switching.
+--
+-- `slidefade N%` cross-fades the two workspaces while they travel only N% of
+-- the monitor width, instead of the full screen-width push that `slide` does.
+-- Short travel is what buys the speed: the switch reads as a fast settle
+-- rather than a strip of desktop being dragged past, so it can run at ~130ms
+-- without looking like frames were dropped.
+--
+-- workspacesIn and workspacesOut share `speed` and `bezier` deliberately. The
+-- style's alpha and offset both run on that curve, so identical timing makes
+-- the two alphas sum to 1 at every frame -- a clean cross-fade with no bright
+-- double-exposure in the middle and no flash of empty background. Only the
+-- travel distance differs: the incoming workspace slides a short way in while
+-- the outgoing one is pushed further out, which is what gives the switch its
+-- sense of depth.
+--
+-- easeOutExpo: ~85% of the distance is covered in the first third of the
+-- duration, so the motion is over almost before the eye tracks it and the
+-- tail is just the settle.
+hl.curve("wsSlide", { type = "bezier", points = { { 0.16, 1 }, { 0.3, 1 } } })
+
+local WORKSPACE_SPEED = 1.3 -- ds, so 130ms (was 200ms with the old `slide`)
+
+hl.animation({ leaf = "workspacesIn", enabled = true, speed = WORKSPACE_SPEED, bezier = "wsSlide", style = "slidefade 12%" })
+hl.animation({ leaf = "workspacesOut", enabled = true, speed = WORKSPACE_SPEED, bezier = "wsSlide", style = "slidefade 20%" })
+
+-- The two leaves above override `workspacesIn`/`workspacesOut` only, so
+-- `specialWorkspace` no longer inherits their timing -- without this it would
+-- fall through to the 800ms global default. Nothing binds a scratchpad today;
+-- this just keeps it from being unusably slow the day something does. Left on
+-- the plain full-width slide it always used, only the timing is matched.
+hl.animation({ leaf = "specialWorkspace", enabled = true, speed = WORKSPACE_SPEED, bezier = "wsSlide" })
+
+-- Slide 5 -> 1 forwards instead of racing backwards across four workspaces.
+-- Only affects the direction the animation picks, not which workspace is
+-- focused.
+hl.config({ animations = { workspace_wraparound = true } })
 
 -- Instant focus changes and border colour switches
 hl.animation({ leaf = "fade", enabled = false })
