@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly DOTFILES_ROOT="$(cd "$(dirname "$0")" && pwd)"
 readonly TARGET="$HOME"
-readonly PACKAGES=(ghostty gnupg hyprland neovim obsidian sioyek tmux vivaldi zsh)
+readonly PACKAGES=(ghostty gnupg hyprland neovim noctalia obsidian sioyek tmux vivaldi zsh)
 
 command -v stow &>/dev/null || { echo "stow not found"; exit 1; }
 
