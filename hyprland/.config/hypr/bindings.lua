@@ -44,10 +44,12 @@ hl.bind("ALT + SHIFT + T", hl.dsp.window.float({ action = "disable" }))
 hl.bind("ALT + C", hl.dsp.window.center())
 
 -- --- Window Switcher ---
--- Noctalia's switcher overlay (style/MRU in noctalia config.toml). "hold"
--- keeps it open while Alt is down; each further Tab advances and releasing
--- Alt focuses the selection. Alt+Shift+Tab is left unbound so it reaches
--- the overlay instead of being eaten by Hyprland.
+-- In fullscreen, Alt+Tab opens Noctalia's switcher overlay (style/MRU in
+-- noctalia config.toml). "hold" keeps it open while Alt is down; each
+-- further Tab advances and releasing Alt focuses the selection. Noctalia
+-- has no reverse "hold", so going backwards inside the overlay is left to
+-- the overlay itself: Alt+Shift+Tab is non-consuming and steps aside while
+-- the overlay is open, so the key reaches it.
 --
 -- With misc.on_focus_under_fullscreen = 1 ("take_over"), switching while a
 -- window is fullscreen moves the fullscreen state onto the newly focused
@@ -56,15 +58,58 @@ hl.bind("ALT + C", hl.dsp.window.center())
 -- position, and windowsIn for the *size* -- a window's size animation keeps
 -- the config it was mapped with and is never reassigned. Both are tuned for
 -- this transition in looknfeel.lua.
--- Do nothing when there is nothing to switch to, instead of flashing a
--- one-card carousel.
-hl.bind("ALT + Tab", function()
+local SWITCHER_NAMESPACE = "noctalia-window-switcher"
+
+local function overlaps(a, b)
+    return a.at.x < b.at.x + b.size.x and b.at.x < a.at.x + a.size.x
+        and a.at.y < b.at.y + b.size.y and b.at.y < a.at.y + a.size.y
+end
+
+local function has_overlapping_windows(ws)
+    local visible = {}
+    for _, win in ipairs(hl.get_workspace_windows(ws.id)) do
+        if not win.hidden then
+            for _, other in ipairs(visible) do
+                if overlaps(win, other) then
+                    return true
+                end
+            end
+            visible[#visible + 1] = win
+        end
+    end
+    return false
+end
+
+local function switcher_open()
+    return #hl.get_layers({ namespace = SWITCHER_NAMESPACE }) > 0
+end
+
+-- Fullscreen or maximized: the other windows are out of sight, so show the
+-- carousel. Windows stacked in front of each other: just focus the next
+-- one and raise it. Tiled side by side: everything is already on screen,
+-- so do nothing.
+local function switch_window(forward)
     local ws = hl.get_active_workspace()
     if not ws or ws.windows < 2 then
         return
     end
-    hl.exec_cmd("noctalia msg window-switcher hold")
+    if ws.has_fullscreen then
+        hl.exec_cmd("noctalia msg window-switcher hold")
+    elseif has_overlapping_windows(ws) then
+        hl.dispatch(hl.dsp.window.cycle_next({ next = forward }))
+        hl.dispatch(hl.dsp.window.bring_to_top())
+    end
+end
+
+hl.bind("ALT + Tab", function()
+    switch_window(true)
 end)
+
+hl.bind("ALT + SHIFT + Tab", function()
+    if not switcher_open() then
+        switch_window(false)
+    end
+end, { non_consuming = true })
 
 -- --- Window Navigation (Vim-style) ---
 hl.bind("SUPER + J", hl.dsp.layout("togglesplit"))
