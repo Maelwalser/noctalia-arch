@@ -37,10 +37,12 @@ control_center_placement       = "attached"   # v4 panelsAttachedToBar
 wallpaper_placement            = "attached"
 session_placement              = "attached"
 open_near_click_control_center = true    # v4 controlCenter.position = close_to_bar_button
+list_item_background           = true    # v4 launcher rows: surface_variant cards
 
 [shell.launcher]
 categories    = false                    # v4 showCategories
-compact       = true                     # v4 density = compact
+compact       = true                     # name only, no description line (v4 density = compact)
+show_app_origin_indicator = false        # v4 had no package-origin badges
 sort_by_usage = true
 pinned        = []
 auto_paste    = "off"
@@ -255,6 +257,9 @@ cy     = 440.0
 stat = "cpu_usage"
 
 # ── Control Center ────────────────────────────────────────────────────────────
+
+[control_center]
+hidden_tabs = ["weather", "calendar"]
 
 [control_center.calendar]
 show_events_card  = true
