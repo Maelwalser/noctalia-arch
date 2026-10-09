@@ -195,6 +195,7 @@ hl.bind("ALT + RETURN", hl.dsp.exec_cmd(terminal), { description = "Terminal" })
 hl.bind("ALT + SHIFT + D", hl.dsp.exec_cmd(terminal .. " -e lazydocker"), { description = "Docker" })
 
 hl.bind("SUPER + W", hl.dsp.exec_cmd("noctalia msg panel-toggle wallpaper"))
+hl.bind("SUPER + V", hl.dsp.exec_cmd("noctalia msg panel-toggle clipboard"), { description = "Clipboard history" })
 hl.bind("ALT + SPACE", hl.dsp.exec_cmd("noctalia msg panel-toggle launcher"), { description = "Launch apps" })
 
 hl.bind("SUPER + SHIFT + S", hl.dsp.exec_cmd('grim -g "$(slurp)" - | wl-copy'))
