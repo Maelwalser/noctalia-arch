@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly DOTFILES_ROOT="$(cd "$(dirname "$0")" && pwd)"
 readonly TARGET="$HOME"
-readonly PACKAGES=(ghostty gnupg gtk hyprland neovim noctalia obsidian sioyek tmux vivaldi zsh)
+readonly PACKAGES=(ghostty gnupg gtk hyprland neovim noctalia obsidian qt6ct sioyek tmux vivaldi zsh)
 
 command -v stow &>/dev/null || { echo "stow not found"; exit 1; }
 
@@ -37,13 +37,20 @@ fi
 
 # ── GTK3 dark theme ─────────────────────────────────────────────────
 # GTK3 apps (incl. the xdg-desktop-portal-gtk file chooser browsers open)
-# ignore color-scheme=prefer-dark and only go dark via the stowed
-# gtk-3.0/settings.ini prefer-dark flag. The theme must stay "Adwaita":
-# gtk3 has no "Adwaita-dark" theme and silently falls back to light.
+# ignore color-scheme=prefer-dark, so they need a dark theme by name.
+# adw-gtk3-dark (pacman: adw-gtk-theme) is what Noctalia's gtk template hook
+# sets too; this only covers the time before Noctalia first applies colours.
+# Without the package, keep "Adwaita" + the stowed settings.ini prefer-dark
+# flag: gtk3 has no "Adwaita-dark" theme and silently falls back to light.
 if command -v gsettings &>/dev/null; then
   echo "Setting GTK dark theme..."
   gsettings set org.gnome.desktop.interface color-scheme prefer-dark
-  gsettings set org.gnome.desktop.interface gtk-theme Adwaita
+  if [[ -d /usr/share/themes/adw-gtk3-dark ]]; then
+    gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3-dark
+  else
+    echo "  ⚠ adw-gtk-theme not installed — GTK apps won't follow the Noctalia palette"
+    gsettings set org.gnome.desktop.interface gtk-theme Adwaita
+  fi
 fi
 
 echo "✅ Done"

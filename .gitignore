@@ -34,3 +34,6 @@ gnupg/.gnupg/
 # whole directories into the repo, so the generated files would land here.
 hyprland/.config/hypr/noctalia.lua
 ghostty/.config/ghostty/themes/
+gtk/.config/gtk-3.0/noctalia.css
+gtk/.config/gtk-4.0/noctalia.css
+qt6ct/.config/qt6ct/colors/

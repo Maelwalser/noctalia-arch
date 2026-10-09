@@ -135,8 +135,11 @@ custom_palette   = "v4-eyes"
 
 [theme.templates]
 enable_builtin_templates = true
-# hyprland renders ~/.config/hypr/noctalia.lua, loaded at the end of hyprland.lua
-builtin_ids              = ["hyprland", "ghostty"]
+# hyprland renders ~/.config/hypr/noctalia.lua, loaded at the end of hyprland.lua.
+# gtk3/gtk4 write noctalia.css next to the stowed gtk.css (which imports it) and
+# switch gtk-theme to adw-gtk3-dark; qt writes the qt6ct colour scheme that the
+# stowed qt6ct.conf points at.
+builtin_ids              = ["hyprland", "ghostty", "gtk3", "gtk4", "qt"]
 
 # btop: v5's built-in template derives two colours from the palette differently
 # than v4 did, so this copy pins them to v4's values (selected_bg, div_line).
