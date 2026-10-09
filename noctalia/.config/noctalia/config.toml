@@ -53,6 +53,14 @@ global = true                            # v4 enableSessionSearch
 [shell.launcher.providers.windows]
 global = true                            # v4 enableWindowsSearch
 
+[shell.window_switcher]
+style = "carousel"                       # window snapshots; "compact" for a list
+mru   = true                             # most recently used first
+current_workspace_only = true            # only cycle windows on the active workspace
+show_all_outputs       = false           # only windows on the focused monitor
+show_caption           = false           # no window title under each card
+show_count             = false           # no "2 / 5" position indicator
+
 [shell.mpris]
 blacklist = []
 

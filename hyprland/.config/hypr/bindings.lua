@@ -43,27 +43,27 @@ hl.bind("ALT + SHIFT + T", hl.dsp.window.float({ action = "disable" }))
 -- Center window to the middle of the screen, when tiled
 hl.bind("ALT + C", hl.dsp.window.center())
 
--- --- Window Cycling ---
--- With misc.on_focus_under_fullscreen = 1 ("take_over"), Alt+Tab while a
+-- --- Window Switcher ---
+-- Noctalia's switcher overlay (style/MRU in noctalia config.toml). "hold"
+-- keeps it open while Alt is down; each further Tab advances and releasing
+-- Alt focuses the selection. Alt+Shift+Tab is left unbound so it reaches
+-- the overlay instead of being eaten by Hyprland.
+--
+-- With misc.on_focus_under_fullscreen = 1 ("take_over"), switching while a
 -- window is fullscreen moves the fullscreen state onto the newly focused
 -- window, so its geometry travels from its tiled slot out to the whole
 -- monitor. Two leaves drive that, which is not obvious: windowsMove for the
 -- position, and windowsIn for the *size* -- a window's size animation keeps
 -- the config it was mapped with and is never reassigned. Both are tuned for
 -- this transition in looknfeel.lua.
-local function cycle_focus(opts)
-    hl.dispatch(hl.dsp.window.cycle_next(opts))
-    hl.dispatch(hl.dsp.window.bring_to_top())
-end
-
--- Cycle forward and bring the active window to the top of the Z-order
+-- Do nothing when there is nothing to switch to, instead of flashing a
+-- one-card carousel.
 hl.bind("ALT + Tab", function()
-    cycle_focus({ next = true })
-end)
-
--- Cycle backward using Shift
-hl.bind("ALT + SHIFT + Tab", function()
-    cycle_focus({ next = false })
+    local ws = hl.get_active_workspace()
+    if not ws or ws.windows < 2 then
+        return
+    end
+    hl.exec_cmd("noctalia msg window-switcher hold")
 end)
 
 -- --- Window Navigation (Vim-style) ---
