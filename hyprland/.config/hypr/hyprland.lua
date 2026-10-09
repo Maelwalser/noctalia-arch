@@ -38,4 +38,21 @@ require("autostart")
 -- Noctalia's first run, keeps Hyprland's defaults instead of erroring out.
 -- Noctalia's apply.sh checks for the literal require("noctalia") below, so
 -- keep it intact or it will append an unguarded copy.
-pcall(function() require("noctalia").apply_theme() end)
+local ok, theme = pcall(function() return require("noctalia") end)
+if ok then
+    theme.apply_theme()
+    -- Overrides the template's flat active border with a primary -> secondary
+    -- gradient. Re-read on every reload, so the colors_changed hook in
+    -- noctalia config.toml keeps it in step with the palette.
+    hl.config({
+        general = {
+            border_size = 2,
+            col = {
+                active_border = {
+                    colors = { theme.colors.primary, theme.colors.secondary },
+                    angle = 45,
+                },
+            },
+        },
+    })
+end

@@ -420,7 +420,7 @@ colors_changed = "hyprctl reload"
 
 [lockscreen_widgets]
 enabled      = true
-widget_order = ["lock_card_dp2", "lock_welcome_dp2", "lock_date_dp2", "lock_time_dp2", "lockscreen-login-box@DP-2", "lock_card_edp1", "lock_welcome_edp1", "lock_date_edp1", "lock_time_edp1", "lockscreen-login-box@eDP-1"]
+widget_order = ["lock_card_dp2", "lock_welcome_dp2", "lock_date_dp2", "lock_time_dp2", "lockscreen-login-box@DP-2", "lock_card_dp4", "lock_welcome_dp4", "lock_date_dp4", "lock_time_dp4", "lockscreen-login-box@DP-4", "lock_card_edp1", "lock_welcome_edp1", "lock_date_edp1", "lock_time_edp1", "lockscreen-login-box@eDP-1"]
 
 [lockscreen_widgets.widget.lock_card_dp2]
 output   = "DP-2"
@@ -489,6 +489,89 @@ box_width  = 810.0
 box_height = 196.0
 
 [lockscreen_widgets.widget."lockscreen-login-box@DP-2".settings]
+layout               = "regular"
+show_media           = false   # v4 enableLockScreenMediaControls = false
+show_weather         = false
+show_session_buttons = true    # v4 showSessionButtonsOnLockScreen
+# v4 panel: solid surface; corners reduced from v4's 40 on request
+background_color     = "surface"
+background_opacity   = 1.0
+background_radius    = 16.0
+input_opacity        = 1.0
+input_radius         = 12.0
+show_login_button    = false   # no confirm button beside the password field
+center_password_text = true    # password characters centred in the field
+show_unlock_hint     = false   # hide the "type password and press enter" card; errors and Caps Lock still show
+
+# DP-4 ultrawide: 2560x1080 logical (5120x2160 at scale 2). Same height as
+# DP-2, so this is the DP-2 set shifted right by (2560 - 1920) / 2 = 320.
+[lockscreen_widgets.widget.lock_card_dp4]
+output   = "DP-4"
+type = "label"
+cx = 1280.0
+cy = 160.0
+box_width = 540.0
+box_height = 120.0
+
+[lockscreen_widgets.widget.lock_card_dp4.settings]
+title = " "
+background_color = "surface"
+background_opacity = 1.0
+background_radius = 32.0
+shadow = false
+
+[lockscreen_widgets.widget.lock_welcome_dp4]
+output   = "DP-4"
+type = "label"
+cx = 1220.0
+cy = 142.0
+box_width = 380.0
+box_height = 40.0
+
+[lockscreen_widgets.widget.lock_welcome_dp4.settings]
+title = "Welcome back, mael!"
+background = false
+shadow = false
+color = "on_surface"
+
+[lockscreen_widgets.widget.lock_date_dp4]
+output   = "DP-4"
+type = "clock"
+cx = 1158.0
+cy = 182.0
+box_width = 380.0
+box_height = 30.0
+
+[lockscreen_widgets.widget.lock_date_dp4.settings]
+format = "{:%A, %B %-d}"
+background = false
+shadow = false
+color = "on_surface_variant"
+
+[lockscreen_widgets.widget.lock_time_dp4]
+output   = "DP-4"
+type = "clock"
+cx = 1480.0
+cy = 160.0
+box_width = 90.0
+box_height = 90.0
+
+[lockscreen_widgets.widget.lock_time_dp4.settings]
+format = "{:%H\n%M}"
+center_text = true
+background = false
+shadow = false
+color = "on_surface"
+
+[lockscreen_widgets.widget."lockscreen-login-box@DP-4"]
+type     = "login_box"
+output   = "DP-4"
+cx       = 1280.0
+cy       = 898.0
+box_width  = 810.0
+box_height = 196.0
+
+[lockscreen_widgets.widget."lockscreen-login-box@DP-4".settings]
 layout               = "regular"
 show_media           = false   # v4 enableLockScreenMediaControls = false
 show_weather         = false
