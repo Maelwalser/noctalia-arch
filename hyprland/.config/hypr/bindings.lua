@@ -73,7 +73,7 @@ hl.bind("SUPER + J", hl.dsp.layout("togglesplit"))
 hl.bind("ALT + SHIFT + q", hl.dsp.window.close())
 
 -- Lock screen
-hl.bind("SUPER + l", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call lockScreen lock"))
+hl.bind("SUPER + l", hl.dsp.exec_cmd("noctalia msg session lock"))
 
 -- --- Window Movement (Vim-style) ---
 -- Tiled windows swap places in the layout. Floating windows step by
@@ -143,13 +143,13 @@ hl.bind("ALT + j", hl.dsp.focus({ direction = "d" }))
 -- --- Application shortcuts ---
 hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
 hl.bind("SUPER + SHIFT + T", hl.dsp.exec_cmd(terminal .. " -e btop"), { description = "Activity" })
-hl.bind("SUPER + SHIFT + N", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call controlCenter toggle"))
+hl.bind("SUPER + SHIFT + N", hl.dsp.exec_cmd("noctalia msg panel-toggle control-center"))
 hl.bind("ALT + SHIFT + O", hl.dsp.exec_cmd("obsidian"), { description = "Obsidian" })
 hl.bind("ALT + SHIFT + B", hl.dsp.exec_cmd(browser), { description = "Browser" })
 hl.bind("ALT + RETURN", hl.dsp.exec_cmd(terminal), { description = "Terminal" })
 hl.bind("ALT + SHIFT + D", hl.dsp.exec_cmd(terminal .. " -e lazydocker"), { description = "Docker" })
 
-hl.bind("SUPER + W", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call wallpaper toggle"))
-hl.bind("ALT + SPACE", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call launcher toggle"), { description = "Launch apps" })
+hl.bind("SUPER + W", hl.dsp.exec_cmd("noctalia msg panel-toggle wallpaper"))
+hl.bind("ALT + SPACE", hl.dsp.exec_cmd("noctalia msg panel-toggle launcher"), { description = "Launch apps" })
 
 hl.bind("SUPER + SHIFT + S", hl.dsp.exec_cmd('grim -g "$(slurp)" - | wl-copy'))
