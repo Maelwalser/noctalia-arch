@@ -174,7 +174,12 @@ vim.opt.viewoptions:remove("options") -- Make viewoptions more minimal (e.g., fo
 vim.opt.foldenable = false -- Disable folding by default
 vim.opt.foldlevel = 99 -- Keep folds open by default
 vim.opt.foldmethod = "expr"
-vim.opt.foldexpr = "nvim_treesitter#foldexpr()" -- Utilize Treesitter folds
+-- Native Nvim 0.10+ Treesitter foldexpr. The old `nvim_treesitter#foldexpr()`
+-- vimscript function does NOT exist on nvim-treesitter's `main` branch (the
+-- branch this config pins), so 'foldexpr' evaluated to an error for every
+-- line on every redraw — ~1.9 s to open a 9k-line file, even with
+-- 'foldenable' off. Same folds, without the dead call.
+vim.opt.foldexpr = "v:lua.vim.treesitter.foldexpr()"
 vim.opt.conceallevel = 2 -- Hide concealed text (e.g. markdown formatting)
 
 -- -----------------------------------------------------------------------------
@@ -229,6 +234,16 @@ vim.opt.fileencoding = "utf-8" -- File encoding
 -- Disable some default providers if alternatives are used
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
+
+-- Remote-plugin hosts. Nothing here registers an rplugin (no rplugin.vim
+-- manifest, no plugin references pynvim or remote#host), but leaving the
+-- python3 provider enabled made every Python buffer source
+-- runtime/autoload/provider/python3.vim and spawn an interpreter to probe for
+-- the `neovim` module — ~76 ms per Python file for a feature nothing uses.
+vim.g.loaded_python3_provider = 0
+vim.g.loaded_perl_provider = 0
+vim.g.loaded_ruby_provider = 0
+vim.g.loaded_node_provider = 0
 
 -- Create an augroup named "YankHighlight", clearing any existing one with the same name
 local highlight_group = vim.api.nvim_create_augroup("YankHighlight", { clear = true })

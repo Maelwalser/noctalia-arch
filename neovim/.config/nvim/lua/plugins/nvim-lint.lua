@@ -1,6 +1,10 @@
 return {
   'mfussenegger/nvim-lint',
 
+  -- No lazy trigger meant this loaded at startup, even though the autocmd it
+  -- registers below can only fire once a buffer is read.
+  event = { "BufReadPost", "BufNewFile" },
+
   config = function()
     require('lint').linters_by_ft = {
       java = { 'checkstyle' },

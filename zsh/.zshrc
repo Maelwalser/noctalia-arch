@@ -28,13 +28,45 @@ nvim() {
   command nvim "$@"
 }
 
-# Skips oh-my-zsh's compaudit world-writable-fpath scan (~7 ms, run twice).
-# Worth it on a single-user machine; drop this line on a shared host.
+# Picks oh-my-zsh's `compinit -u` branch over `compinit -i`. Note this does NOT
+# skip the compaudit world-writable-fpath scan, as previously assumed: compinit
+# runs compaudit for both -i and -u, and only -C suppresses it. See the compinit
+# wrapper below for the part that actually removes that cost.
 ZSH_DISABLE_COMPFIX=true
 
+# oh-my-zsh's auto-update check forks `git --version` and `git rev-parse` on
+# every single shell. Updates here are done by hand via `omz update`.
+zstyle ':omz:update' mode disabled
+
+# compaudit walks every fpath entry stat'ing for group/world-writable dirs
+# (~13 ms), and compinit separately re-scans fpath for completions the dump
+# doesn't have yet. Neither needs to happen on every shell: trust the cached
+# dump, and force one full rebuild a day so newly installed tools still get
+# their completions.
+compinit() {
+  unfunction compinit
+  autoload -Uz compinit
+  local dump=${ZSH_COMPDUMP:-${ZDOTDIR:-$HOME}/.zcompdump}
+  local -a stale=( ${dump}(Nmh+24) )
+  if [[ ! -s $dump ]] || (( $#stale )); then
+    compinit "$@"      # full scan
+    # compinit only rewrites the dump when its contents changed, so on an
+    # unchanged scan the mtime would stay stale and every later shell would
+    # redo the full scan. Bump it explicitly to restart the 24 h clock.
+    [[ -s $dump ]] && touch "$dump"
+  else
+    compinit -C "$@"   # cached dump is fresh enough
+  fi
+}
+
 # Plugins
+#
+# The `git` plugin is deliberately absent: it costs ~11 ms per shell to define
+# ~150 aliases, and across 12k lines of history exactly one of them was ever
+# used. The prompt is unaffected — `git_prompt_info` comes from oh-my-zsh's
+# lib/git.zsh, which loads regardless of this list. `_git` completion comes
+# from zsh itself, not from the plugin.
  plugins=(
-  git
   zsh-autosuggestions
   vi-mode
   zsh-syntax-highlighting
@@ -60,7 +92,16 @@ KOLLZSH_COMMAND_COUNT=5
 export _ZO_DOCTOR=0
 
 # Tools
-eval "$(zoxide init zsh --cmd cd)"
+# `zoxide init` prints the same script every time, so run it only when zoxide
+# itself is newer than the cache rather than forking it on every startup.
+() {
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zoxide-init.zsh"
+  if [[ ! -s $cache || $commands[zoxide] -nt $cache ]]; then
+    mkdir -p "${cache:h}"
+    zoxide init zsh --cmd cd >| "$cache"
+  fi
+  source "$cache"
+}
 
 
 # --- TMUX TOOLKIT ---
@@ -220,6 +261,14 @@ export PATH="$PATH":"$HOME/.pub-cache/bin"
 
 # opencode
 export PATH=/home/mael/.opencode/bin:$PATH
+
+# The android-sdk-cmdline-tools-latest package ships
+# /etc/profile.d/android-sdk-cmdline-tools-latest.sh, which points these at
+# /opt/android-sdk — that tree only holds cmdline-tools, so Flutter reports
+# "No Android SDK found". The real SDK (platforms, ndk, build-tools) is here.
+export ANDROID_HOME="$HOME/Android/Sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 
 # --- AI AGENT TOOLKIT ---

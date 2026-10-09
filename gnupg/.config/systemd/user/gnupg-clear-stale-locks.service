@@ -1,0 +1,27 @@
+[Unit]
+Description=Clear stale GnuPG dotlocks left over from a previous boot
+
+# GnuPG's dotlock records the holder's PID in the lock file. To decide whether a
+# lock is stale it checks whether that PID is still alive — but after a reboot
+# the number is usually reused by an unrelated process, so gpg concludes the
+# lock is live and blocks until "keydb_search failed: Connection timed out".
+#
+# At user-manager startup no gpg process from this boot exists yet, so every
+# lock file under ~/.gnupg is stale by definition and safe to remove. Ordered
+# before the gpg sockets so cleanup finishes before anything can activate them.
+#
+# DefaultDependencies=no is required: the implicit After=basic.target would
+# otherwise form a cycle, since basic.target itself comes after sockets.target.
+DefaultDependencies=no
+Before=sockets.target gpg-agent.socket keyboxd.socket dirmngr.socket
+Conflicts=shutdown.target
+Before=shutdown.target
+ConditionPathIsDirectory=%h/.gnupg
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/find %h/.gnupg -maxdepth 2 -type f "(" -name ".#lk*" -o -name "*.lock" ")" -delete
+
+[Install]
+WantedBy=sockets.target

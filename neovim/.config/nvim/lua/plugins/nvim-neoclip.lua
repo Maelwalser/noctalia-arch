@@ -2,9 +2,9 @@ return {
   "AckslD/nvim-neoclip.lua",
   dependencies = {
     { 'kkharji/sqlite.lua',           module = 'sqlite' },
-    -- you'll need at least one of these
+    -- neoclip needs one picker, not both. fzf-lua appears nowhere else in this
+    -- config, and pulling it in here dragged it into startup for nothing.
     { 'nvim-telescope/telescope.nvim' },
-    { 'ibhagwan/fzf-lua' },
   },
   config = function()
     require('neoclip').setup()

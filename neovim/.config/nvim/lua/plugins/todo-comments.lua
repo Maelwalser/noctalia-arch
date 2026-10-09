@@ -1,7 +1,9 @@
 return {
   {
     "folke/todo-comments.nvim",
-    lazy = false,
+    -- `lazy = false` used to sit here and override the event below, so this
+    -- loaded at startup. It highlights buffer text; there is nothing to do
+    -- until a buffer exists.
     event = "BufEnter",
     opts = function()
       local p = require("config.palette")
