@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Build the third-party Hyprland plugins this config loads (plugins.lua) from
+# pinned commits, and install them into ~/.local/share/hyprland/plugins.
+# hyprpm is not shipped by Arch's hyprland package, so this stands in for it.
+#
+# Plugins are compiled against Hyprland's internal headers: rerun this after
+# every Hyprland update. Hyprland refuses to load a plugin built for another
+# version (it logs "Failed to load plugin"), so a stale build is skipped, not
+# a crash.
+#
+# Usage: hypr-plugins            build and install all, then reload Hyprland
+set -euo pipefail
+
+# name  repository  commit (review the diff before bumping a pin: plugins run
+# inside the compositor)
+readonly PLUGINS=(
+  "confined-floats https://github.com/mennemann/hyprland-confined-floats 861f1220a5a37c13284ce5d24a3cf6c046fe2d38"
+)
+readonly SRC="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugin-src"
+readonly OUT="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugins"
+
+for tool in git cmake pkg-config; do
+  command -v "$tool" &>/dev/null || { echo "hypr-plugins: missing $tool" >&2; exit 1; }
+done
+pkg-config --exists hyprland || { echo "hypr-plugins: Hyprland headers not found (pkg-config hyprland)" >&2; exit 1; }
+
+mkdir -p "$SRC" "$OUT"
+echo "Hyprland $(pkg-config --modversion hyprland)"
+for entry in "${PLUGINS[@]}"; do
+  read -r name repo commit <<<"$entry"
+  dir="$SRC/$name"
+  echo "── $name @ ${commit:0:12}"
+  [[ -d "$dir/.git" ]] || git clone -q "$repo" "$dir"
+  git -C "$dir" fetch -q origin
+  git -C "$dir" -c advice.detachedHead=false checkout -q "$commit"
+  cmake -S "$dir" -B "$dir/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
+  cmake --build "$dir/build" -j"$(nproc)"
+  lib="lib$name.so"
+  # Replace atomically: Hyprland may have the old file mapped.
+  install -m 755 "$dir/build/$lib" "$OUT/.$lib.new"
+  mv -f "$OUT/.$lib.new" "$OUT/$lib"
+  echo "   installed $OUT/$lib"
+done
+
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+  hyprctl reload >/dev/null && echo "Hyprland reloaded"
+fi

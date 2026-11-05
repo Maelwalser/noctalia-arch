@@ -65,6 +65,16 @@ if command -v gsettings &>/dev/null; then
   fi
 fi
 
+# ── Hyprland plugins ────────────────────────────────────────────────
+# Built from pinned commits (hyprpm is not in Arch's hyprland package). Rerun
+# `hypr-plugins` after every Hyprland update: plugins are version-locked.
+if command -v cmake &>/dev/null && pkg-config --exists hyprland 2>/dev/null; then
+  echo "Building Hyprland plugins..."
+  "$HOME/.local/bin/hypr-plugins" || echo "  ⚠ hypr-plugins failed — rerun it to see the error"
+else
+  echo "  ⚠ cmake or Hyprland headers missing — skipped hypr-plugins"
+fi
+
 # ── ACID//HUD theme ─────────────────────────────────────────────────
 # hud-build crops the UI elements out of the vector packs in ~/Pictures/ricing
 # (licensed stock art, never committed) and renders wallpapers, bar frames,
