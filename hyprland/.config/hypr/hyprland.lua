@@ -39,11 +39,33 @@ require("autostart")
 -- Noctalia's apply.sh checks for the literal require("noctalia") below, so
 -- keep it intact or it will append an unguarded copy.
 local ok, theme = pcall(function() return require("noctalia") end)
-if ok then
+if ok and require("dotfiles_theme") == "acid" then
     theme.apply_theme()
-    -- Overrides the template's flat active border with a primary -> secondary
-    -- gradient. Re-read on every reload, so the colors_changed hook in
-    -- noctalia config.toml keeps it in step with the palette.
+    -- ACID//HUD: acid -> bone -> acid gradient on the active border (the
+    -- borderangle loop in looknfeel.lua spins it), a dim hairline on inactive
+    -- windows, and an acid-tinted shadow as a glow. Re-read on every reload, so
+    -- the colors_changed hook in noctalia config.toml keeps it in step.
+    local primary_hex = theme.colors.primary:match("%x%x%x%x%x%x") or "d4ff1e"
+    hl.config({
+        general = {
+            border_size = 2,
+            col = {
+                active_border = {
+                    colors = { theme.colors.primary, theme.colors.secondary, theme.colors.primary },
+                    angle = 45,
+                },
+                inactive_border = "rgba(3a3a42aa)",
+            },
+        },
+        decoration = {
+            shadow = { color = "rgba(" .. primary_hex .. "30)" },
+        },
+    })
+elseif ok then
+    theme.apply_theme()
+    -- Classic: the template's flat active border becomes a primary -> secondary
+    -- gradient. Re-read on every reload, so the colors_changed hook in noctalia
+    -- config.toml keeps it in step with the palette.
     hl.config({
         general = {
             border_size = 2,

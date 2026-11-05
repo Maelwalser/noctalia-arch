@@ -74,7 +74,18 @@ return {
           { icon = "󰒲 ", key = "l", desc = "Lazy", action = ":Lazy", enabled = package.loaded.lazy ~= nil },
           { icon = " ", key = "q", desc = "Quit", action = ":qa" },
         },
-        header = [[
+        -- ACID//HUD emblem (half blocks, rendered by `hud-build`) above the
+        -- wordmark. Skipped under the classic theme and on short screens, where
+        -- the dashboard would otherwise overflow and clip the top of the header.
+        header = (function()
+          local f = require("config.dotfiles_theme") == "acid"
+            and vim.o.lines >= 46
+            and io.open(vim.fn.expand("~/.local/share/hud/nvim-header.txt"), "r")
+          local emblem = f and f:read("*a") or ""
+          if f then
+            f:close()
+          end
+          return emblem .. [[
  _______  _______  _______  _                  _________ _______
 (       )(  ___  )(  ____ \( \        |\     /|\__   __/(       )
 | () () || (   ) || (    \/| (        | )   ( |   ) (   | () () |
@@ -83,7 +94,8 @@ return {
 | |   | || (   ) || (      | |         \ \_/ /    | |   | |   | |
 | )   ( || )   ( || (____/\| (____/\    \   /  ___) (___| )   ( |
 |/     \||/     \|(_______/(_______/     \_/   \_______/|/     \|
-]],
+]]
+        end)(),
       },
       sections = {
         {
@@ -133,10 +145,18 @@ return {
     local set = function(name, val)
       vim.api.nvim_set_hl(0, name, val)
     end
-    set("SnacksDashboardHeader", { fg = p.purple, bold = true })
-    set("SnacksDashboardTitle", { fg = p.magenta, bold = true })
-    set("SnacksDashboardIcon", { fg = p.pink })
-    set("SnacksDashboardKey", { fg = p.yellow, bold = true })
+    if require("config.dotfiles_theme") == "acid" then
+      -- p.blue is the accent slot (acid under the ACID//HUD palette).
+      set("SnacksDashboardHeader", { fg = p.blue, bold = true })
+      set("SnacksDashboardTitle", { fg = p.fg, bold = true })
+      set("SnacksDashboardIcon", { fg = p.blue })
+      set("SnacksDashboardKey", { fg = p.blue, bold = true })
+    else
+      set("SnacksDashboardHeader", { fg = p.purple, bold = true })
+      set("SnacksDashboardTitle", { fg = p.magenta, bold = true })
+      set("SnacksDashboardIcon", { fg = p.pink })
+      set("SnacksDashboardKey", { fg = p.yellow, bold = true })
+    end
     set("SnacksDashboardDesc", { fg = p.fg })
     set("SnacksDashboardFile", { fg = p.fg })
     set("SnacksDashboardDir", { fg = p.fg_dim })

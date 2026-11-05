@@ -1,3 +1,5 @@
+local acid = require("dotfiles_theme") == "acid"
+
 -- https://wiki.hypr.land/Configuring/Basics/Variables/
 hl.config({
     general = {
@@ -6,11 +8,19 @@ hl.config({
     },
 
     decoration = {
-        -- Use round window corners
-        rounding = 20,
+        -- ACID//HUD: near-square corners; classic: round ones.
+        rounding = acid and 4 or 20,
         rounding_power = 2,
 
-        shadow = {
+        -- ACID//HUD: wide soft shadow; hyprland.lua tints the active one acid
+        -- for a glow. Classic: a tight dark one.
+        shadow = acid and {
+            enabled = true,
+            range = 18,
+            render_power = 3,
+            color = "rgba(000000aa)",
+            color_inactive = "rgba(00000088)",
+        } or {
             enabled = true,
             range = 4,
             render_power = 3,
@@ -55,6 +65,15 @@ hl.layer_rule({
     ignore_alpha = 0.5,
     blur = true,
     blur_popups = true,
+})
+
+-- ACID//HUD desktop overlay (quickshell/.config/quickshell/hud): it animates
+-- itself and must stay crisp, so no layer animation and no blur behind it.
+hl.layer_rule({
+    name = "hud-overlay",
+    match = { namespace = "^hud-overlay$" },
+    no_anim = true,
+    blur = false,
 })
 
 -- Custom "snappy" curve. Format: name, { type, points = { {x0, y0}, {x1, y1} } }
@@ -135,3 +154,11 @@ hl.config({ animations = { workspace_wraparound = true } })
 -- Instant focus changes and border colour switches
 hl.animation({ leaf = "fade", enabled = false })
 hl.animation({ leaf = "border", enabled = false })
+
+-- ACID//HUD: the active border's gradient slowly circles the window (one turn
+-- per 10 s). `loop` keeps redrawing the active window's border every frame;
+-- set HUD_BORDER_LOOP = false to trade the motion for zero idle redraws.
+-- Classic has no loop.
+local HUD_BORDER_LOOP = acid
+hl.curve("hudLinear", { type = "bezier", points = { { 0, 0 }, { 1, 1 } } })
+hl.animation({ leaf = "borderangle", enabled = HUD_BORDER_LOOP, speed = 100, bezier = "hudLinear", style = "loop" })

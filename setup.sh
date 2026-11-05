@@ -3,7 +3,19 @@ set -euo pipefail
 
 readonly DOTFILES_ROOT="$(cd "$(dirname "$0")" && pwd)"
 readonly TARGET="$HOME"
-readonly PACKAGES=(ghostty gnupg gtk hyprland neovim noctalia obsidian qt6ct sioyek tmux vivaldi zsh)
+readonly PACKAGES=(btop claude fastfetch ghostty gnupg gtk hud hyprland neovim noctalia obsidian qt6ct quickshell sioyek theme tmux vivaldi zsh)
+
+# Desktop theme: acid (ACID//HUD) or classic. Defaults to the one already
+# chosen on this machine, else acid. Switch later with `dotfiles-theme <name>`.
+theme="$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/theme" 2>/dev/null || echo acid)"
+while (( $# )); do
+  case "$1" in
+    --theme) theme="${2:?--theme needs acid or classic}"; shift 2 ;;
+    --theme=*) theme="${1#--theme=}"; shift ;;
+    *) echo "usage: $0 [--theme acid|classic]"; exit 2 ;;
+  esac
+done
+[[ "$theme" == acid || "$theme" == classic ]] || { echo "unknown theme: $theme"; exit 2; }
 
 command -v stow &>/dev/null || { echo "stow not found"; exit 1; }
 
@@ -52,5 +64,39 @@ if command -v gsettings &>/dev/null; then
     gsettings set org.gnome.desktop.interface gtk-theme Adwaita
   fi
 fi
+
+# ── ACID//HUD theme ─────────────────────────────────────────────────
+# hud-build crops the UI elements out of the vector packs in ~/Pictures/ricing
+# (licensed stock art, never committed) and renders wallpapers, bar frames,
+# lockscreen stickers and overlay layers into ~/.local/share/hud.
+hud_missing=()
+for tool in gs pdftocairo magick qs; do
+  command -v "$tool" &>/dev/null || hud_missing+=("$tool")
+done
+if (( ${#hud_missing[@]} )); then
+  echo "  ⚠ ACID//HUD needs: ${hud_missing[*]} — pacman -S ghostscript poppler imagemagick quickshell"
+fi
+if [[ -d "$HOME/Pictures/ricing" ]] && command -v gs &>/dev/null && command -v magick &>/dev/null; then
+  echo "Building ACID//HUD assets..."
+  "$HOME/.local/bin/hud-build" || echo "  ⚠ hud-build failed — rerun it to see the error"
+else
+  echo "  ⚠ ~/Pictures/ricing or build tools missing — skipped hud-build"
+fi
+if pgrep -x noctalia &>/dev/null; then
+  # The bar ornaments plugin lives in this repo; register its folder once.
+  # Output is captured first: `grep -q` exiting early would SIGPIPE the
+  # producer and, under pipefail, look like "not registered".
+  sources="$(noctalia msg plugins source list 2>/dev/null || true)"
+  if ! grep -q '^hud ' <<<"$sources"; then
+    noctalia msg plugins source add hud path "$HOME/.local/share/hud-src/noctalia-plugins" \
+      || echo "  ⚠ could not register the hud plugin source"
+  fi
+fi
+
+# ── Theme ───────────────────────────────────────────────────────────
+# Links each app's theme variant, swaps Noctalia's palette/wallpaper/lockscreen
+# state, starts or stops the HUD overlay and reloads what is running.
+echo "Applying theme $theme..."
+"$HOME/.local/bin/dotfiles-theme" "$theme" || echo "  ⚠ dotfiles-theme failed — rerun: dotfiles-theme $theme"
 
 echo "✅ Done"

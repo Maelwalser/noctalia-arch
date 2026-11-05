@@ -1,10 +1,18 @@
-ZSH_THEME="my-darkblood"
+# Prompt follows the dotfiles theme (`dotfiles-theme acid|classic`).
+_dotfiles_theme="$(<"${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/theme" 2>/dev/null)"
+if [[ "$_dotfiles_theme" == classic ]]; then
+  ZSH_THEME="my-darkblood"
+else
+  ZSH_THEME="acid-hud"
+fi
 
 # ALIAS
 alias vim='nvim'
 alias lg='lazygit'
 alias ld='lazydocker'
 alias ka='killall'
+alias c='claude'
+alias cr='claude --resume'
 alias cl='claude --dangerously-skip-permissions'
 
 export EDITOR='nvim'
@@ -351,7 +359,9 @@ wt() {
 if [[ -o interactive ]] && [[ -z "$TMUX" ]] && (( SHLVL == 1 )); then
   local _ff_cfg_dir="$HOME/.config/fastfetch"
   local _ff_cols=${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}
-  if (( _ff_cols >= 100 )); then
+  if (( _ff_cols >= 100 )) && [[ "$_dotfiles_theme" != classic ]]; then
+    fastfetch -c "$_ff_cfg_dir/config-acid.jsonc"
+  elif (( _ff_cols >= 100 )); then
     fastfetch
   elif (( _ff_cols >= 60 )); then
     fastfetch -c "$_ff_cfg_dir/config-compact.jsonc"

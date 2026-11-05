@@ -1,0 +1,672 @@
+# ACID//HUD element manifest.
+#
+# The vector packs in ~/Pictures/ricing are licensed stock art, and this repo is
+# public, so the repo only records *where* each element sits on its sheet.
+# `hud-build` crops them locally into ~/.local/share/hud/elements/<name>.png as
+# white-on-transparent masks that the overlay and the tint step recolour.
+#
+# box = [x, y, w, h] in sheet points (the PDF that ghostscript makes from the
+# EPS, 72 pt per inch). size = longest edge of the output in pixels.
+# level = "lo%,hi%" luminance window that becomes alpha 0..1; anything darker
+# than lo (the sheet background, faint guide grids) drops out.
+# erase = [[x, y, w, h], ...] clears neighbouring glyphs that fall inside box.
+# center = "circle" | "bbox" re-pads the output to a square canvas centred on the
+# element: "circle" fits the dominant circle (rings whose decoration is lopsided),
+# "bbox" uses the visible extent. Anything that rotates or stacks concentrically
+# needs it, or it wobbles around its canvas centre.
+
+[sheets.hud]
+dir = "cyberpunk-hud-design-elements"
+mode = "light"
+level = "30%,90%"
+
+[sheets.icons]
+dir = "white-cyberpunk-hud-icons-black-background"
+mode = "light"
+level = "30%,90%"
+
+[sheets.ui]
+dir = "futuristic-user-interface-elements-vector-set"
+mode = "light"
+level = "15%,85%"
+
+[sheets.wire]
+dir = "y2k-grid-abstract-shape-design-elements"
+mode = "light"
+level = "17%,50%"
+
+[sheets.retro]
+dir = "retro-futuristic-black-icons-set"
+mode = "dark"
+level = "10%,80%"
+
+[sheets.brut]
+dir = "brutalism-template-design"
+mode = "light"
+level = "20%,85%"
+
+[sheets.y2k]
+dir = "y2k-aesthetic-element-pack"
+mode = "light"
+level = "25%,70%"
+
+[sheets.y2kicons]
+dir = "y2k-icons-design-template"
+mode = "light"
+level = "15%,55%"
+
+# ── Frames and brackets ───────────────────────────────────────────────────────
+[elements.frame-folder]
+sheet = "hud"
+box = [156, 32, 304, 342]
+size = 1600
+
+[elements.frame-panel]
+sheet = "hud"
+box = [159, 438, 298, 64]
+size = 1400
+
+[elements.frame-scope]
+sheet = "ui"
+box = [16, 271, 133, 66]
+size = 1400
+
+[elements.frame-no1]
+sheet = "icons"
+box = [248, 38, 109, 128]
+size = 900
+
+[elements.bracket-cross]
+sheet = "hud"
+box = [482, 36, 52, 50]
+size = 512
+
+[elements.bracket-mini]
+sheet = "hud"
+box = [783, 35, 34, 30]
+size = 256
+
+[elements.bracket-plus]
+sheet = "hud"
+box = [481, 458, 55, 44]
+size = 256
+
+[elements.bracket-dpad]
+sheet = "icons"
+box = [623, 316, 44, 40]
+size = 256
+
+[elements.bracket-side]
+sheet = "icons"
+box = [1123, 263, 34, 99]
+size = 512
+
+[elements.frame-target]
+sheet = "ui"
+box = [409, 277, 64, 62]
+size = 1024
+center = "bbox"
+
+# ── Rings (rotate these) ──────────────────────────────────────────────────────
+[elements.ring-01]
+sheet = "ui"
+box = [11, 9, 70, 70]
+size = 2048
+center = "circle"
+
+[elements.ring-02]
+sheet = "ui"
+box = [87, 13, 64, 60]
+size = 2048
+center = "circle"
+
+[elements.ring-03]
+sheet = "ui"
+box = [153, 7, 78, 76]
+size = 2048
+center = "circle"
+
+[elements.ring-04]
+sheet = "ui"
+box = [227, 13, 64, 64]
+size = 2048
+center = "circle"
+
+[elements.ring-05]
+sheet = "ui"
+box = [293, 9, 70, 70]
+size = 2048
+center = "circle"
+
+[elements.ring-06]
+sheet = "ui"
+box = [371, 13, 68, 66]
+size = 2048
+center = "circle"
+
+[elements.ring-07]
+sheet = "ui"
+box = [441, 7, 72, 72]
+size = 2048
+center = "circle"
+
+[elements.ring-08]
+sheet = "ui"
+box = [7, 81, 76, 70]
+size = 2048
+center = "circle"
+
+[elements.ring-10]
+sheet = "ui"
+box = [159, 83, 66, 68]
+size = 2048
+center = "circle"
+
+[elements.ring-11]
+sheet = "ui"
+box = [227, 85, 66, 66]
+size = 2048
+center = "circle"
+
+[elements.ring-12]
+sheet = "ui"
+box = [294, 85, 68, 68]
+size = 2048
+center = "circle"
+
+[elements.ring-13]
+sheet = "ui"
+box = [369, 83, 68, 68]
+size = 2048
+center = "circle"
+
+[elements.ring-arc]
+sheet = "ui"
+box = [254, 274, 74, 74]
+size = 1024
+
+[elements.ring-gap]
+sheet = "icons"
+box = [1010, 383, 72, 72]
+size = 1024
+
+[elements.ring-dashed]
+sheet = "brut"
+box = [593, 253, 99, 99]
+size = 1024
+center = "bbox"
+
+[elements.ring-ticks]
+sheet = "brut"
+box = [463, 358, 94, 94]
+size = 1024
+center = "bbox"
+
+[elements.ring-iris]
+sheet = "icons"
+box = [406, 38, 194, 186]
+size = 1600
+center = "circle"
+
+[elements.ring-x]
+sheet = "icons"
+box = [1173, 248, 129, 129]
+size = 1024
+center = "circle"
+
+[elements.ring-slash]
+sheet = "hud"
+box = [775, 276, 46, 44]
+size = 256
+
+[elements.ring-c]
+sheet = "retro"
+box = [938, 296, 109, 102]
+size = 1024
+center = "circle"
+
+[elements.ring-eclipse]
+sheet = "retro"
+box = [1186, 283, 119, 124]
+size = 1024
+
+[elements.ring-spiral]
+sheet = "retro"
+box = [216, 36, 136, 132]
+size = 1200
+center = "bbox"
+
+[elements.ring-vortex]
+sheet = "retro"
+box = [810, 40, 120, 122]
+size = 1200
+center = "bbox"
+
+[elements.ring-tunnel]
+sheet = "retro"
+box = [668, 40, 114, 116]
+size = 1200
+center = "bbox"
+
+# ── Wireframes ────────────────────────────────────────────────────────────────
+[elements.cube-1]
+sheet = "hud"
+box = [560, 36, 96, 96]
+size = 1024
+
+[elements.cube-2]
+sheet = "hud"
+box = [662, 34, 104, 100]
+size = 1024
+
+[elements.cube-3]
+sheet = "hud"
+box = [560, 140, 90, 96]
+size = 1024
+
+[elements.cube-4]
+sheet = "hud"
+box = [658, 138, 109, 102]
+size = 1024
+
+[elements.cube-hex]
+sheet = "icons"
+box = [766, 203, 69, 74]
+size = 512
+
+[elements.geo-sphere]
+sheet = "icons"
+box = [846, 33, 149, 139]
+size = 1400
+
+[elements.tri-grid]
+sheet = "icons"
+box = [1106, 33, 209, 182]
+size = 1400
+erase = [[1100, 28, 62, 55], [1100, 95, 28, 45], [1260, 25, 60, 56]]
+
+[elements.wire-sphere]
+sheet = "wire"
+box = [230, 13, 76, 76]
+size = 1200
+
+[elements.wire-sphere-2]
+sheet = "wire"
+box = [328, 13, 76, 76]
+size = 1200
+
+[elements.wire-pyramid]
+sheet = "wire"
+box = [148, 53, 89, 144]
+size = 1200
+
+[elements.wire-torus]
+sheet = "wire"
+box = [394, 294, 148, 128]
+size = 1400
+
+[elements.wire-waves]
+sheet = "wire"
+box = [23, 13, 109, 269]
+size = 1600
+
+[elements.warp-plane]
+sheet = "wire"
+box = [433, 16, 207, 126]
+size = 2400
+
+[elements.warp-grid]
+sheet = "wire"
+box = [650, 16, 129, 126]
+size = 2048
+
+[elements.horizon-grid]
+sheet = "wire"
+box = [433, 156, 207, 126]
+size = 2400
+
+[elements.warp-floor]
+sheet = "wire"
+box = [23, 300, 226, 124]
+size = 2400
+
+[elements.warp-funnel]
+sheet = "wire"
+box = [566, 298, 302, 114]
+size = 2400
+
+[elements.wire-hand]
+sheet = "wire"
+box = [838, 253, 344, 184]
+size = 2400
+
+[elements.globe]
+sheet = "hud"
+box = [766, 413, 66, 66]
+size = 512
+
+[elements.globe-flat]
+sheet = "hud"
+box = [28, 36, 112, 56]
+size = 768
+
+[elements.globe-wire]
+sheet = "icons"
+box = [250, 248, 69, 69]
+size = 512
+
+# ── Bars, stripes, glyph strips ───────────────────────────────────────────────
+[elements.hazard-1]
+sheet = "hud"
+box = [850, 343, 272, 46]
+size = 1600
+
+[elements.hazard-2]
+sheet = "hud"
+box = [850, 396, 272, 32]
+size = 1600
+
+[elements.hazard-3]
+sheet = "icons"
+box = [1108, 390, 209, 30]
+size = 1600
+
+[elements.tag-bar]
+sheet = "hud"
+box = [850, 438, 272, 44]
+size = 1600
+
+[elements.slash-bar]
+sheet = "hud"
+box = [558, 483, 272, 30]
+size = 1600
+
+[elements.tick-strip]
+sheet = "hud"
+box = [160, 386, 296, 34]
+size = 1600
+
+[elements.barcode]
+sheet = "hud"
+box = [573, 435, 179, 42]
+size = 1200
+
+[elements.barcode-tall]
+sheet = "icons"
+box = [623, 90, 184, 86]
+size = 1200
+
+[elements.chevron-belt]
+sheet = "icons"
+box = [408, 303, 189, 34]
+size = 1600
+
+[elements.chevron-progress]
+sheet = "ui"
+box = [9, 155, 142, 14]
+size = 1400
+
+[elements.chevron-row]
+sheet = "ui"
+box = [409, 249, 110, 13]
+size = 1400
+
+[elements.dot-row]
+sheet = "ui"
+box = [409, 261, 110, 13]
+size = 1400
+
+[elements.equalizer]
+sheet = "ui"
+box = [307, 224, 96, 44]
+size = 1200
+
+[elements.dot-matrix]
+sheet = "ui"
+box = [334, 281, 72, 54]
+size = 1024
+
+[elements.zigzag-v]
+sheet = "hud"
+box = [783, 96, 34, 139]
+size = 1024
+
+[elements.pillar]
+sheet = "icons"
+box = [1028, 33, 34, 324]
+size = 1600
+
+[elements.diag-blocks]
+sheet = "icons"
+box = [248, 188, 134, 34]
+size = 1024
+
+[elements.capsule-hazard]
+sheet = "icons"
+box = [408, 368, 189, 49]
+size = 1400
+
+[elements.capsule-arrows]
+sheet = "icons"
+box = [408, 420, 189, 44]
+size = 1400
+
+[elements.triangles-row]
+sheet = "icons"
+box = [720, 316, 269, 42]
+size = 1600
+
+[elements.slashes-3]
+sheet = "hud"
+box = [850, 488, 49, 28]
+size = 256
+
+# ── Emblems, glyphs, typography ───────────────────────────────────────────────
+[elements.tri-blade]
+sheet = "hud"
+box = [848, 38, 164, 140]
+size = 1024
+erase = [[972, 50, 46, 48]]
+
+[elements.x-mark]
+sheet = "hud"
+box = [1051, 36, 72, 66]
+size = 512
+
+[elements.move-arrows]
+sheet = "hud"
+box = [970, 50, 48, 48]
+size = 256
+
+[elements.vortex]
+sheet = "hud"
+box = [570, 276, 184, 140]
+size = 1400
+
+[elements.chevrons-up]
+sheet = "hud"
+box = [778, 323, 38, 70]
+size = 256
+
+[elements.box-x]
+sheet = "hud"
+box = [480, 276, 56, 54]
+size = 256
+
+[elements.est-2100]
+sheet = "hud"
+box = [1008, 488, 116, 28]
+size = 768
+
+[elements.est-2100-b]
+sheet = "icons"
+box = [1208, 426, 109, 26]
+size = 768
+
+[elements.cyber]
+sheet = "icons"
+box = [623, 38, 184, 49]
+size = 1200
+
+[elements.caution]
+sheet = "icons"
+box = [623, 373, 366, 92]
+size = 1600
+
+[elements.star-oct]
+sheet = "icons"
+box = [36, 36, 76, 76]
+size = 512
+
+[elements.tri-logo]
+sheet = "icons"
+box = [131, 138, 96, 86]
+size = 512
+
+[elements.arrows-box]
+sheet = "icons"
+box = [33, 138, 74, 86]
+size = 512
+
+[elements.clover]
+sheet = "icons"
+box = [866, 193, 104, 104]
+size = 512
+
+[elements.sparkle-4]
+sheet = "icons"
+box = [143, 308, 69, 49]
+size = 256
+
+[elements.chevrons-left]
+sheet = "icons"
+box = [138, 248, 79, 59]
+size = 256
+
+[elements.y-glyph]
+sheet = "icons"
+box = [1266, 30, 46, 49]
+size = 256
+
+[elements.orbit-node]
+sheet = "icons"
+box = [250, 348, 134, 119]
+size = 768
+
+[elements.star-trail]
+sheet = "retro"
+box = [1073, 163, 104, 254]
+size = 1024
+
+[elements.sun-dark]
+sheet = "retro"
+box = [968, 50, 102, 102]
+size = 768
+
+[elements.orbit-atom]
+sheet = "retro"
+box = [803, 183, 109, 99]
+size = 768
+center = "bbox"
+
+[elements.swoosh-star]
+sheet = "retro"
+box = [723, 298, 184, 109]
+size = 1024
+
+[elements.blade-star]
+sheet = "retro"
+box = [338, 298, 114, 104]
+size = 768
+
+[elements.dot-grid]
+sheet = "brut"
+box = [53, 43, 109, 94]
+size = 512
+
+[elements.ray-burst]
+sheet = "brut"
+box = [190, 40, 99, 102]
+size = 1024
+
+[elements.sparkle-cluster]
+sheet = "brut"
+box = [188, 353, 109, 109]
+size = 512
+
+[elements.hex-node]
+sheet = "brut"
+box = [53, 356, 109, 104]
+size = 512
+
+# ── Y2K packs (green line art, icon set) ──
+
+[elements.hand-cup]
+sheet = "y2k"
+box = [776, 120, 122, 307]
+size = 1400
+level = "18%,40%"
+
+[elements.orb-burst]
+sheet = "y2k"
+box = [342, 146, 100, 100]
+size = 768
+center = "bbox"
+
+[elements.orb-swirl]
+sheet = "y2k"
+box = [449, 145, 100, 101]
+size = 768
+center = "bbox"
+
+[elements.orb-coil]
+sheet = "y2k"
+box = [558, 145, 100, 101]
+size = 768
+center = "bbox"
+
+[elements.orb-neuron]
+sheet = "y2k"
+box = [666, 145, 100, 101]
+size = 768
+center = "bbox"
+
+[elements.orb-curl]
+sheet = "y2k"
+box = [676, 337, 81, 81]
+size = 512
+center = "bbox"
+
+[elements.lattice-band]
+sheet = "y2k"
+box = [353, 22, 424, 35]
+size = 1600
+
+[elements.star-4]
+sheet = "y2k"
+box = [582, 336, 82, 82]
+size = 256
+center = "bbox"
+
+[elements.y2k-node]
+sheet = "y2kicons"
+box = [62, 62, 87, 87]
+size = 256
+center = "bbox"
+
+[elements.y2k-claw]
+sheet = "y2kicons"
+box = [271, 73, 54, 63]
+size = 256
+
+[elements.y2k-knot]
+sheet = "y2kicons"
+box = [363, 75, 61, 61]
+size = 256
+center = "bbox"
+
+[elements.y2k-sphere]
+sheet = "y2kicons"
+box = [168, 168, 67, 67]
+size = 256
+center = "bbox"

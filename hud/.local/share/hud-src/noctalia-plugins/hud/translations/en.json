@@ -1,0 +1,9 @@
+{
+  "settings": {
+    "animate": { "label": "Animate" },
+    "length": { "label": "Length (px)" },
+    "audio_spectrum": { "label": "React to audio" },
+    "reserve": { "label": "Space kept on the right (px)" },
+    "gap": { "label": "Gap to the workspaces (px)" }
+  }
+}

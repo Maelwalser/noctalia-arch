@@ -1,0 +1,121 @@
+{
+    "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+    // ACID//HUD emblem, rendered by `hud-build` (Ghostty draws it via the
+    // kitty graphics protocol). logo.txt is the old text logo.
+    "logo": {
+        "source": "~/.local/share/hud/fastfetch-logo.png",
+        "type": "kitty-direct",
+        "width": 22,
+        "height": 10,
+        "padding": {
+            "top": 2,
+            "right": 4,
+            "left": 2
+        }
+    },
+    "display": {
+        "separator": "  ▸ ",
+        "color": {
+            "keys": "green",
+            "title": "white",
+            "output": "white"
+        },
+        "constants": [
+            "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱"
+        ]
+    },
+    "modules": [
+        {
+            "type": "title",
+            "color": {
+                "user": "green",
+                "at": "90",
+                "host": "white"
+            },
+            "format": "{user-name}//{host-name}"
+        },
+        {
+            "type": "custom",
+            "format": "\u001b[90m{$1}\u001b[0m"
+        },
+        {
+            "type": "os",
+            "key": "▍OS"
+        },
+        {
+            "type": "kernel",
+            "key": "▍KRN"
+        },
+        {
+            "type": "uptime",
+            "key": "▍UP"
+        },
+        {
+            "type": "packages",
+            "key": "▍PKG",
+            "format": "{pacman}"
+        },
+        {
+            "type": "shell",
+            "key": "▍SH"
+        },
+        {
+            "type": "wm",
+            "key": "▍WM"
+        },
+        {
+            "type": "de",
+            "key": "▍DE"
+        },
+        {
+            "type": "terminal",
+            "key": "▍TRM"
+        },
+        {
+            "type": "terminalfont",
+            "key": "▍FNT"
+        },
+        {
+            "type": "command",
+            "key": "▍EDT",
+            "shell": "/bin/sh",
+            "text": "echo \"${EDITOR:-not set}\""
+        },
+        {
+            "type": "custom",
+            "format": "\u001b[90m{$1}\u001b[0m"
+        },
+        {
+            "type": "cpu",
+            "key": "▍CPU",
+            "format": "{name}"
+        },
+        {
+            "type": "gpu",
+            "key": "▍iGPU",
+            "format": "{name}",
+            "hideType": "discrete"
+        },
+        {
+            "type": "gpu",
+            "key": "▍dGPU",
+            "format": "{name}",
+            "hideType": "integrated"
+        },
+        {
+            "type": "memory",
+            "key": "▍MEM"
+        },
+        {
+            "type": "disk",
+            "key": "▍DSK",
+            "folders": "/"
+        },
+        "break",
+        {
+            "type": "colors",
+            "paddingLeft": 4,
+            "symbol": "circle"
+        }
+    ]
+}

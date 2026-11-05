@@ -3,3 +3,7 @@
 # is stow-managed (Vivaldi loads it from its css-mods folder).
 custom\.js
 install\.sh
+# Theme variants: `dotfiles-theme` links the active one as theme.css in this
+# folder (Vivaldi's css-mods folder), not into $HOME.
+variants
+theme\.css

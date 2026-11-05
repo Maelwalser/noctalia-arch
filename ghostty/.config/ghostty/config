@@ -1,6 +1,5 @@
 
 # Dynamic theme colors
-background-opacity=0.8
 background-blur=true
 # Font
 font-family = "JetBrains Mono Nerd Font"
@@ -9,8 +8,6 @@ font-size = 14
 
 # Window
 window-theme = ghostty
-window-padding-x = 5
-window-padding-y = 5
 
 confirm-close-surface=false
 resize-overlay = never
@@ -30,7 +27,17 @@ shell-integration = zsh
 quit-after-last-window-closed = true
 quit-after-last-window-closed-delay = 5m
 keybind = shift+enter=text:\x1b\r
+# Let ctrl+shift+enter reach Claude Code (send now) instead of zooming splits
+keybind = ctrl+shift+enter=unbind
 
 # Slowdown mouse scrolling
 mouse-scroll-multiplier = 0.95
 theme = noctalia
+
+# Copy selection to the system clipboard too, not only the primary selection
+copy-on-select = clipboard
+right-click-action = paste
+
+# Theme-specific settings (opacity, padding, shader): variants/<name>.conf,
+# linked as ~/.config/ghostty/theme.conf by `dotfiles-theme <name>`. Loaded last, so it wins.
+config-file = ?~/.config/ghostty/theme.conf

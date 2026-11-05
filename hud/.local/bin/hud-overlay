@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Start, stop or toggle the ACID//HUD Quickshell desktop overlay (~/.config/quickshell/hud).
+set -euo pipefail
+
+running() { pgrep -u "$USER" -f 'qs -c hud$|quickshell -c hud$' >/dev/null; }
+
+start() {
+  command -v qs >/dev/null || { echo "hud-overlay: quickshell not installed (pacman -S quickshell)" >&2; exit 1; }
+  running || setsid -f qs -c hud >/dev/null 2>&1
+}
+
+stop() { pkill -u "$USER" -f 'qs -c hud$|quickshell -c hud$' || true; }
+
+case "${1:-toggle}" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; sleep 0.3; start ;;
+  toggle) if running; then stop; else start; fi ;;
+  *) echo "usage: hud-overlay [start|stop|restart|toggle]" >&2; exit 2 ;;
+esac

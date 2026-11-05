@@ -1,0 +1,1098 @@
+#!/usr/bin/env -S python3 -I
+"""Build the ACID//HUD theme assets from the vector packs in ~/Pictures/ricing.
+
+The packs are licensed stock art and the dotfiles repo is public, so nothing
+derived from them is committed: this script regenerates everything locally.
+
+  hud-build              crop elements (if stale), tint, lockscreen, wallpapers, extras
+  hud-build --tint-only  re-tint / re-render from the current palette (palette hook)
+  hud-build --force      re-crop every element even if it is up to date
+  hud-build --lock-layout  print the lockscreen widget TOML for noctalia's themes/acid.toml
+
+Outputs (all under ~/.local/share/hud unless noted):
+  elements/<name>.png        white-on-transparent masks, tinted at runtime by the overlay
+  tinted/<name>-<role>.png   palette-coloured copies for consumers that cannot tint
+  lock/                      lockscreen art: static-<output>.png, dial.gif, ring-acid.gif, backdrop.png
+  overlay/, bar/             Quickshell overlay layers, Noctalia bar plugin frames
+  fastfetch-logo.png, nvim-header.txt
+  ~/Pictures/Wallpapers/hud/hud-<w>x<h>.png
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import fcntl
+import glob
+import json
+import math
+import os
+import random
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import tomllib
+from pathlib import Path
+
+HOME = Path.home()
+SRC = HOME / ".local/share/hud-src"
+OUT = HOME / ".local/share/hud"
+CACHE = HOME / ".cache/hud"
+PACKS = HOME / "Pictures/ricing"
+WALLPAPERS = HOME / "Pictures/Wallpapers/hud"
+COLORS_JSON = HOME / ".config/hud/colors.json"
+
+# Used until Noctalia has rendered ~/.config/hud/colors.json once.
+DEFAULT_COLORS = {
+    "primary": "#d4ff1e",
+    "on_primary": "#0a0a0c",
+    "surface": "#0a0a0c",
+    "surface_variant": "#16161b",
+    "on_surface": "#e8e6e1",
+    "on_surface_variant": "#a3a39c",
+    "outline": "#3a3a42",
+    "error": "#ff3b30",
+}
+
+# Elements other programs need as pre-coloured PNGs: name -> (roles, longest edge).
+TINTED = {
+    "tri-blade": (("primary", "on_surface"), 256),
+    "hazard-2": (("primary", "outline"), 512),
+    "hazard-1": (("primary",), 512),
+    "barcode": (("on_surface", "outline"), 384),
+    "slashes-3": (("primary",), 128),
+    "chevrons-up": (("primary",), 128),
+    "est-2100": (("on_surface_variant",), 384),
+    "bracket-cross": (("primary",), 256),
+    "caution": (("primary",), 768),
+    "frame-scope": (("outline",), 1024),
+}
+
+# Quickshell overlay layers: name -> (element, role, longest edge). Pre-tinted
+# rather than recoloured with a GPU effect so the always-on overlay stays cheap.
+OVERLAY = {
+    "ring-outer": ("ring-03", "outline", 1024),
+    "ring-acid": ("ring-07", "primary", 1024),
+    "ring-ticks": ("ring-ticks", "outline", 1024),
+    "tick-strip": ("tick-strip", "outline", 768),
+    # Right column: a wire hand raising a spinning orb under an oscilloscope.
+    "hand": ("hand-cup", "on_surface", 1024),
+    "orb": ("orb-swirl", "primary", 768),
+    "orb-halo": ("orb-burst", "on_surface_variant", 768),
+    "spark": ("star-4", "on_surface", 128),
+    "claw": ("y2k-claw", "primary", 128),
+}
+# Overlay layers whose bottom fraction fades to transparent (the hand rises
+# out of the floor grid instead of ending in a cut).
+OVERLAY_FADE = {"hand": 0.45}
+
+# Physical resolutions the wallpaper is rendered at (eDP-1 and the ultrawides).
+WALLPAPER_SIZES = ((1920, 1200), (5120, 2160), (3840, 2160))
+
+MONO_FONT = "Departure-Mono-Regular"
+
+# "<USER>//HUD" tags on the wallpaper and lockscreen: the login name, so the
+# public repo carries no name and every machine shows its own.
+USER_TAG = (os.environ.get("USER") or "user").upper()
+
+
+@contextlib.contextmanager
+def staged(dst: Path):
+    """Yield a temp path next to dst and rename it over dst on success.
+
+    Readers (Noctalia, the overlay, the bar plugin) can poll these files at any
+    moment, and the up-to-date checks trust mtimes, so a half-written or failed
+    output must never appear under the final name.
+    """
+    tmp = dst.with_name(f".{dst.stem}.tmp{dst.suffix}")  # keep the suffix: magick infers the format
+    try:
+        yield tmp
+        os.replace(tmp, dst)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def run(*cmd: str | os.PathLike) -> None:
+    """Run a command, surfacing stderr on failure instead of swallowing it."""
+    res = subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"{cmd[0]} failed ({res.returncode}): {res.stderr.strip()[:800]}")
+
+
+def require_tools() -> None:
+    missing = [t for t in ("gs", "pdftocairo", "magick") if shutil.which(t) is None]
+    if missing:
+        sys.exit(f"hud-build: missing tools: {', '.join(missing)} "
+                 "(pacman -S ghostscript poppler imagemagick)")
+
+
+def load_manifest() -> dict:
+    with open(SRC / "elements.toml", "rb") as f:
+        return tomllib.load(f)
+
+
+def load_colors() -> dict[str, str]:
+    colors = dict(DEFAULT_COLORS)
+    try:
+        loaded = json.loads(COLORS_JSON.read_text())
+    except FileNotFoundError:
+        return colors
+    except json.JSONDecodeError as e:
+        print(f"hud-build: ignoring malformed {COLORS_JSON}: {e}", file=sys.stderr)
+        return colors
+    # Values end up as magick arguments: accept plain #rrggbb only.
+    for role, value in loaded.items() if isinstance(loaded, dict) else ():
+        if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+            colors[role] = value
+        else:
+            print(f"hud-build: ignoring invalid colour {role}={value!r}", file=sys.stderr)
+    return colors
+
+
+def sheet_pdf(sheet_id: str, sheet: dict) -> Path:
+    """EPS -> PDF once; pdftocairo can then crop any region at any DPI."""
+    eps = sorted(glob.glob(str(PACKS / sheet["dir"] / "*.eps")))
+    if not eps:
+        raise FileNotFoundError(f"no .eps in {PACKS / sheet['dir']}")
+    pdf = CACHE / f"{sheet_id}.pdf"
+    if not pdf.exists() or pdf.stat().st_mtime < os.path.getmtime(eps[0]):
+        CACHE.mkdir(parents=True, exist_ok=True)
+        with staged(pdf) as tmp:
+            run("gs", "-q", "-dNOPAUSE", "-dBATCH", "-dSAFER", "-sDEVICE=pdfwrite",
+                "-dEPSCrop", f"-sOutputFile={tmp}", eps[0])
+    return pdf
+
+
+def alpha_grid(png: Path, n: int):
+    """Alpha channel resized to fit n x n, as (w, h, bytes)."""
+    raw = subprocess.run(["magick", str(png), "-alpha", "extract", "-resize", f"{n}x{n}",
+                          "-depth", "8", "pgm:-"], capture_output=True, check=True).stdout
+    # P5 header: magic, width, height, maxval, each separated by whitespace.
+    parts, pos = [], 0
+    while len(parts) < 4:
+        while raw[pos:pos + 1].isspace():
+            pos += 1
+        start = pos
+        while not raw[pos:pos + 1].isspace():
+            pos += 1
+        parts.append(raw[start:pos])
+    w, h = int(parts[1]), int(parts[2])
+    return w, h, raw[pos + 1:pos + 1 + w * h]
+
+
+def circle_through(p1, p2, p3):
+    (ax, ay), (bx, by), (cx, cy) = p1, p2, p3
+    d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-9:
+        return None
+    a2, b2, c2 = ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy
+    ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
+    uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
+    return ux, uy, math.hypot(ax - ux, ay - uy)
+
+
+def fit_circle(points):
+    """Algebraic (Kasa) least-squares fit: x^2+y^2+Dx+Ey+F=0."""
+    sxx = sxy = syy = sx = sy = sxz = syz = sz = 0.0
+    n = len(points)
+    for x, y in points:
+        z = x * x + y * y
+        sxx += x * x; syy += y * y; sxy += x * y
+        sx += x; sy += y; sxz += x * z; syz += y * z; sz += z
+    m = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]]
+    v = [-sxz, -syz, -sz]
+    # Gaussian elimination on the 3x3 normal equations.
+    for i in range(3):
+        piv = max(range(i, 3), key=lambda r: abs(m[r][i]))
+        m[i], m[piv] = m[piv], m[i]
+        v[i], v[piv] = v[piv], v[i]
+        for r in range(i + 1, 3):
+            f = m[r][i] / m[i][i]
+            for c in range(i, 3):
+                m[r][c] -= f * m[i][c]
+            v[r] -= f * v[i]
+    sol = [0.0] * 3
+    for i in (2, 1, 0):
+        sol[i] = (v[i] - sum(m[i][c] * sol[c] for c in range(i + 1, 3))) / m[i][i]
+    d, e, f = sol
+    cx, cy = -d / 2, -e / 2
+    return cx, cy, math.sqrt(max(cx * cx + cy * cy - f, 0))
+
+
+def ring_center(png: Path, n: int = 400):
+    w, h, a = alpha_grid(png, n)
+    on = lambda x, y: a[y * w + x] > 127
+    edges = [(x, y) for y in range(1, h - 1) for x in range(1, w - 1)
+             if on(x, y) and not (on(x - 1, y) and on(x + 1, y) and on(x, y - 1) and on(x, y + 1))]
+    if len(edges) < 3:
+        raise RuntimeError(f"{png.name}: no visible edges to fit; use center = \"bbox\" instead")
+    rng = random.Random(2100)  # deterministic: rebuilds must not jitter
+    sample = rng.sample(edges, min(len(edges), 1500))
+    best, best_n = None, 0
+    lo, hi = 0.28 * max(w, h), 0.56 * max(w, h)
+    for _ in range(1500):
+        c = circle_through(*rng.sample(sample, 3))
+        if not c or not lo <= c[2] <= hi:
+            continue
+        cx, cy, r = c
+        k = sum(1 for x, y in sample if abs(math.hypot(x - cx, y - cy) - r) < 1.2)
+        if k > best_n:
+            best, best_n = c, k
+    if best is None:
+        raise RuntimeError(f"{png.name}: no circle found; use center = \"bbox\" instead")
+    cx, cy, r = best
+    inliers = [(x, y) for x, y in edges if abs(math.hypot(x - cx, y - cy) - r) < 2.0]
+    cx, cy, r = fit_circle(inliers)
+    # +0.5: edges are pixel indices, the fit wants pixel centres.
+    return (cx + 0.5) / w, (cy + 0.5) / h, r / max(w, h), len(inliers) / max(1, len(edges))
+
+
+def recenter(png: Path, mode: str) -> None:
+    """Pad png to a square canvas whose centre is the element's centre."""
+    w, h = (int(v) for v in subprocess.run(["magick", "identify", "-format", "%w %h", str(png)],
+                                            capture_output=True, text=True, check=True).stdout.split())
+    if mode == "circle":
+        fx, fy, _, support = ring_center(png)
+        # Below ~15 % of the edges on the circle the fit is not trustworthy
+        # (spirals, tunnels): rotating such a fit would visibly wobble.
+        if support < 0.15:
+            raise RuntimeError(f"{png.name}: circle fit too weak ({support:.0%} of edges); "
+                               "use center = \"bbox\" instead")
+        cx, cy = fx * w, fy * h
+    elif mode == "bbox":
+        trim = subprocess.run(["magick", str(png), "-alpha", "extract", "-threshold", "10%",
+                               "-format", "%@", "info:"], capture_output=True, text=True,
+                              check=True).stdout  # WxH+X+Y of the visible pixels
+        bw, bh, bx, by = (int(v) for v in trim.replace("x", "+").split("+"))
+        if bw == 0 or bh == 0:
+            raise RuntimeError(f"{png.name}: element is empty, nothing to centre")
+        cx, cy = bx + bw / 2, by + bh / 2
+    else:
+        raise ValueError(f"unknown center mode {mode!r}")
+    half = math.ceil(max(cx, w - cx, cy, h - cy))
+    # Negative -extent offsets pad the top/left, moving the content right/down.
+    run("magick", png, "-background", "none", "-gravity", "NorthWest",
+        "-extent", f"{2 * half}x{2 * half}-{round(half - cx)}-{round(half - cy)}", png)
+
+
+def extract(name: str, el: dict, sheet: dict, pdf: Path, tmp: Path) -> Path:
+    x, y, w, h = el["box"]
+    dpi = el["size"] / max(w, h) * 72
+    k = dpi / 72
+    raw = tmp / name
+    run("pdftocairo", "-png", "-singlefile", "-r", f"{dpi:.3f}",
+        "-x", round(x * k), "-y", round(y * k), "-W", round(w * k), "-H", round(h * k),
+        pdf, raw)
+    out = OUT / "elements" / f"{name}.png"
+    lo, hi = el.get("level", sheet["level"]).split(",")
+    negate = ["-negate"] if sheet["mode"] == "dark" else []
+    # Erased regions are painted in the sheet's background tone before alpha is
+    # derived, so they drop out exactly like the background does.
+    erase = ["-fill", "white" if negate else "black", "-stroke", "none"]
+    for ex, ey, ew, eh in el.get("erase", []):
+        x0, y0 = round((ex - x) * k), round((ey - y) * k)
+        erase += ["-draw", f"rectangle {x0},{y0} {x0 + round(ew * k)},{y0 + round(eh * k)}"]
+    # Brightest channel -> alpha (works for white, cyan and green line art alike),
+    # then a solid white fill so every consumer can recolour it freely.
+    # -draw re-enables alpha, which -separate would then fold into the max.
+    with staged(out) as tmp_out:
+        run("magick", f"{raw}.png", "-alpha", "off", *erase, "-alpha", "off", *negate,
+            "-separate", "-evaluate-sequence", "Max", "-level", f"{lo},{hi}",
+            "(", "+clone", "-fill", "white", "-colorize", "100", ")", "+swap",
+            "-compose", "CopyOpacity", "-composite", "-define", "png:color-type=6", tmp_out)
+        if "center" in el:
+            recenter(tmp_out, el["center"])
+    return out
+
+
+def build_elements(manifest: dict, force: bool) -> None:
+    (OUT / "elements").mkdir(parents=True, exist_ok=True)
+    manifest_mtime = (SRC / "elements.toml").stat().st_mtime
+    sheets = manifest["sheets"]
+    pdfs: dict[str, Path] = {}
+    built = 0
+    with tempfile.TemporaryDirectory(prefix="hud-") as td:
+        for name, el in manifest["elements"].items():
+            out = OUT / "elements" / f"{name}.png"
+            if not force and out.exists() and out.stat().st_mtime >= manifest_mtime:
+                continue
+            sid = el["sheet"]
+            if sid not in pdfs:
+                pdfs[sid] = sheet_pdf(sid, sheets[sid])
+            extract(name, el, sheets[sid], pdfs[sid], Path(td))
+            built += 1
+    print(f"elements: {built} built, {len(manifest['elements']) - built} up to date")
+
+
+def tint(src: Path, color: str, size: int, dst: Path) -> None:
+    with staged(dst) as tmp:
+        run("magick", src, "-resize", f"{size}x{size}>", "-fill", color, "-colorize", "100", tmp)
+
+
+def build_tinted(colors: dict[str, str]) -> None:
+    (OUT / "tinted").mkdir(parents=True, exist_ok=True)
+    for name, (roles, size) in TINTED.items():
+        for role in roles:
+            tint(OUT / "elements" / f"{name}.png", colors[role], size,
+                 OUT / "tinted" / f"{name}-{role}.png")
+    print(f"tinted: {sum(len(r) for r, _ in TINTED.values())} files")
+
+
+def build_overlay(colors: dict[str, str]) -> None:
+    d = OUT / "overlay"
+    d.mkdir(parents=True, exist_ok=True)
+    for name, (element, role, size) in OVERLAY.items():
+        tint(OUT / "elements" / f"{element}.png", colors[role], size, d / f"{name}.png")
+        if name in OVERLAY_FADE:
+            # Alpha ramp: opaque down to (1 - fade) of the height, then to zero.
+            start = 1 - OVERLAY_FADE[name]
+            with staged(d / f"{name}.png") as tmp:
+                run("magick", d / f"{name}.png",
+                    "(", "+clone", "-alpha", "extract",
+                    "(", "+clone", "-fx", f"j/h < {start} ? 1 : (1 - (j/h - {start}) / {1 - start})^1.5", ")",
+                    "-compose", "Multiply", "-composite", ")",
+                    "-alpha", "off", "-compose", "CopyOpacity", "-composite", tmp)
+    with staged(d / "ring-face.png") as tmp:
+        clock_face(1024, colors["on_surface_variant"], tmp)
+    # Oscilloscope traces: seamless tiles the overlay scrolls end to end.
+    with staged(d / "wave.png") as tmp:
+        scope_trace(colors["primary"], braid=True, dst=tmp)
+    with staged(d / "wave-drift.png") as tmp:
+        scope_trace(colors["on_surface_variant"], braid=False, dst=tmp)
+    # The overlay watches this stamp (not colors.json, which lands before the
+    # re-tint finishes) and cache-busts its images when it changes.
+    (d / "version").write_text(f"{os.getpid()}-{len(OVERLAY)}-{colors['primary']}\n")
+    print(f"overlay: {len(OVERLAY)} layers")
+
+
+def build_wallpapers(colors: dict[str, str]) -> None:
+    WALLPAPERS.mkdir(parents=True, exist_ok=True)
+    el = OUT / "elements"
+    for w, h in WALLPAPER_SIZES:
+        s = h / 1200  # design units: a 1200 px tall canvas
+        ultrawide = w / h > 2
+
+        def px(v: float) -> int:
+            return round(v * s)
+
+        def layer(name: str, color: str, size: int | str, x: int, y: int, opacity: float,
+                  rotate: float = 0, fade_up: bool = False) -> list[str]:
+            geometry = size if isinstance(size, str) else f"{size}x{size}"
+            # fade_up: alpha ramps from 0 at the top edge to full at the bottom,
+            # so a floor plane dissolves into the horizon instead of ending in a line.
+            fade = ["(", "+clone", "-alpha", "extract", "(", "+clone", "-sparse-color",
+                    "Barycentric", "0,0 black %[fx:0],%[fx:h] white", ")",
+                    "-compose", "Multiply", "-composite", ")",
+                    "-compose", "CopyOpacity", "-composite", "-compose", "Over"] if fade_up else []
+            return ["(", str(el / f"{name}.png"), "-resize", geometry,
+                    "-fill", color, "-colorize", "100",
+                    *(["-background", "none", "-rotate", str(rotate)] if rotate else []),
+                    *fade,
+                    "-channel", "A", "-evaluate", "multiply", str(opacity), "+channel",
+                    ")", "-geometry", f"+{x}+{y}", "-composite"]
+
+        cmd = [
+            "magick", "-size", f"{w}x{h}",
+            f"radial-gradient:{colors['surface_variant']}-{colors['surface']}",
+            # Film grain: low-amplitude gaussian noise, greyscale.
+            "(", "-size", f"{w}x{h}", "xc:gray50", "+noise", "Gaussian",
+            "-colorspace", "gray", "-evaluate", "multiply", "0.06", ")",
+            "-compose", "Plus", "-composite", "-compose", "Over",
+        ]
+        # Floor plane stretched (not proportional) into a low horizon band.
+        floor_w, floor_h = round(w * 1.2), round(h * 0.5)
+        cmd += layer("warp-floor", colors["outline"], f"{floor_w}x{floor_h}!",
+                     (w - floor_w) // 2, h - floor_h + px(30), 0.7, fade_up=True)
+        cmd += layer("wire-torus", colors["on_surface"], px(380),
+                     round(w * (0.10 if ultrawide else 0.07)), px(170), 0.06, rotate=-12)
+        cmd += layer("geo-sphere", colors["outline"], px(300),
+                     w - px(380), px(150), 0.45)
+        cmd += layer("wire-waves", colors["outline"], px(900),
+                     round(w * 0.58), px(-80), 0.15)
+        # Thin inset frame with acid corner ticks.
+        # mt clears the floating Noctalia bar (~36 logical px incl. margin).
+        m, t = px(28), max(1, px(1.5))
+        mt = m + px(52)
+        cmd += ["-fill", "none", "-stroke", colors["outline"], "-strokewidth", str(t),
+                "-draw", f"rectangle {m},{mt} {w - m},{h - m}", "-stroke", "none"]
+        tick = px(36)
+        for cx, cy, dx, dy in ((m, mt, 1, 1), (w - m, mt, -1, 1), (m, h - m, 1, -1), (w - m, h - m, -1, -1)):
+            cmd += ["-fill", colors["primary"],
+                    "-draw", f"rectangle {min(cx, cx + dx * tick)},{min(cy, cy + dy * px(3))} "
+                             f"{max(cx, cx + dx * tick)},{max(cy, cy + dy * px(3))}",
+                    "-draw", f"rectangle {min(cx, cx + dx * px(3))},{min(cy, cy + dy * tick)} "
+                             f"{max(cx, cx + dx * px(3))},{max(cy, cy + dy * tick)}"]
+        cmd += layer("hazard-2", colors["primary"], px(260), m + px(30), h - m - px(52), 0.9)
+        cmd += layer("est-2100", colors["on_surface_variant"], px(150),
+                     w - m - px(180), h - m - px(48), 0.8)
+        cmd += layer("barcode", colors["outline"], px(170), w - m - px(390), h - m - px(56), 1.0)
+        cmd += ["-font", MONO_FONT, "-pointsize", str(px(15)), "-fill", colors["on_surface_variant"],
+                "-annotate", f"+{m + px(30)}+{mt + px(40)}", f"SYS://{USER_TAG}-HUD  ·  NODE 0x2100",
+                "-fill", colors["outline"],
+                "-annotate", f"+{m + px(30)}+{mt + px(64)}", "GRID 21-00-7F  //  LINK STABLE",
+                # Same face, size and baseline as the left header, right-aligned to
+                # mirror its inset.
+                "-font", MONO_FONT, "-pointsize", str(px(15)), "-fill", colors["primary"],
+                "-annotate", f"+{w - m - px(30) - text_width(f'{USER_TAG}//HUD', MONO_FONT, px(15))}"
+                             f"+{mt + px(40)}", f"{USER_TAG}//HUD"]
+        with staged(WALLPAPERS / f"hud-{w}x{h}.png") as tmp:
+            run(*cmd, "-depth", "8", tmp)
+    print(f"wallpapers: {len(WALLPAPER_SIZES)} in {WALLPAPERS}")
+
+
+def text_width(text: str, font: str, size: int) -> int:
+    """Advance width of a single-line string in px, as magick would draw it."""
+    res = subprocess.run(["magick", "-font", font, "-pointsize", str(size), "label:" + text,
+                          "-format", "%w", "info:"], capture_output=True, text=True, check=True)
+    return int(res.stdout.strip())
+
+
+# Longer than the acid theme's wallpaper transition_duration (900 ms).
+WALLPAPER_SETTLE = 1.5
+
+
+def reload_wallpapers() -> None:
+    """Noctalia caches wallpapers by path, so re-setting the same file is a no-op.
+    Bounce each output that shows a HUD wallpaper through another file and back,
+    letting the first switch finish: an immediate switch back is coalesced into
+    a no-op and the stale image stays."""
+    if subprocess.run(["pgrep", "-x", "noctalia"], capture_output=True).returncode != 0:
+        return
+    try:
+        monitors = json.loads(subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True,
+                                             text=True, check=True).stdout)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as e:
+        print(f"hud-build: cannot list outputs, wallpaper not reloaded: {e}", file=sys.stderr)
+        return
+    for mon in monitors:
+        name = mon["name"]
+        current = subprocess.run(["noctalia", "msg", "wallpaper-get", name],
+                                 capture_output=True, text=True).stdout.strip()
+        if not current.startswith(str(WALLPAPERS)):
+            continue
+        other = next((str(p) for p in sorted(WALLPAPERS.glob("hud-*.png")) if str(p) != current), None)
+        if other is None:
+            continue
+        try:
+            run("noctalia", "msg", "wallpaper-set", name, other)
+            time.sleep(WALLPAPER_SETTLE)
+        finally:
+            # Always restore the original, even if the bounce failed half-way.
+            run("noctalia", "msg", "wallpaper-set", name, current)
+    print("wallpapers: reloaded in noctalia")
+
+
+def block_art(mask: Path, cols: int) -> str:
+    """Render an alpha mask as solid half-block characters (1x2 pixels per cell)."""
+    with tempfile.TemporaryDirectory(prefix="hud-blk-") as td:
+        pgm = Path(td) / "m.pgm"
+        run("magick", mask, "-alpha", "extract", "-resize", f"{cols}x", "-threshold", "45%",
+            "-compress", "none", pgm)
+        tokens = pgm.read_text().split()
+    # P2 header: magic, width, height, maxval, then pixel values.
+    width, height, maxval = int(tokens[1]), int(tokens[2]), int(tokens[3])
+    px = [int(v) > maxval // 2 for v in tokens[4:]]
+    glyph = {(False, False): " ", (True, False): "\u2580", (False, True): "\u2584", (True, True): "\u2588"}
+    rows = []
+    for y in range(0, height, 2):
+        line = []
+        for x in range(width):
+            top = px[y * width + x]
+            bottom = y + 1 < height and px[(y + 1) * width + x]
+            line.append(glyph[(top, bottom)])
+        rows.append("".join(line))  # equal widths keep centred dashboards aligned
+    return "\n".join(rows)
+
+
+# ── Lockscreen ────────────────────────────────────────────────────────────────
+# One layout drives both the static art (rendered here into one pixel-exact PNG
+# per output) and the live Noctalia widgets on top of it (`--lock-layout` prints
+# their TOML for noctalia's themes/acid.toml), so the two can never drift apart.
+#
+# Coordinates are design units: u = output height / 800, x is measured from the
+# horizontal centre, y from the top edge.
+LOCK_OUTPUTS = {  # logical width, height and scale of each output that locks
+    "eDP-1": (1280, 800, 1.5),
+    "DP-2": (2560, 1080, 1.0),
+    "DP-4": (2560, 1080, 1.0),
+}
+LOCK_RING_Y = 330          # centre of the ring instrument
+LOCK_RING_D = 420          # reference diameter; every ring is a fraction of it
+LOCK_PANEL_X = 430         # side panel centres at ±x
+LOCK_PANEL = (250, 300)    # side panel size
+LOCK_LOGIN = (0, 676, 720, 128)  # login box: x, y, w, h (noctalia's minimum size)
+LOCK_DIAL_STEP = 15        # the procedural dial repeats every 15°, so a 15° loop is seamless
+
+
+def lock_dial(px: int, color: str, dst: Path) -> None:
+    """Fine tick dial (120 ticks, a major one every 15°) drawn procedurally: crisp
+    at any size and exactly symmetric, which lets the GIF loop over one 15° step."""
+    c = px / 2
+    draws = []
+    for i in range(120):
+        major = i % 5 == 0
+        a = math.radians(i * 3)
+        r1 = px * (0.405 if major else 0.43)
+        r2 = px * 0.47
+        draws += ["-strokewidth", f"{px * (0.006 if major else 0.003):.2f}", "-draw",
+                  f"line {c + r1 * math.sin(a):.2f},{c - r1 * math.cos(a):.2f} "
+                  f"{c + r2 * math.sin(a):.2f},{c - r2 * math.cos(a):.2f}"]
+    run("magick", "-size", f"{px}x{px}", "xc:none", "-stroke", color, "-fill", "none", *draws,
+        "-strokewidth", f"{px * 0.002:.2f}",
+        "-draw", f"circle {c},{c} {c + px * 0.485},{c}", dst)
+
+
+def scope_trace(color: str, braid: bool, dst: Path, w: int = 1024, h: int = 128) -> None:
+    """A horizontally tileable trace: every component completes a whole number
+    of cycles across the width, so copies placed end to end join without a seam.
+
+    braid: a bold carrier whose amplitude breathes once per tile, trailed by
+    a faint phase-shifted echo. Otherwise a slow carrier with a light harmonic.
+    """
+    tau, mid = 2 * math.pi, h / 2
+
+    def strand(fn) -> str:
+        pts = " ".join(f"{x},{mid + fn(x / w):.2f}" for x in range(-4, w + 5, 2))
+        return f"polyline {pts}"
+
+    if braid:
+        amp = lambda t: h * 0.38 * (0.8 + 0.2 * math.cos(tau * t))
+        layers = [(color + "66", 4, strand(lambda t: 0.7 * amp(t) * math.sin(tau * (4 * t - 0.18)))),
+                  (color, 7, strand(lambda t: amp(t) * math.sin(tau * 4 * t)))]
+    else:
+        layers = [(color, 4, strand(lambda t: h * 0.3 * math.sin(tau * 2 * t)
+                                    + h * 0.05 * math.sin(tau * 11 * t)))]
+    draw = []
+    for col, width, path in layers:
+        draw += ["-stroke", col, "-strokewidth", str(width), "-draw", path]
+    run("magick", "-size", f"{w}x{h}", "xc:none", "-fill", "none", *draw, dst)
+
+
+def clock_face(px: int, color: str, dst: Path) -> None:
+    """The overlay clock's face, drawn procedurally so it is exactly concentric
+    (the stock rings are hand-drawn and lopsided by a few percent):
+    a minute track with 60 ticks (major every 5), four equal arcs on the
+    diagonals, and a fine inner circle. RingStack.qml's seconds needle rides
+    the tick track, at FACE_TRACK of the canvas."""
+    c = px / 2
+    draws = []
+    for i in range(60):
+        major = i % 5 == 0
+        a = math.radians(i * 6)
+        r1 = px * (0.405 if major else 0.43)
+        r2 = px * 0.46
+        draws += ["-strokewidth", f"{px * (0.009 if major else 0.004):.2f}", "-draw",
+                  f"line {c + r1 * math.sin(a):.2f},{c - r1 * math.cos(a):.2f} "
+                  f"{c + r2 * math.sin(a):.2f},{c - r2 * math.cos(a):.2f}"]
+    ra = px * 0.36
+    arcs = []
+    for mid in (45, 135, 225, 315):
+        # magick arc angles: degrees clockwise from +x.
+        arcs += ["-draw", f"arc {c - ra:.2f},{c - ra:.2f} {c + ra:.2f},{c + ra:.2f} "
+                          f"{mid - 90 - 28} {mid - 90 + 28}"]
+    run("magick", "-size", f"{px}x{px}", "xc:none", "-stroke", color, "-fill", "none", *draws,
+        "-strokewidth", f"{px * 0.012:.2f}", *arcs,
+        "-strokewidth", f"{px * 0.003:.2f}",
+        "-draw", f"circle {c},{c} {c + px * 0.33},{c}",
+        "-draw", f"circle {c},{c} {c + px * 0.475},{c}", dst)
+
+
+def gif_rotation(src: Path, frames: int, step: float, delay_ms: int, background: str,
+                 dst: Path) -> None:
+    """Rotate src by `step` degrees per frame. GIF alpha is 1-bit: it is
+    thresholded at 40 % coverage, so edges are hard but free of fringes."""
+    frame_args: list[str] = []
+    for i in range(frames):
+        frame_args += ["(", str(src), "-distort", "SRT", f"{i * step:.3f}", ")"]
+    with staged(dst) as tmp:
+        run("magick", "-dispose", "Background", "-delay", str(max(1, delay_ms // 10)),
+            *frame_args, "-channel", "A", "-threshold", "40%", "+channel",
+            "-background", background, "-loop", "0", "-layers", "OptimizeTransparency", tmp)
+
+
+def build_lock(colors: dict[str, str]) -> None:
+    d = OUT / "lock"
+    d.mkdir(parents=True, exist_ok=True)
+    max_u_px = max(h / 800 * s for _, h, s in LOCK_OUTPUTS.values())  # physical px per u
+    with tempfile.TemporaryDirectory(prefix="hud-lock-") as td:
+        # Dial: smooth, slow (1° per 120 ms, 43 s per turn).
+        dial_px = round(LOCK_RING_D * 1.16 * max_u_px)
+        dial = Path(td) / "dial.png"
+        lock_dial(dial_px, colors["outline"], dial)
+        gif_rotation(dial, LOCK_DIAL_STEP, 1, 120, colors["surface"], d / "dial.gif")
+        # Acid ring: a deliberate stepper motion (8° every 0.4 s, 18 s per turn).
+        acid_px = round(LOCK_RING_D * 0.80 * max_u_px)
+        acid = Path(td) / "acid.png"
+        tint(OUT / "elements" / "ring-07.png", colors["primary"], acid_px, acid)
+        gif_rotation(acid, 45, 8, 400, colors["surface"], d / "ring-acid.gif")
+    for name, (w, h, scale) in LOCK_OUTPUTS.items():
+        render_lock_static(colors, w, h, scale, d / f"static-{name}.png")
+    render_lock_backdrop(colors, d / "backdrop.png")
+    print(f"lock: dial + acid gifs, {len(LOCK_OUTPUTS)} static layers, backdrop")
+
+
+def render_lock_backdrop(colors: dict[str, str], dst: Path) -> None:
+    """Quiet 16:9 stage (Noctalia cover-crops it per output): gradient, grain and
+    the perspective floor, nothing near the edges that a crop could cut."""
+    w, h = 3840, 2160
+    floor_w, floor_h = round(w * 1.2), round(h * 0.42)
+    with staged(dst) as tmp:
+        run("magick", "-size", f"{w}x{h}",
+            f"radial-gradient:{colors['surface_variant']}-{colors['surface']}",
+            "(", "-size", f"{w}x{h}", "xc:gray50", "+noise", "Gaussian",
+            "-colorspace", "gray", "-evaluate", "multiply", "0.05", ")",
+            "-compose", "Plus", "-composite", "-compose", "Over",
+            "(", str(OUT / "elements" / "warp-floor.png"), "-resize", f"{floor_w}x{floor_h}!",
+            "-fill", colors["outline"], "-colorize", "100",
+            "(", "+clone", "-alpha", "extract", "(", "+clone", "-sparse-color", "Barycentric",
+            "0,0 black %[fx:0],%[fx:h] white", ")", "-compose", "Multiply", "-composite", ")",
+            "-compose", "CopyOpacity", "-composite", "-compose", "Over",
+            "-channel", "A", "-evaluate", "multiply", "0.45", "+channel", ")",
+            "-geometry", f"+{(w - floor_w) // 2}+{h - floor_h}", "-composite",
+            "-depth", "8", tmp)
+
+
+def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst: Path) -> None:
+    pw, ph = round(w * scale), round(h * scale)
+    k = h / 800 * scale  # physical px per design unit
+
+    def cx(x: float) -> float:
+        return pw / 2 + x * k
+
+    def cy(y: float) -> float:
+        return y * k
+
+    def put(element: str, role: str, width: float, x: float, y: float, opacity: float,
+            flop: bool = False) -> list[str]:
+        # gravity center: geometry offsets are measured from the canvas centre.
+        return ["(", str(OUT / "elements" / f"{element}.png"), "-resize", f"{round(width * k)}x",
+                *(["-flop"] if flop else []), "-fill", colors[role], "-colorize", "100",
+                "-channel", "A", "-evaluate", "multiply", str(opacity), "+channel", ")",
+                "-gravity", "center", "-geometry", f"{round(x * k):+d}{round(y * k - ph / 2):+d}",
+                "-composite"]
+
+    def text(s: str, font: str, size: float, role: str, x: float, y: float,
+             spacing: float = 0) -> list[str]:
+        return ["-gravity", "center", "-font", font, "-pointsize", f"{size * k:.1f}",
+                "-kerning", f"{spacing * k:.1f}", "-fill", colors[role], "-stroke", "none",
+                "-annotate", f"{round(x * k):+d}{round(y * k - ph / 2):+d}", s]
+
+    def hairline(role: str, width: float = 1.0) -> list[str]:
+        return ["-gravity", "NorthWest", "-fill", "none", "-stroke", colors[role],
+                "-strokewidth", f"{max(1.0, width * k):.2f}"]
+
+    def rect(x0: float, y0: float, x1: float, y1: float, role: str) -> list[str]:
+        return ["-gravity", "NorthWest", "-stroke", "none", "-fill", colors[role],
+                "-draw", f"rectangle {cx(x0):.1f},{cy(y0):.1f} {cx(x1):.1f},{cy(y1):.1f}"]
+
+    ry, rd = LOCK_RING_Y, LOCK_RING_D
+    cmd = ["magick", "-size", f"{pw}x{ph}", "xc:none"]
+
+    # Screen frame: hairline inset with acid corner ticks (as on the wallpaper).
+    m = 24  # inset, u
+    xl, xr = -(w / 2) * 800 / h + m, (w / 2) * 800 / h - m
+    yt, yb = m, 800 - m
+    cmd += hairline("outline", 1)
+    cmd += ["-draw", f"rectangle {cx(xl):.1f},{cy(yt):.1f} {cx(xr):.1f},{cy(yb):.1f}"]
+    t, arm = 3, 34
+    for x0, y0, dx, dy in ((xl, yt, 1, 1), (xr, yt, -1, 1), (xl, yb, 1, -1), (xr, yb, -1, -1)):
+        cmd += rect(min(x0, x0 + dx * arm), min(y0, y0 + dy * t), max(x0, x0 + dx * arm), max(y0, y0 + dy * t), "primary")
+        cmd += rect(min(x0, x0 + dx * t), min(y0, y0 + dy * arm), max(x0, x0 + dx * t), max(y0, y0 + dy * arm), "primary")
+    cmd += text(f"{USER_TAG}//HUD  ·  SECURE NODE 0x2100", MONO_FONT, 11, "on_surface_variant", 0, yt + 22, 2)
+
+    # Ring instrument, matching the desktop dial (RingStack.qml): square reticle,
+    # dotted ring and the procedural clock face (the tick dial and the acid ring
+    # rotate, so they are GIF widgets on top of this layer).
+    # 1.12 rather than the desktop's 1.30: the header and auth strip sit closer.
+    side = rd * 1.12
+    arm, t = side * 0.12, 1.5
+    x0, y0, x1, y1 = -side / 2, ry - side / 2, side / 2, ry + side / 2
+    ret = colors["outline"] + "b3"  # ~70 %, the reticle's peak on the desktop
+    for qx, qy, dx, dy in ((x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)):
+        for w_, h_ in ((arm, t), (t, arm)):
+            cmd += ["-gravity", "NorthWest", "-stroke", "none", "-fill", ret, "-draw",
+                    f"rectangle {cx(min(qx, qx + dx * w_)):.1f},{cy(min(qy, qy + dy * h_)):.1f} "
+                    f"{cx(max(qx, qx + dx * w_)):.1f},{cy(max(qy, qy + dy * h_)):.1f}"]
+        k4 = 4 * t  # acid knuckle at the very corner
+        cmd += rect(min(qx, qx + dx * k4), min(qy, qy + dy * k4), max(qx, qx + dx * k4), max(qy, qy + dy * k4), "primary")
+    for ex, ey, horiz in ((0, y0, False), (0, y1, False), (x0, ry, True), (x1, ry, True)):
+        lw_, lh_ = (arm * 0.4, t) if horiz else (t, arm * 0.4)
+        ox = 0 if ex == x0 else -lw_ if ex == x1 else -lw_ / 2
+        oy = 0 if ey == y0 else -lh_ if ey == y1 else -lh_ / 2
+        cmd += ["-gravity", "NorthWest", "-stroke", "none", "-fill", ret, "-draw",
+                f"rectangle {cx(ex + ox):.1f},{cy(ey + oy):.1f} {cx(ex + ox + lw_):.1f},{cy(ey + oy + lh_):.1f}"]
+    cmd += put("ring-05", "on_surface_variant", rd * 0.66, 0, ry, 0.55)
+    face = dst.with_name(f".face-{dst.stem}.png")
+    clock_face(round(rd * 0.56 * k), colors["on_surface_variant"], face)
+    cmd += ["(", str(face), "-channel", "A", "-evaluate", "multiply", "0.9", "+channel", ")",
+            "-gravity", "center", "-geometry", f"+0{round(ry * k - ph / 2):+d}", "-composite"]
+    # Inside the face's inner circle (r ~78 u), under the date.
+    cmd += text("SYSTEM//LOCKED", MONO_FONT, 10, "primary", 0, ry + 42, 2)
+
+    # Side panels: chamfered hairline cards facing the instrument, joined to it.
+    pw_u, ph_u = LOCK_PANEL
+    fill = colors["surface_variant"] + "8c"  # ~55 % so the backdrop shows through
+    for side, title, cap1, cap2 in ((-1, "SYS // TELEMETRY", "CPU LOAD", "MEMORY"),
+                                    (1, "NET // THERMAL", "CORE TEMP", "LINK RX/TX")):
+        px_, x0, x1 = side * LOCK_PANEL_X, side * LOCK_PANEL_X - pw_u / 2, side * LOCK_PANEL_X + pw_u / 2
+        y0, y1 = ry - ph_u / 2, ry + ph_u / 2
+        ch = 18  # chamfer on the corner nearest the instrument
+        if side < 0:
+            pts = [(x0, y0), (x1 - ch, y0), (x1, y0 + ch), (x1, y1), (x0, y1)]
+        else:
+            pts = [(x0 + ch, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0 + ch)]
+        poly = " ".join(f"{cx(px):.1f},{cy(py):.1f}" for px, py in pts)
+        cmd += ["-gravity", "NorthWest", "-fill", fill, "-stroke", colors["outline"],
+                "-strokewidth", f"{max(1.0, 1.0 * k):.2f}", "-draw", f"polygon {poly}"]
+        # Acid accent along the outer top edge, divider under the title.
+        outer = x0 if side < 0 else x1
+        cmd += rect(min(outer, outer - side * 46), y0 - 1.5, max(outer, outer - side * 46), y0 + 1.5, "primary")
+        cmd += hairline("outline") + ["-draw", f"line {cx(x0 + 14):.1f},{cy(y0 + 34):.1f} {cx(x1 - 14):.1f},{cy(y0 + 34):.1f}"]
+        cmd += text(title, MONO_FONT, 11, "on_surface", px_, y0 + 20, 2)
+        cmd += text(cap1, MONO_FONT, 9, "on_surface_variant", px_, y0 + 52, 2)
+        cmd += text(cap2, MONO_FONT, 9, "on_surface_variant", px_, y0 + 150, 2)
+        cmd += put("tick-strip", "outline", pw_u - 40, px_, y1 - 22, 0.9)
+        # Connector from the reticle to the panel, with an acid node at the panel.
+        near = x1 if side < 0 else x0
+        reach = side * rd * 0.62
+        cmd += hairline("outline") + ["-draw", f"line {cx(reach):.1f},{cy(ry):.1f} {cx(near):.1f},{cy(ry):.1f}"]
+        cmd += rect(near - 3, ry - 3, near + 3, ry + 3, "primary")
+    cmd += put("est-2100", "on_surface_variant", 120, -LOCK_PANEL_X, ry + ph_u / 2 + 36, 0.8)
+    cmd += put("barcode", "outline", 150, LOCK_PANEL_X, ry + ph_u / 2 + 36, 1.0)
+
+    # Auth strip and login brackets.
+    lx, ly, lw, lh = LOCK_LOGIN
+    cmd += text("AUTHENTICATION REQUIRED", MONO_FONT, 10, "on_surface_variant", 0, ly - lh / 2 - 22, 3)
+    cmd += put("chevron-progress", "primary", 70, -210, ly - lh / 2 - 22, 0.9)
+    cmd += put("chevron-progress", "primary", 70, 210, ly - lh / 2 - 22, 0.9, flop=True)
+    gx0, gx1, gy0, gy1, a = lx - lw / 2 - 8, lx + lw / 2 + 8, ly - lh / 2 - 8, ly + lh / 2 + 8, 16
+    for x0, y0, dx, dy in ((gx0, gy0, 1, 1), (gx1, gy0, -1, 1), (gx0, gy1, 1, -1), (gx1, gy1, -1, -1)):
+        cmd += rect(min(x0, x0 + dx * a), min(y0, y0 + dy * 2), max(x0, x0 + dx * a), max(y0, y0 + dy * 2), "primary")
+        cmd += rect(min(x0, x0 + dx * 2), min(y0, y0 + dy * a), max(x0, x0 + dx * 2), max(y0, y0 + dy * a), "primary")
+
+    try:
+        with staged(dst) as tmp:
+            run(*cmd, "-depth", "8", tmp)
+    finally:
+        face.unlink(missing_ok=True)
+
+
+def lock_layout_toml() -> str:
+    """The live lockscreen widgets for every output in LOCK_OUTPUTS, as TOML."""
+    lock = OUT / "lock"
+    out = ["[lockscreen_widgets]", "enabled = true",
+           "schema_version = 2 # current layout schema; without it noctalia migrates the table into state"]
+    order: list[str] = []
+    tables: list[str] = []
+
+    def q(v) -> str:
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, (int, float)):
+            return f"{float(v):.1f}"
+        return '"' + str(v) + '"'
+
+    for name, (w, h, _scale) in LOCK_OUTPUTS.items():
+        u = h / 800
+        tag = name.lower().replace("-", "")
+
+        def widget(wid: str, wtype: str, x: float, y: float, bw: float, bh: float, settings: dict,
+                   absolute: bool = False) -> None:
+            key = wid if wid.startswith("lockscreen-") else f"hud_{wid}_{tag}"
+            order.append(key)
+            kq = f'"{key}"' if "@" in key else key
+            cxp = x if absolute else w / 2 + x * u
+            cyp = y if absolute else y * u
+            lines = [f"[lockscreen_widgets.widget.{kq}]", f'output = "{name}"', f'type = "{wtype}"',
+                     f"cx = {cxp:.1f}", f"cy = {cyp:.1f}",
+                     f"box_width = {bw if absolute else bw * u:.1f}",
+                     f"box_height = {bh if absolute else bh * u:.1f}",
+                     f"[lockscreen_widgets.widget.{kq}.settings]"]
+            lines += [f"{k} = {q(v)}" for k, v in settings.items()]
+            tables.append("\n".join(lines))
+
+        ry, rd = LOCK_RING_Y, LOCK_RING_D
+        widget("static", "sticker", w / 2, h / 2, w, h,
+               {"image_path": str(lock / f"static-{name}.png"), "background": False}, absolute=True)
+        widget("dial", "sticker", 0, ry, rd * 1.16, rd * 1.16,
+               {"image_path": str(lock / "dial.gif"), "background": False, "opacity": 0.8})
+        widget("ring", "sticker", 0, ry, rd * 0.80, rd * 0.80,
+               {"image_path": str(lock / "ring-acid.gif"), "background": False})
+        text = {"background": False, "shadow": False}
+        widget("time", "clock", 0, ry - 16, 180, 60,
+               {"format": "{:%H:%M}", "center_text": True, "color": "on_surface",
+                "font_family": "Chakra Petch SemiBold", **text})
+        # Numeric date and ISO week: the clock format cannot upper-case a day
+        # name, and a mixed-case "Thu" clashes with the all-caps HUD.
+        widget("date", "clock", 0, ry + 22, 170, 14,
+               {"format": "{:%d.%m.%y  ·  W%V}", "center_text": True, "color": "on_surface_variant",
+                "font_family": "Departure Mono", **text})
+        pw_u, ph_u = LOCK_PANEL
+        y0 = ry - ph_u / 2
+        graph = {"display": "graph", "color": "primary", "color2": "on_surface_variant",
+                 "show_label": True, "font_family": "Departure Mono", **text}
+        for side, stats in ((-1, (("cpu", "cpu_usage", None), ("mem", "ram_pct", None))),
+                            (1, (("temp", "cpu_temp", None), ("net", "net_rx", "net_tx")))):
+            for i, (wid, stat, stat2) in enumerate(stats):
+                s = {"stat": stat, **graph}
+                if stat2:
+                    s["stat2"] = stat2
+                widget(wid, "sysmon", side * LOCK_PANEL_X, y0 + 92 + i * 98, pw_u - 36, 62, s)
+        lx, ly, lw, lh = LOCK_LOGIN
+        widget(f"lockscreen-login-box@{name}", "login_box", lx, ly, lw, lh,
+               {"layout": "regular", "show_media": False, "show_weather": False,
+                "show_session_buttons": True, "background_color": "surface",
+                "background_opacity": 0.92, "background_radius": 0.0, "input_opacity": 1.0,
+                "input_radius": 0.0, "show_login_button": False, "center_password_text": True,
+                "show_unlock_hint": False})
+
+    out.append("widget_order = [\n" + "".join(f'  "{k}",\n' for k in order) + "]")
+    return "\n".join(out) + "\n\n" + "\n\n".join(tables) + "\n"
+
+
+# Pixel icons for the bar readouts (mael/hud vol/lum/msg), 9x9 cells. Original
+# art, drawn here so every icon shares one grid and recolours with the palette.
+PIXEL_ICONS = {
+    "vol": ("....#....", "...##..#.", "#####...#", "#####.#.#", "#####.#.#",
+            "#####.#.#", "#####...#", "...##..#.", "....#...."),
+    "mute": ("....#....", "...##....", "#####....", "#####.#.#", "#####..#.",
+             "#####.#.#", "#####....", "...##....", "....#...."),
+    "lum": ("....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#",
+            "..#####..", "...###...", ".#.....#.", "....#...."),
+    "bell": ("....#....", "...###...", "..#####..", "..#####..", "..#####..",
+             ".#######.", "#########", ".........", "...###..."),
+}
+# Icon file name -> (bitmap, palette role). Alert states get their own colour.
+PIXEL_ICON_FILES = {
+    "vol": ("vol", "primary"), "mute": ("mute", "error"), "lum": ("lum", "primary"),
+    "bell": ("bell", "primary"), "bell-off": ("bell", "outline"),
+}
+
+# Workspace tiles: logical size of one slanted tile (the focused one is wider,
+# to carry its stripes) and the render scale (4x keeps edges crisp at the 1x
+# and 1.5x bar scales).
+WS_W, WS_ACTIVE_W, WS_H, WS_SKEW, WS_SCALE, WS_MAX = 26, 38, 20, 6, 4, 10
+
+
+def pixel_icon(rows: tuple[str, ...], color: str, cell: int, dst: Path) -> None:
+    cells = [f"rectangle {c * cell},{r * cell} {(c + 1) * cell - 1},{(r + 1) * cell - 1}"
+             for r, row in enumerate(rows) for c, ch in enumerate(row) if ch == "#"]
+    size = f"{len(rows[0]) * cell}x{len(rows) * cell}"
+    run("magick", "-size", size, "xc:none", "-fill", color,
+        *[a for d in cells for a in ("-draw", d)], dst)
+
+
+def ws_tiles(colors: dict[str, str], out: Path) -> int:
+    """Slanted workspace tiles with the number baked in, one PNG per state."""
+    s = WS_SCALE
+    w, aw, h, k = WS_W * s, WS_ACTIVE_W * s, WS_H * s, WS_SKEW * s
+    i = s // 2  # inset so the stroke stays inside the canvas
+
+    def left_x(y: float) -> float:
+        return k * (1 - y / (h - 1))
+
+    body = f"polygon {k + i},{i} {w - 1 - i},{i} {w - 1 - k - i},{h - 1 - i} {i},{h - 1 - i}"
+    # The focused tile gets a cut corner (bottom left) for a machined look.
+    c = 6 * s
+    chamfer = (f"polygon {k},0 {aw - 1},0 {aw - 1 - k},{h - 1} {c + left_x(h - 1)},{h - 1} "
+               f"{left_x(h - 1 - c)},{h - 1 - c}")
+    stripes = []
+    for j in range(3):  # "///" etched into the focused tile's right end
+        x0 = aw - 1 - k - 4 * s - j * 4 * s
+        stripes += ["-draw", f"polygon {x0},{h - 3 * s} {x0 + 2 * s},{h - 3 * s} "
+                             f"{x0 + 2 * s + k * 0.7:.0f},{3 * s} {x0 + k * 0.7:.0f},{3 * s}"]
+    # Occupied tick in the top-right corner, clear of the number.
+    marker = f"rectangle {w - 1 - 9 * s},{3 * s} {w - 1 - 6 * s},{6 * s}"
+
+    def tile(state: str, n: int, dst: Path) -> None:
+        # Departure Mono at the bar readouts' 12 px, so tile numbers match the
+        # values in the panels.
+        text, digit_font = colors["on_surface"], MONO_FONT
+        draw: list[str] = []
+        if state == "empty":
+            draw = ["-fill", "none", "-stroke", colors["outline"], "-strokewidth", str(s),
+                    "-draw", body]
+            text = colors["outline"]
+        elif state == "occupied":
+            draw = ["-fill", colors["surface_variant"], "-stroke", colors["on_surface_variant"],
+                    "-strokewidth", str(s), "-draw", body,
+                    "-stroke", "none", "-fill", colors["primary"], "-draw", marker]
+        elif state == "visible":  # focused on another monitor
+            draw = ["-fill", "none", "-stroke", colors["primary"], "-strokewidth", str(s),
+                    "-draw", body]
+            text = colors["primary"]
+        elif state == "urgent":
+            draw = ["-fill", colors["error"] + "55", "-stroke", colors["error"],
+                    "-strokewidth", str(s), "-draw", body]
+        elif state == "active":
+            draw = ["-fill", colors["primary"], "-draw", chamfer]
+            text = colors["on_primary"]
+        # The focused number sits in the left part, clear of the stripes.
+        tw = aw if state == "active" else w
+        if state == "active":
+            # Two-digit numbers need the room: keep only the outermost stripe.
+            draw += ["-fill", colors["on_primary"] + "80", *(stripes if n < 10 else stripes[:2])]
+            anchor, dx = "west", (WS_SKEW + 2) * s
+        else:
+            anchor, dx = "center", -s  # the slant's optical middle
+        run("magick", "-size", f"{tw}x{h}", "xc:none", *draw, "-stroke", "none",
+            "-fill", text, "-font", digit_font, "-pointsize", str(12 * s),
+            "-gravity", anchor, "-annotate", f"{dx:+d}+0", str(n), dst)
+
+    count = 0
+    for n in range(1, WS_MAX + 1):
+        for state in ("empty", "occupied", "visible", "urgent", "active"):
+            tile(state, n, out / f"{state}-{n}.png")
+            count += 1
+        act = out / f"active-{n}.png"
+        # Two glitch frames shown when a workspace takes focus: a torn scanline
+        # band, then a red/white channel split.
+        band_y, band_h = 7 * s, 5 * s
+        run("magick", act, "(", "+clone", "-crop", f"{aw}x{band_h}+0+{band_y}", "+repage",
+            "-roll", f"+{3 * s}+0", ")", "-geometry", f"+0+{band_y}", "-compose", "Copy",
+            "-composite", out / f"glitch0-{n}.png")
+        run("magick", "-size", f"{aw}x{h}", "xc:none",
+            "(", act, "-fill", colors["error"], "-colorize", "100", ")",
+            "-geometry", f"-{2 * s}+0", "-composite",
+            "(", act, "-fill", colors["on_surface"], "-colorize", "100", ")",
+            "-geometry", f"+{2 * s}+0", "-composite", act, "-geometry", "+0+0", "-composite",
+            out / f"glitch1-{n}.png")
+        count += 2
+    # Slanted acid brackets that close the row.
+    cw = (WS_SKEW + 6) * s
+    run("magick", "-size", f"{cw}x{h}", "xc:none", "-stroke", colors["primary"],
+        "-strokewidth", str(s), "-fill", "none",
+        "-draw", f"polyline {k + 5 * s},{i} {k + i},{i} {i},{h - 1 - i} {5 * s},{h - 1 - i}",
+        out / "cap-l.png")
+    run("magick", out / "cap-l.png", "-rotate", "180", out / "cap-r.png")
+    return count + 2
+
+
+def build_bar(colors: dict[str, str]) -> None:
+    """Frames for the mael/hud Noctalia bar plugin (it can swap images, not rotate them)."""
+    bar = OUT / "bar"
+    # Frames are rendered into .new dirs and swapped in at the end, so the bar
+    # never sees a half-rendered set. The swap is two renames, so a directory is
+    # briefly missing; the widgets check for files and skip that tick.
+    staging = {sub: bar / f".{sub}.new" for sub in ("spinner", "hazard", "ws", "icons")}
+    for d in staging.values():
+        shutil.rmtree(d, ignore_errors=True)
+        d.mkdir(parents=True)
+    tint(OUT / "elements" / "tri-blade.png", colors["primary"], 64, bar / "emblem.png")
+    # Procedural barcode on a module grid at 6x the widget's 46x12 logical px:
+    # 6 px modules land on whole pixels at both 1.5x (4 px) and 1x (6 px), so the
+    # bars stay crisp where a downscaled bitmap blurs into grey.
+    mod, cols, bar_h = 6, 46, 72
+    rng = random.Random(2100)  # fixed pattern across rebuilds
+    bars, x, ink = [], 0, True
+    while x < cols:
+        span = min(cols - x, rng.choice((1, 1, 2, 3) if ink else (1, 1, 2)))
+        if ink:
+            bars += ["-draw", f"rectangle {x * mod},0 {(x + span) * mod - 1},{bar_h - 1}"]
+        x, ink = x + span, not ink
+    with staged(bar / "barcode.png") as tmp:
+        run("magick", "-size", f"{cols * mod}x{bar_h}", "xc:none",
+            "-fill", colors["on_surface_variant"], *bars, tmp)
+
+    spin_frames, spin_px = 36, 72
+    base = staging["spinner"] / "_base.png"
+    run("magick", OUT / "elements" / "ring-07.png", "-resize", f"{spin_px}x{spin_px}",
+        "-background", "none", "-gravity", "center", "-extent", f"{spin_px}x{spin_px}",
+        "-fill", colors["primary"], "-colorize", "100", base)
+    for i in range(spin_frames):
+        run("magick", base, "-distort", "SRT", f"{i * 360 / spin_frames:.2f}",
+            staging["spinner"] / f"{i:02d}.png")
+    base.unlink()
+
+    # Procedural hazard tape at 4x the widget's default 56x10, one stripe period
+    # split into 8 shifts so the frames loop seamlessly.
+    w, h, period, frames = 224, 40, 40, 8
+    for i in range(frames):
+        off = i * period // frames
+        polys = []
+        for x in range(-period * 2, w + period, period):
+            x0 = x + off
+            polys += ["-draw", f"polygon {x0},{h} {x0 + h // 2},0 {x0 + h // 2 + period // 2},0 "
+                               f"{x0 + period // 2},{h}"]
+        # Clip to a parallelogram whose ends follow the stripe slant, so the
+        # stripes crawling in and out are cut cleanly instead of leaving slivers.
+        run("magick", "-size", f"{w}x{h}", "xc:none", "-fill", colors["primary"], *polys,
+            "(", "-size", f"{w}x{h}", "xc:none", "-fill", "white",
+            "-draw", f"polygon {h // 2},0 {w},0 {w - h // 2},{h} 0,{h}", ")",
+            "-compose", "DstIn", "-composite", staging["hazard"] / f"{i:02d}.png")
+    for name, (rows, role) in PIXEL_ICON_FILES.items():
+        pixel_icon(PIXEL_ICONS[rows], colors[role], 4, staging["icons"] / f"{name}.png")
+    tiles = ws_tiles(colors, staging["ws"])
+
+    for sub, new in staging.items():
+        old = bar / f".{sub}.old"
+        shutil.rmtree(old, ignore_errors=True)
+        if (bar / sub).exists():
+            (bar / sub).rename(old)
+        new.rename(bar / sub)
+        shutil.rmtree(old, ignore_errors=True)
+    print(f"bar: emblem, barcode, {spin_frames} spinner + {frames} hazard frames, "
+          f"{len(PIXEL_ICON_FILES)} icons, {tiles} workspace tiles")
+
+
+def build_extras(colors: dict[str, str]) -> None:
+    tint(OUT / "elements" / "tri-blade.png", colors["primary"], 512, OUT / "fastfetch-logo.png")
+    (OUT / "nvim-header.txt").write_text(block_art(OUT / "elements" / "tri-blade.png", 30) + "\n")
+    print("extras: fastfetch-logo.png, nvim-header.txt")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--tint-only", action="store_true", help="skip cropping; recolour outputs only")
+    ap.add_argument("--force", action="store_true", help="re-crop all elements")
+    ap.add_argument("--if-changed", action="store_true",
+                    help="do nothing when the palette and this script match the last build "
+                         "(for Noctalia's palette hook, which also fires on every start)")
+    ap.add_argument("--lock-layout", action="store_true",
+                    help="print the [lockscreen_widgets] TOML for noctalia's themes/acid.toml and exit")
+    args = ap.parse_args()
+    if args.lock_layout:
+        print(lock_layout_toml(), end="")
+        return
+
+    require_tools()
+    if not (SRC / "elements.toml").exists():
+        sys.exit(f"hud-build: {SRC}/elements.toml missing (stow the hud package)")
+    if not PACKS.is_dir():
+        sys.exit(f"hud-build: asset packs not found at {PACKS}")
+
+    # Palette hooks can fire twice in quick succession; serialise the runs.
+    CACHE.mkdir(parents=True, exist_ok=True)
+    lock = open(CACHE / "build.lock", "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+
+    colors = load_colors()
+    # The stamp covers the palette and this script, so editing the renderers
+    # also invalidates it; a crop run (no --tint-only) always builds.
+    stamp = CACHE / "build.stamp"
+    key = json.dumps(colors, sort_keys=True) + f"\n{Path(__file__).stat().st_mtime_ns}\n"
+    outputs_present = (OUT / "bar/icons/vol.png").exists() and (OUT / "overlay").is_dir()
+    if args.if_changed and outputs_present and stamp.exists() and stamp.read_text() == key:
+        print("hud-build: palette unchanged, nothing to do")
+        return
+    stamp.unlink(missing_ok=True)
+    if not args.tint_only:
+        build_elements(load_manifest(), args.force)
+    build_tinted(colors)
+    build_overlay(colors)
+    build_lock(colors)
+    build_bar(colors)
+    build_wallpapers(colors)
+    build_extras(colors)
+    reload_wallpapers()
+    stamp.write_text(key)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (RuntimeError, FileNotFoundError) as e:
+        sys.exit(f"hud-build: {e}")

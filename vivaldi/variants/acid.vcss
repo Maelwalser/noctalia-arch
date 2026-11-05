@@ -1,0 +1,42 @@
+/* vim: set ft=css: */
+/*
+================================================================================
+  ACID//HUD theme for Vivaldi. `dotfiles-theme acid` links this file as
+  vivaldi/theme.css (Vivaldi loads every *.css in this css-mods folder); the
+  .vcss extension keeps Vivaldi from loading it under the classic theme.
+  Palette from noctalia/.config/noctalia/palettes/acid-hud.json; keep in sync
+  by hand. Vivaldi sets its theme variables inline on #browser, so these need
+  !important.
+================================================================================
+*/
+
+/* Square HUD corners instead of main.css's rounded ones. */
+.UrlBar-AddressField,
+.SearchField {
+  border-radius: 2px !important;
+}
+
+#tabs-container .tab,
+#tabs-container .tab.active,
+.tab-position .tab {
+  border-radius: 2px !important;
+}
+
+#browser {
+  --colorAccentBg: #d4ff1e !important;
+  --colorAccentBgDark: #a8cc12 !important;
+  --colorAccentFg: #0a0a0c !important;
+  --colorHighlightBg: #d4ff1e !important;
+  --colorHighlightFg: #0a0a0c !important;
+  --colorFocusBg: #d4ff1e !important;
+  --colorBg: #0a0a0c !important;
+  --colorBgDark: #050506 !important;
+  --colorBgLight: #16161b !important;
+  --colorFg: #e8e6e1 !important;
+  --colorBorder: #3a3a42 !important;
+}
+
+/* Acid underline marks the active tab instead of a filled pill. */
+#tabs-container .tab.active {
+  box-shadow: inset 0 -2px 0 #d4ff1e !important;
+}

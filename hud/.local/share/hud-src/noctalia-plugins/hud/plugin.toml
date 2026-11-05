@@ -1,0 +1,149 @@
+# ACID//HUD bar ornaments. Frames and tinted images are rendered locally by
+# `hud-build` into ~/.local/share/hud/bar (derived from licensed stock art, so
+# they are not shipped with the plugin). Animation is frame swapping through
+# barWidget.render + noctalia.setUpdateInterval: the bar API has no transforms.
+id = "mael/hud"
+name = "ACID//HUD"
+version = "1.0.0"
+plugin_api = 32
+author = "mael"
+license = "MIT"
+dependencies = []
+tags = ["theme", "decoration", "workspaces", "system"]
+icon = "hexagon"
+description = "Cyberpunk HUD bar: emblem, hazard tape, spinning ring, barcode, slanted workspace tiles and pixel readouts for volume, brightness, battery and notifications."
+
+[[widget]]
+id = "emblem"
+entry = "emblem.luau"
+
+  [widget.actions]
+  left = "panel-toggle launcher"
+  middle = "none"
+
+[[widget]]
+id = "hazard"
+entry = "hazard.luau"
+
+  [[widget.setting]]
+  key = "animate"
+  type = "bool"
+  label_key = "settings.animate.label"
+  default = true
+
+  [[widget.setting]]
+  key = "length"
+  type = "int"
+  label_key = "settings.length.label"
+  default = 56
+  min = 16
+  max = 160
+
+[[widget]]
+id = "spinner"
+entry = "spinner.luau"
+
+  [[widget.setting]]
+  key = "animate"
+  type = "bool"
+  label_key = "settings.animate.label"
+  default = true
+
+  [widget.actions]
+  left = "exec hud-overlay toggle"
+  middle = "none"
+
+[[widget]]
+id = "barcode"
+entry = "barcode.luau"
+
+[[widget]]
+id = "workspaces"
+entry = "workspaces.luau"
+
+  [widget.actions]
+  middle = "none"
+
+[[widget]]
+id = "vol"
+entry = "vol.luau"
+
+  [widget.actions]
+  left = "panel-toggle control-center audio"
+  middle = "volume-mute"
+  scroll_up = "volume-up"
+  scroll_down = "volume-down"
+
+[[widget]]
+id = "lum"
+entry = "lum.luau"
+
+  [widget.actions]
+  left = "panel-toggle control-center"
+  middle = "none"
+  scroll_up = "brightness-up"
+  scroll_down = "brightness-down"
+
+[[widget]]
+id = "pwr"
+entry = "pwr.luau"
+
+  [widget.actions]
+  left = "panel-toggle control-center power"
+  middle = "none"
+
+[[widget]]
+id = "msg"
+entry = "msg.luau"
+
+  [widget.actions]
+  left = "panel-toggle control-center notifications"
+  middle = "none"
+
+[[widget]]
+id = "tag"
+entry = "tag.luau"
+
+  [widget.actions]
+  middle = "none"
+
+[[widget]]
+id = "sep"
+entry = "sep.luau"
+
+  [widget.actions]
+  middle = "none"
+
+[[widget]]
+id = "eq"
+entry = "eq.luau"
+
+  # Noctalia streams PipeWire spectrum frames to onAudioSpectrum while this is on.
+  [[widget.setting]]
+  key = "audio_spectrum"
+  type = "bool"
+  label_key = "settings.audio_spectrum.label"
+  default = true
+
+  # Logical px right of the equalizer: the rest of the end lane plus margins.
+  [[widget.setting]]
+  key = "reserve"
+  type = "int"
+  label_key = "settings.reserve.label"
+  default = 362
+  min = 0
+  max = 2000
+
+  # Gap to the workspace row (layout px; the slanted caps add ~2 px of air),
+  # tuned to match the gap on the row's other side.
+  [[widget.setting]]
+  key = "gap"
+  type = "int"
+  label_key = "settings.gap.label"
+  default = 13
+  min = 0
+  max = 200
+
+  [widget.actions]
+  left = "panel-toggle control-center audio"
+  middle = "none"

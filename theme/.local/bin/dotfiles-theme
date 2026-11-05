@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+#
+# Switch the whole desktop between the dotfiles themes:
+#   acid     ACID//HUD: acid-on-black HUD, animated overlay, HUD bar and lockscreen
+#   classic  the look from before ACID//HUD (v4 bar, round corners, eyes palette)
+#
+# Usage:
+#   dotfiles-theme              print the active theme
+#   dotfiles-theme <name>       switch to <name> and reload what is running
+#   dotfiles-theme --list       list the themes
+#
+# The choice lives in ${XDG_STATE_HOME:-~/.local/state}/dotfiles/theme. Hyprland,
+# zsh, fastfetch and Neovim read it directly. Apps without conditionals get a
+# `theme.*` link to the committed variant (Noctalia, Ghostty, tmux, sioyek,
+# Vivaldi). Noctalia's GUI state (palette, wallpapers, lockscreen layout) beats
+# its config, so each theme keeps its own copy of that state.
+set -euo pipefail
+
+readonly THEMES=(acid classic)
+readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles"
+readonly CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+readonly NOCTALIA_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/noctalia/settings.toml"
+# This script is stowed into ~/.local/bin; the repo is three levels above it.
+DOTFILES="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../.." && pwd)"
+readonly DOTFILES
+
+current() {
+  local t
+  t="$(cat "$STATE_DIR/theme" 2>/dev/null || true)"
+  [[ "$t" == classic ]] && echo classic || echo acid
+}
+
+# The theme the desktop is in, or "unknown" before the first switch on a
+# machine that already has per-theme snapshots (nothing safe to save then).
+recorded() {
+  if [[ -f "$STATE_DIR/theme" ]] || ! compgen -G "$STATE_DIR/noctalia-*.toml" >/dev/null; then
+    current
+  else
+    echo unknown
+  fi
+}
+
+usage() {
+  sed -n '3,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# link <path> <target>: point <path> at <target>. A real file in the way is
+# kept as <path>.bak-<timestamp> rather than overwritten. A missing target only
+# warns, so one broken app never stops the rest of the switch.
+link() {
+  local path="$1" target="$2"
+  [[ -e "$target" ]] || { echo "  ⚠ missing $target"; return 0; }
+  mkdir -p "$(dirname "$path")"
+  if [[ -e "$path" && ! -L "$path" ]]; then
+    mv "$path" "$path.bak-$(date +%Y%m%d%H%M%S)"
+    echo "  moved the existing $path aside (.bak-*)"
+  fi
+  ln -sfn "$target" "$path"
+}
+
+# noctalia_state <save|restore> <theme>: copy the theme-specific tables of
+# Noctalia's state file to/from $STATE_DIR/noctalia-<theme>.toml. Restoring a
+# theme that has no copy yet drops those tables, so the theme's config applies.
+noctalia_state() {
+  python3 -I - "$1" "$NOCTALIA_STATE" "$STATE_DIR/noctalia-$2.toml" <<'PY'
+import re, sys
+from pathlib import Path
+
+mode, state, snap = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
+THEMED = ("theme", "wallpaper", "lockscreen_widgets", "desktop_widgets")
+
+def blocks(text):
+    """Split into (table name or None for the preamble, text) runs."""
+    out, name, cur = [], None, []
+    for line in text.splitlines(keepends=True):
+        # Table names only (no spaces or commas), so a lone `["x"]` line inside
+        # a multi-line array is not mistaken for a header.
+        m = re.match(r'\s*\[\[?\s*([A-Za-z0-9_.@"-]+)\s*\]\]?\s*$', line)
+        if m:
+            out.append((name, "".join(cur)))
+            name, cur = m.group(1), []
+        cur.append(line)
+    out.append((name, "".join(cur)))
+    return out
+
+def themed(name):
+    return name is not None and any(name == t or name.startswith(t + ".") for t in THEMED)
+
+parts = blocks(state.read_text()) if state.exists() else []
+if mode == "save":
+    snap.write_text("".join(t for n, t in parts if themed(n)))
+else:
+    kept = "".join(t for n, t in parts if not themed(n))
+    extra = snap.read_text() if snap.exists() else ""
+    if kept and not kept.endswith("\n"):
+        kept += "\n"
+    tmp = state.with_suffix(".toml.tmp")
+    tmp.write_text(kept + extra)
+    tmp.replace(state)
+PY
+}
+
+wait_noctalia() {
+  local i
+  for i in $(seq 50); do
+    noctalia msg color-scheme-get &>/dev/null && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+switch_noctalia() {
+  local from="$1" to="$2" running=0
+  # Stop first: Noctalia rewrites its state on exit and may hot-reload the new
+  # theme.toml against the old state while still running.
+  if pgrep -x noctalia &>/dev/null; then
+    running=1
+    pkill -x noctalia
+    for _ in $(seq 50); do pgrep -x noctalia &>/dev/null || break; sleep 0.1; done
+    if pgrep -x noctalia &>/dev/null; then
+      pkill -KILL -x noctalia || true
+      sleep 0.3
+    fi
+  fi
+  link "$CONFIG/noctalia/theme.toml" "$DOTFILES/noctalia/.config/noctalia/themes/$to.toml"
+  # Re-applying the active theme keeps its state; switching parks the old one.
+  # A failure here must not leave the shell down, so it only warns.
+  if [[ "$from" != "$to" ]]; then
+    mkdir -p "$(dirname "$NOCTALIA_STATE")"
+    [[ "$from" == unknown || ! -f "$NOCTALIA_STATE" ]] || noctalia_state save "$from" \
+      || echo "  ⚠ could not save Noctalia state for $from"
+    noctalia_state restore "$to" || echo "  ⚠ could not restore Noctalia state for $to"
+  fi
+  if (( running )); then
+    setsid -f noctalia &>/dev/null
+    if wait_noctalia; then
+      noctalia msg templates-apply &>/dev/null || echo "  ⚠ noctalia: templates-apply failed"
+    else
+      echo "  ⚠ noctalia did not come back; start it with: noctalia -d"
+    fi
+  fi
+}
+
+apply() {
+  local from="$1" to="$2"
+  mkdir -p "$STATE_DIR"
+
+  echo "Theme: $to"
+  link "$CONFIG/ghostty/theme.conf" "$DOTFILES/ghostty/.config/ghostty/variants/$to.conf"
+  link "$CONFIG/tmux/theme.conf" "$DOTFILES/tmux/.config/tmux/variants/$to.conf"
+  link "$CONFIG/sioyek/prefs_user.config" "$DOTFILES/sioyek/.config/sioyek/variants/$to.config"
+  # Vivaldi loads every *.css in its css-mods folder (the repo's vivaldi/).
+  if [[ "$to" == acid ]]; then
+    link "$DOTFILES/vivaldi/theme.css" "$DOTFILES/vivaldi/variants/acid.vcss"
+  else
+    rm -f "$DOTFILES/vivaldi/theme.css"
+  fi
+
+  switch_noctalia "$from" "$to"
+
+  if [[ "$to" == acid ]]; then
+    [[ -d "$HOME/.local/share/hud/overlay" ]] \
+      || echo "  ⚠ ACID//HUD assets missing: run hud-build (needs ~/Pictures/ricing)"
+    if command -v qs &>/dev/null; then
+      hud-overlay start &>/dev/null || echo "  ⚠ hud-overlay failed to start"
+    fi
+  elif command -v hud-overlay &>/dev/null; then
+    hud-overlay stop &>/dev/null || true
+  fi
+
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    hyprctl reload &>/dev/null || echo "  ⚠ hyprctl reload failed"
+  fi
+  if tmux list-sessions &>/dev/null; then
+    tmux source-file "$HOME/.tmux.conf" || echo "  ⚠ tmux reload failed"
+  fi
+  # Ghostty re-reads its config on SIGUSR2.
+  pkill -USR2 -x ghostty 2>/dev/null || true
+
+  # Recorded last, so a switch that died half-way is redone (with the state
+  # swap) on the next run instead of being skipped as "already active".
+  printf '%s\n' "$to" >"$STATE_DIR/theme"
+
+  echo "Applied. New shells and Neovim pick it up on start; restart Vivaldi and sioyek."
+}
+
+main() {
+  case "${1:-}" in
+    "") current ;;
+    -h|--help) usage ;;
+    --list) printf '%s\n' "${THEMES[@]}" ;;
+    *)
+      local t
+      for t in "${THEMES[@]}"; do
+        if [[ "$1" == "$t" ]]; then
+          apply "$(recorded)" "$1"
+          return
+        fi
+      done
+      echo "Unknown theme: $1 (themes: ${THEMES[*]})" >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

@@ -13,7 +13,7 @@
 --   orange → numbers, constants (warm literals)
 --   pink   → escapes / exceptions / accents (rare pop)
 --   red    → errors / deletions (reserved loud color)
-return {
+local M = {
   -- Backgrounds (Polar Night family, deepened for night coding)
   bg         = "#14171f",
   bg_alt     = "#1c212d",
@@ -43,3 +43,17 @@ return {
   pink       = "#d5919c", -- softened red — escapes / accents
   red        = "#bf616a", -- Nord aurora red — errors / delete
 }
+
+-- ACID//HUD: Noctalia renders the shell palette into this file (template
+-- noctalia/.config/noctalia/templates/nvim-palette.lua); its keys override the
+-- Nordic defaults above. Without it (e.g. before Noctalia's first run), or under
+-- the classic theme, the editor keeps the defaults.
+local ok, hud = false, nil
+if require("config.dotfiles_theme") == "acid" then
+  ok, hud = pcall(dofile, vim.fn.expand("~/.local/share/hud/nvim-palette.lua"))
+end
+if ok and type(hud) == "table" then
+  M = vim.tbl_extend("force", M, hud)
+end
+
+return M
