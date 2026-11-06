@@ -514,10 +514,13 @@ def block_art(mask: Path, cols: int) -> str:
 #
 # Coordinates are design units: u = output height / 800, x is measured from the
 # horizontal centre, y from the top edge.
+# The scale must match hyprland/.config/hypr/monitors.lua: the static layer and
+# the dial/ring GIFs are rendered at physical size, so a low scale leaves them
+# upscaled (soft) on that output.
 LOCK_OUTPUTS = {  # logical width, height and scale of each output that locks
     "eDP-1": (1280, 800, 1.5),
-    "DP-2": (2560, 1080, 1.0),
-    "DP-4": (2560, 1080, 1.0),
+    "DP-2": (2560, 1080, 2.0),
+    "DP-4": (2560, 1080, 2.0),
 }
 LOCK_RING_Y = 330          # centre of the ring instrument
 LOCK_RING_D = 420          # reference diameter; every ring is a fraction of it
