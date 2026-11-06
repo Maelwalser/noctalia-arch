@@ -368,6 +368,85 @@ def build_overlay(colors: dict[str, str]) -> None:
     print(f"overlay: {len(OVERLAY)} layers")
 
 
+def floor_grid(w: int, d: int, ax: int, cell: float, stroke: float, dst: Path) -> None:
+    """Render a perspective floor grid, white on transparent, to dst (w x d px).
+
+    The camera sits one unit above a gently rippling plane, looking at the
+    horizon (dst's top edge) with the vanishing point at x = ax; depth 1 lands
+    on the bottom edge. `cell` is the grid pitch in plane units, so the nearest
+    cells are about cell * d px wide. Rows and columns thin out with depth
+    (every 2nd, then 4th, ...) so they never pack tighter than `gap` px: the grid
+    reaches the horizon across the full width without turning to mush.
+    """
+    gap, near = 22.0, 0.8
+    f = float(d)
+    reach = max(ax, w - ax) + 40
+
+    def lift(x: float, z: float) -> float:
+        # Low swells across the plane, like the warped floor in the packs.
+        # Damped with depth so far rows never fold over each other.
+        return 0.07 * math.exp(-z / 7) * (math.sin(0.8 * x + 0.5 * z)
+                                          + 0.6 * math.sin(1.7 * x - 0.9 * z + 1.3))
+
+    def pt(x: float, z: float) -> str:
+        return f"{ax + f * x / z:.1f},{f * (1 - lift(x, z)) / z:.1f}"
+
+    lines, fading = [], []
+    z, step = near, cell
+    while f / z > 2:  # rows until they sit within 2 px of the horizon
+        if f * step / (z * z) < gap:
+            step *= 2
+            continue
+        half = reach / f * z
+        lines.append(" ".join(pt(-half + 2 * half * i / 160, z) for i in range(161)))
+        z += step
+    kmax = int(2 * w / gap)
+    for k in range(-kmax, kmax + 1):
+        # Column k ends where columns of its level (multiples of k's lowest set
+        # bit) get closer than gap; column 0 runs to the vanishing point.
+        level = (k & -k) if k else 1 << 16
+        zend = min(f * cell * level / gap, 4000.0)
+        x = k * cell
+        if abs(f * x / zend) > reach:  # off-screen for its whole length
+            continue
+        # Full strength to half its length (in log depth), then fading out in
+        # steps, so thinned-out columns dissolve instead of ending in a cut.
+        for a, b, alpha in ((0.0, 0.5, 1.0), (0.5, 0.65, 0.7), (0.65, 0.8, 0.45), (0.8, 1.0, 0.2)):
+            zs = [near * (zend / near) ** (a + (b - a) * i / 40) for i in range(41)]
+            fading.append((alpha, " ".join(pt(x, zz) for zz in zs)))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    mvg = dst.with_suffix(".mvg")
+    mvg.write_text(f"stroke white\nstroke-width {stroke:.2f}\nfill none\n"
+                   + "".join(f"polyline {ln}\n" for ln in lines)
+                   + "".join(f"push graphic-context\nstroke-opacity {a}\npolyline {ln}\n"
+                             "pop graphic-context\n" for a, ln in fading))
+    try:
+        with staged(dst) as tmp:
+            run("magick", "-size", f"{w}x{d}", "xc:none", "-draw", f"@{mvg}", tmp)
+    finally:
+        mvg.unlink(missing_ok=True)
+
+
+def ridge_mask(ax: float) -> str:
+    """-fx alpha for the horizon ridge: a mountain profile over a band (i/w, j/h).
+
+    Peaks left and right of the clock axis, a valley under the overlay's ring
+    (it rises out of the gap), and nothing at the frame labels. Inside the
+    profile the alpha is brightest at the crest, a rim that keeps the dot
+    cloud reading as a silhouette, and settles lower toward the horizon.
+    """
+    x = "i/w"
+    peaks = " + ".join(f"{a}*exp(-(({x}-{c})/{wd})^2)" for a, c, wd in (
+        (0.62, 0.13, 0.06), (0.48, 0.22, 0.045), (0.30, 0.31, 0.05),
+        (0.40, 0.56, 0.05), (0.88, 0.71, 0.055), (0.55, 0.81, 0.04), (0.35, 0.89, 0.04)))
+    rough = f"0.05*sin({x}*91) + 0.03*sin({x}*233 + 1.3)"
+    valley = f"(1 - 0.9*exp(-(({x}-{ax:.3f})/0.075)^2))"
+    edge = f"pow(max(0, min(1, min(({x}-0.045)/0.08, (0.955-{x})/0.08))), 0.8)"
+    top = f"(1 - min(1, 0.16 + {peaks} + {rough}) * {valley} * {edge})"
+    d = f"(j/h - {top})"
+    return f"{d} < 0 ? 0 : min(1, {d}/0.035) * (0.38 + 0.62*exp(-{d}/0.09))"
+
+
 def build_wallpapers(colors: dict[str, str]) -> None:
     WALLPAPERS.mkdir(parents=True, exist_ok=True)
     el = OUT / "elements"
@@ -381,10 +460,10 @@ def build_wallpapers(colors: dict[str, str]) -> None:
         def layer(name: str, color: str, size: int | str, x: int, y: int, opacity: float,
                   rotate: float = 0, fade_up: bool = False) -> list[str]:
             geometry = size if isinstance(size, str) else f"{size}x{size}"
-            # fade_up: alpha ramps from 0 at the top edge to full at the bottom,
-            # so a floor plane dissolves into the horizon instead of ending in a line.
+            # fade_up: alpha ramps from 45% at the top edge to full at the bottom,
+            # so a floor plane recedes into the horizon yet still meets it.
             fade = ["(", "+clone", "-alpha", "extract", "(", "+clone", "-sparse-color",
-                    "Barycentric", "0,0 black %[fx:0],%[fx:h] white", ")",
+                    "Barycentric", "0,0 gray45 %[fx:0],%[fx:h] white", ")",
                     "-compose", "Multiply", "-composite", ")",
                     "-compose", "CopyOpacity", "-composite", "-compose", "Over"] if fade_up else []
             return ["(", str(el / f"{name}.png"), "-resize", geometry,
@@ -394,28 +473,148 @@ def build_wallpapers(colors: dict[str, str]) -> None:
                     "-channel", "A", "-evaluate", "multiply", str(opacity), "+channel",
                     ")", "-geometry", f"+{x}+{y}", "-composite"]
 
-        cmd = [
-            "magick", "-size", f"{w}x{h}",
-            f"radial-gradient:{colors['surface_variant']}-{colors['surface']}",
-            # Film grain: low-amplitude gaussian noise, greyscale.
-            "(", "-size", f"{w}x{h}", "xc:gray50", "+noise", "Gaussian",
-            "-colorspace", "gray", "-evaluate", "multiply", "0.06", ")",
-            "-compose", "Plus", "-composite", "-compose", "Over",
-        ]
-        # Floor plane stretched (not proportional) into a low horizon band.
-        floor_w, floor_h = round(w * 1.2), round(h * 0.5)
-        cmd += layer("warp-floor", colors["outline"], f"{floor_w}x{floor_h}!",
-                     (w - floor_w) // 2, h - floor_h + px(30), 0.7, fade_up=True)
-        cmd += layer("wire-torus", colors["on_surface"], px(380),
-                     round(w * (0.10 if ultrawide else 0.07)), px(170), 0.06, rotate=-12)
-        cmd += layer("geo-sphere", colors["outline"], px(300),
-                     w - px(380), px(150), 0.45)
-        cmd += layer("wire-waves", colors["outline"], px(900),
-                     round(w * 0.58), px(-80), 0.15)
-        # Thin inset frame with acid corner ticks.
+        def alpha_fx(expr: str, opacity: float, size: str, res: str = "512x256") -> list[str]:
+            # Multiplies the current image's alpha by an -fx mask (i/w, j/h in
+            # 0..1). The mask is evaluated on a small canvas (res) and scaled
+            # up, since a per-pixel -fx over a 5K layer takes seconds.
+            return ["(", "+clone", "-alpha", "extract",
+                    "(", "+clone", "-resize", f"{res}!", "-fx", expr, "-resize", f"{size}!", ")",
+                    "-compose", "Multiply", "-composite", "-evaluate", "multiply", str(opacity), ")",
+                    "-compose", "CopyOpacity", "-composite", "-compose", "Over"]
+
+        def glow(cw: int, ch: int, color: str, cx: float, cy: float, rx: float, ry: float,
+                 opacity: float) -> list[str]:
+            k = 8  # blurred at 1/8 scale: a full-size blur this wide is slow on 5K
+            return ["(", "-size", f"{cw}x{ch}", f"xc:{color}",
+                    "(", "-size", f"{cw // k}x{ch // k}", "xc:black", "-fill", "white",
+                    "-draw", f"ellipse {cx / k:.1f},{cy / k:.1f} {rx / k:.1f},{ry / k:.1f} 0,360",
+                    "-blur", f"0x{min(rx, ry) / k / 1.5:.1f}", "-resize", f"{cw}x{ch}!",
+                    "-evaluate", "multiply", str(opacity), ")",
+                    "-alpha", "off", "-compose", "CopyOpacity", "-composite", "-compose", "Over",
+                    ")", "-geometry", "+0+0", "-composite"]
+
+        def hline(cw: int, y: int, thick: int, blur: int, color: str, center: float,
+                  reach: float, opacity: float) -> list[str]:
+            # A horizontal line whose alpha falls off away from `center` (0..1 of the width).
+            lh = thick + 6 * blur + 2
+            top = (lh - thick) // 2
+            return ["(", "-size", f"{cw}x{lh}", "xc:none", "-fill", color,
+                    "-draw", f"rectangle 0,{top} {cw},{top + thick - 1}",
+                    *(["-channel", "RGBA", "-blur", f"0x{blur}", "+channel"] if blur else []),
+                    *alpha_fx(f"max(0, 1 - abs(i/w - {center:.3f}) / {reach})^1.6", opacity, f"{cw}x{lh}"),
+                    ")", "-geometry", f"+0+{y - lh // 2}", "-composite"]
+
+        def lattice(cw: int, ch: int, step: int, arm: int, thick: int, color: str,
+                    opacity: float) -> list[str]:
+            c = step // 2
+            return ["(", "-size", f"{step}x{step}", "xc:none", "-fill", color,
+                    "-draw", f"rectangle {c - arm},{c} {c + arm},{c + thick - 1}",
+                    "-draw", f"rectangle {c},{c - arm} {c + thick - 1},{c + arm}",
+                    "-write", "mpr:plus", "+delete", ")",
+                    # Tile into one full-width row first: magick's tile: is per
+                    # tile, so a small tile over a 5K canvas is very slow.
+                    "(", "-size", f"{cw}x{step}", "tile:mpr:plus", "-write", "mpr:row", "+delete", ")",
+                    "(", "-size", f"{cw}x{ch}", "tile:mpr:row",
+                    *alpha_fx("(1 - j/h)^1.4 * (0.35 + 0.65 * j/h)", opacity, f"{cw}x{ch}"),
+                    ")", "-geometry", "+0+0", "-composite"]
+
+        def scanlines(cw: int, ch: int, pitch: int, opacity: float) -> list[str]:
+            return ["(", "-size", f"{cw}x{pitch}", "xc:none", "-fill", f"rgba(0,0,0,{opacity})",
+                    "-draw", f"rectangle 0,0 {cw},0", "-write", "mpr:scan", "+delete", ")",
+                    "(", "-size", f"{cw}x{ch}", "tile:mpr:scan", ")",
+                    "-geometry", "+0+0", "-composite"]
+
         # mt clears the floating Noctalia bar (~36 logical px incl. margin).
         m, t = px(28), max(1, px(1.5))
         mt = m + px(52)
+        hy = px(655)  # horizon
+        # The overlay's clock ring stands on this axis (HudScene.qml), so the
+        # horizon bloom sits right under it like a sun on the grid.
+        ax = round(w * (0.40 if ultrawide else 0.42))
+
+        cmd = [
+            "magick",
+            # Sky darkens upward from a lit horizon; the floor darkens toward the viewer.
+            "(", "-size", f"{w}x{hy}", f"gradient:{colors['surface']}-{colors['surface_variant']}", ")",
+            "(", "-size", f"{w}x{h - hy}", f"gradient:{colors['surface_variant']}-{colors['surface']}", ")",
+            "-append",
+            # Film grain: low-amplitude gaussian noise, greyscale.
+            "(", "-size", f"{w}x{h}", "xc:gray50", "+noise", "Gaussian",
+            "-colorspace", "gray", "-evaluate", "multiply", "0.05", ")",
+            "-compose", "Plus", "-composite", "-compose", "Over",
+        ]
+        # Atmosphere: a wide neutral haze and a tighter acid bloom on the horizon.
+        cmd += glow(w, h, colors["on_surface"], ax, hy, w * 0.55, px(260), 0.05)
+        cmd += glow(w, h, colors["primary"], ax, hy, w * 0.32, px(110), 0.10)
+        # Sky texture: the halftone mesh, barely there, thinning out toward the
+        # horizon and around the overlay's clock ring (about 0.82 down the sky).
+        cmd += ["(", str(el / "mesh-plane.png"), "-resize", f"{w}x{hy}^", "-gravity", "center",
+                "-extent", f"{w}x{hy}", "+repage", "-gravity", "NorthWest",
+                "-fill", colors["outline"], "-colorize", "100",
+                *alpha_fx(f"(1 - j/h)^0.6 * (1 - 0.9*exp(-(((i/w - {ax / w:.3f}) * {w / hy:.3f})^2"
+                          " + (j/h - 0.82)^2) / 0.12))", 0.6, f"{w}x{hy}"),
+                ")", "-geometry", "+0+0", "-composite"]
+        # Tactical lattice: "+" marks across the sky, fading out toward the horizon.
+        cmd += lattice(w, hy, px(60), px(4), max(1, px(1)), colors["outline"], 0.55)
+        # Floor: a procedural grid in outline that recedes toward the horizon,
+        # then a neon pass in acid (bloom + sharp) in the band nearest the
+        # horizon, so the far lines read as lit right under the ridge.
+        grid = CACHE / f"floor-{w}x{h}.png"
+        floor_grid(w, h - hy, ax, 0.16, max(1.0, 1.6 * s), grid)
+        cmd += ["(", str(grid), "-fill", colors["outline"], "-colorize", "100",
+                *alpha_fx("0.45 + 0.55 * j/h", 1.0, f"{w}x{h - hy}"),
+                ")", "-geometry", f"+0+{hy}", "-composite"]
+        for blur, opacity in ((px(3), 0.35), (0, 0.30)):
+            cmd += ["(", str(grid), "-fill", colors["primary"], "-colorize", "100",
+                    *(["-channel", "RGBA", "-blur", f"0x{blur}", "+channel"] if blur else []),
+                    *alpha_fx("exp(-((j/h-0.01)/0.09)^2) * exp(-((i/w-%.3f)/0.9)^2)" % (ax / w),
+                              opacity, f"{w}x{h - hy}"),
+                    ")", "-geometry", f"+0+{hy}", "-composite"]
+        # Horizon ridge: dot-cloud terrain cut to a mountain profile. A neutral
+        # pass, then acid on the dots nearest the bloom, lit like the floor.
+        rh = px(265)
+        terrain = ["(", str(el / "terrain.png"), "-resize", f"{w}x",
+                   "-crop", f"{w}x{rh}+0+{round(w * 9 / 16 * 0.10)}", "+repage"]
+        ridge = ridge_mask(ax / w)
+        cmd += [*terrain, "-fill", colors["outline"], "-colorize", "100",
+                *alpha_fx(ridge, 0.85, f"{w}x{rh}", "1024x256"),
+                ")", "-geometry", f"+0+{hy - rh}", "-composite"]
+        cmd += [*terrain, "-fill", colors["primary"], "-colorize", "100",
+                *alpha_fx(f"({ridge}) * exp(-((i/w - {ax / w:.3f})/0.2)^2) * (j/h)^2.5",
+                          0.75, f"{w}x{rh}", "1024x256"),
+                ")", "-geometry", f"+0+{hy - rh}", "-composite"]
+        # Horizon line: hairline plus bloom, brightest on the clock axis.
+        cmd += hline(w, hy, max(1, px(1.5)), 0, colors["primary"], ax / w, 0.55, 0.9)
+        cmd += hline(w, hy, px(6), px(10), colors["primary"], ax / w, 0.35, 0.5)
+        # Altimeter rulers on both frame edges, from under the header to the horizon.
+        r0, r1, step = mt + px(110), hy - px(40), px(12)
+        ticks = []
+        for k, y in enumerate(range(r0, r1, step)):
+            n = px(12) if k % 5 == 0 else px(5)
+            ticks += [f"line {m},{y} {m + n},{y}", f"line {w - m},{y} {w - m - n},{y}"]
+        cmd += ["-stroke", colors["outline"], "-strokewidth", str(max(1, px(1))),
+                "-draw", " ".join(ticks), "-stroke", "none"]
+        # Horizon read-outs where the line meets the frame.
+        cmd += ["-font", MONO_FONT, "-pointsize", str(px(11)), "-fill", colors["on_surface_variant"],
+                "-annotate", f"+{m + px(30)}+{hy - px(10)}", "HZN +000.0",
+                "-annotate", f"+{w - m - px(30) - text_width('ALT 0x7F', MONO_FONT, px(11))}"
+                             f"+{hy - px(10)}", "ALT 0x7F",
+                # Vertical spine label down the right edge, reading top to bottom.
+                "-fill", colors["on_surface_variant"],
+                "-annotate", f"90x90+{w - m - px(24)}+{mt + px(120)}",
+                "ACID//HUD  -  VECTOR FIELD 21-00  -  RENDER GRID ONLINE"]
+        # Street layer: acid paint splatter bleeding in from the left frame
+        # edge behind the overlay's telemetry, gone well before the centre.
+        gh = px(640)
+        cmd += ["(", str(el / "grunge-splat.png"), "-resize", f"x{gh}",
+                "-fill", colors["primary"], "-colorize", "100",
+                *alpha_fx("(1 - i/w)^2.4 * min(1, j/h/0.5)", 0.34, f"{round(gh * 16 / 15)}x{gh}"),
+                ")", "-geometry", f"+{m}+{h - m - gh}", "-composite"]
+        # Scanlines and vignette last, so they sit over every layer above.
+        cmd += scanlines(w, h, max(2, px(3)), 0.22)
+        cmd += ["(", "-size", f"{w}x{h}", "-define", "gradient:extent=farthest",
+                "radial-gradient:rgba(0,0,0,0)-rgba(0,0,0,0.55)", ")", "-geometry", "+0+0", "-composite"]
+        # Thin inset frame with acid corner ticks.
         cmd += ["-fill", "none", "-stroke", colors["outline"], "-strokewidth", str(t),
                 "-draw", f"rectangle {m},{mt} {w - m},{h - m}", "-stroke", "none"]
         tick = px(36)
@@ -425,10 +624,19 @@ def build_wallpapers(colors: dict[str, str]) -> None:
                              f"{max(cx, cx + dx * tick)},{max(cy, cy + dy * px(3))}",
                     "-draw", f"rectangle {min(cx, cx + dx * px(3))},{min(cy, cy + dy * tick)} "
                              f"{max(cx, cx + dx * px(3))},{max(cy, cy + dy * tick)}"]
+        # Corner plate: the poster's mech bracket set into the bottom-right frame
+        # corner, over the vignette like the rest of the chrome. A solid pass
+        # hides the floor grid behind it, then the bracket in outline.
+        ph = px(205)
+        pw = round(ph * 2000 / 1379)
+        cmd += layer("poster-br", colors["surface"], f"x{ph}", w - m - pw, h - m - ph, 1.0)
+        cmd += layer("poster-br", colors["outline"], f"x{ph}", w - m - pw, h - m - ph, 0.55)
+        # Acid in the bracket's long slot (its cut-out, in element fractions).
+        x0, y0 = w - m - pw, h - m - ph
+        cmd += ["-fill", colors["primary"], "-draw",
+                f"roundrectangle {x0 + 0.562 * pw:.1f},{y0 + 0.906 * ph:.1f} "
+                f"{x0 + 0.794 * pw:.1f},{y0 + 0.928 * ph:.1f} {0.01 * ph:.1f},{0.01 * ph:.1f}"]
         cmd += layer("hazard-2", colors["primary"], px(260), m + px(30), h - m - px(52), 0.9)
-        cmd += layer("est-2100", colors["on_surface_variant"], px(150),
-                     w - m - px(180), h - m - px(48), 0.8)
-        cmd += layer("barcode", colors["outline"], px(170), w - m - px(390), h - m - px(56), 1.0)
         cmd += ["-font", MONO_FONT, "-pointsize", str(px(15)), "-fill", colors["on_surface_variant"],
                 "-annotate", f"+{m + px(30)}+{mt + px(40)}", f"SYS://{USER_TAG}-HUD  ·  NODE 0x2100",
                 "-fill", colors["outline"],

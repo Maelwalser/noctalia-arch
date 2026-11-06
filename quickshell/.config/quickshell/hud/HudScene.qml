@@ -79,7 +79,7 @@ Item {
             anchors.bottomMargin: 140 * scene.u
         }
 
-        // Right column, centred on the wallpaper's geo-sphere axis (hud-build: w - 230 units).
+        // Right column, centred 230 units in from the right edge.
         Signal {
             u: scene.u
             active: scene.active

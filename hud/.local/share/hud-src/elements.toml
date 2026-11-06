@@ -55,6 +55,27 @@ dir = "y2k-icons-design-template"
 mode = "light"
 level = "15%,55%"
 
+# Wallpaper textures: whole-sheet fields, cropped and masked by hud-build.
+[sheets.terrain]
+dir = "point-wave-threads-texture-abstract-dot-background-technological-cyberspace-background"
+mode = "light"
+level = "20%,95%"
+
+[sheets.mesh]
+dir = "abstract-monochrome-distorted-mesh-plane-dark-background-futuristic-style-card-elegant-background-bu"
+mode = "light"
+level = "8%,45%"
+
+[sheets.poster]
+dir = "cyberpunk-retro-futuristic-poster-vector-illustration"
+mode = "light"
+level = "15%,95%"
+
+[sheets.grunge]
+dir = "grunge-background-with-neon-paint-splatters"
+mode = "light"
+level = "25%,70%"
+
 # ── Frames and brackets ───────────────────────────────────────────────────────
 [elements.frame-folder]
 sheet = "hud"
@@ -670,3 +691,28 @@ sheet = "y2kicons"
 box = [168, 168, 67, 67]
 size = 256
 center = "bbox"
+
+# ── Wallpaper textures ────────────────────────────────────────────────────────
+# Dot-cloud terrain: the horizon ridge (hud-build masks a mountain profile into it).
+[elements.terrain]
+sheet = "terrain"
+box = [0, 0, 2880, 1620]
+size = 5120
+
+# Halftone mesh: faint sky texture.
+[elements.mesh-plane]
+sheet = "mesh"
+box = [0, 0, 100, 100]
+size = 3200
+
+# Mech bracket from the poster's bottom-right corner: the wallpaper's corner plate.
+[elements.poster-br]
+sheet = "poster"
+box = [308, 170, 174, 120]
+size = 2000
+
+# Splatter, drips and grid off the grunge sheet's left edge.
+[elements.grunge-splat]
+sheet = "grunge"
+box = [0, 0, 480, 450]
+size = 2400
