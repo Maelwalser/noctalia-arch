@@ -10,10 +10,12 @@
 #   dotfiles-theme --list       list the themes
 #
 # The choice lives in ${XDG_STATE_HOME:-~/.local/state}/dotfiles/theme. Hyprland,
-# zsh, fastfetch and Neovim read it directly. Apps without conditionals get a
-# `theme.*` link to the committed variant (Noctalia, Ghostty, tmux, sioyek,
-# Vivaldi). Noctalia's GUI state (palette, wallpapers, lockscreen layout) beats
-# its config, so each theme keeps its own copy of that state.
+# zsh, fastfetch, Neovim and the Claude Code status line read it directly;
+# Claude Code's settings.json gets its theme keys rewritten. Apps without
+# conditionals get a `theme.*` link to the committed variant (Noctalia,
+# Ghostty, tmux, sioyek, Vivaldi). Noctalia's GUI state (palette, wallpapers,
+# lockscreen layout) beats its config, so each theme keeps its own copy of
+# that state.
 set -euo pipefail
 
 readonly THEMES=(acid classic)
@@ -100,6 +102,38 @@ else:
 PY
 }
 
+# claude_settings <theme>: set the theme-specific keys of Claude Code's user
+# settings (not in the repo: it holds machine-local permissions and hooks), and
+# leave every other key alone. Claude Code watches the file, so running
+# sessions pick up the palette at once.
+claude_settings() {
+  local settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+  [[ -f "$settings" ]] || { echo "  ⚠ no $settings; skipping Claude Code"; return 0; }
+  python3 -I - "$1" "$settings" <<'PY'
+import json, sys
+from pathlib import Path
+
+theme, path = sys.argv[1], Path(sys.argv[2])
+s = json.loads(path.read_text())
+
+if theme == "acid":
+    s["theme"] = "custom:acid-hud"
+    s["spinnerVerbs"] = {"mode": "replace", "verbs": [
+        "Jacking in", "Decrypting", "Uplinking", "Tracing signal", "Rerouting",
+        "Overclocking", "Scanning grid", "Syncing link", "Patching", "Spooling",
+        "Parsing telemetry", "Calibrating", "Handshaking", "Triangulating",
+        "Bootstrapping", "Transmitting", "Compiling", "Defragging"]}
+else:
+    # Classic is Claude Code's own look: no keys means its defaults.
+    s.pop("theme", None)
+    s.pop("spinnerVerbs", None)
+
+tmp = path.with_suffix(".json.tmp")
+tmp.write_text(json.dumps(s, indent=2, ensure_ascii=False) + "\n")
+tmp.replace(path)
+PY
+}
+
 wait_noctalia() {
   local i
   for i in $(seq 50); do
@@ -155,6 +189,8 @@ apply() {
   else
     rm -f "$DOTFILES/vivaldi/theme.css"
   fi
+
+  claude_settings "$to" || echo "  ⚠ could not update Claude Code settings"
 
   switch_noctalia "$from" "$to"
 
