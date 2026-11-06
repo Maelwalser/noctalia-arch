@@ -62,8 +62,9 @@ if hl.plugin.hyprglass ~= nil then
             },
         })
         -- contour: each stacked toast gets its own edge. The toast has no
-        -- shadow, so the threshold can sit just above zero and the feather
-        -- lets the glass fade in over the antialiased corners.
-        hg.layer("noctalia-notification", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.02, mask_feather = 0.08 })
+        -- shadow, so the threshold sits just above zero; the feather is kept
+        -- tiny because a scaled toast ends on a half-covered row whose alpha
+        -- (~0.05) must still get the full glass, or the bottom rim fades out.
+        hg.layer("noctalia-notification", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
     end
 end

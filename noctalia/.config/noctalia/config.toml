@@ -198,7 +198,8 @@ follow_focused_output = true      # only on the monitor in use, not on every out
 max_visible = 3                   # further toasts queue instead of filling the column
 show_actions = false              # click runs the default action, right-click dismisses
 show_app_name = false             # the icon already names the sender
-width = 300
+width = 300                       # logical, before scale: ~255 px on screen
+scale = 0.85                      # smaller type, icon and padding with it
 keep_dismissed_in_history = false # v4 clearDismissed
 # First matching filter wins. override_duration also cuts critical toasts
 # short, and allowed_urgencies cannot scope a filter (it suppresses the other
