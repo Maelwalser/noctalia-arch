@@ -625,13 +625,6 @@ def build_wallpapers(colors: dict[str, str]) -> None:
                 "-fill", colors["on_surface_variant"],
                 "-annotate", f"90x90+{w - m - px(24)}+{mt + px(120)}",
                 "ACID//HUD  -  VECTOR FIELD 21-00  -  RENDER GRID ONLINE"]
-        # Street layer: acid paint splatter bleeding in from the left frame
-        # edge behind the overlay's telemetry, gone well before the centre.
-        gh = px(640)
-        cmd += ["(", str(el / "grunge-splat.png"), "-resize", f"x{gh}",
-                "-fill", colors["primary"], "-colorize", "100",
-                *alpha_fx("(1 - i/w)^2.4 * min(1, j/h/0.5)", 0.34, f"{round(gh * 16 / 15)}x{gh}"),
-                ")", "-geometry", f"+{m}+{h - m - gh}", "-composite"]
         # Scanlines and vignette last, so they sit over every layer above.
         cmd += scanlines(w, h, max(2, px(3)), 0.22)
         cmd += ["(", "-size", f"{w}x{h}", "-define", "gradient:extent=farthest",
@@ -646,19 +639,6 @@ def build_wallpapers(colors: dict[str, str]) -> None:
                              f"{max(cx, cx + dx * tick)},{max(cy, cy + dy * px(3))}",
                     "-draw", f"rectangle {min(cx, cx + dx * px(3))},{min(cy, cy + dy * tick)} "
                              f"{max(cx, cx + dx * px(3))},{max(cy, cy + dy * tick)}"]
-        # Corner plate: the poster's mech bracket set into the bottom-right frame
-        # corner, over the vignette like the rest of the chrome. A solid pass
-        # hides the floor grid behind it, then the bracket in outline.
-        ph = px(205)
-        pw = round(ph * 2000 / 1379)
-        cmd += layer("poster-br", colors["surface"], f"x{ph}", w - m - pw, h - m - ph, 1.0)
-        cmd += layer("poster-br", colors["outline"], f"x{ph}", w - m - pw, h - m - ph, 0.55)
-        # Acid in the bracket's long slot (its cut-out, in element fractions).
-        x0, y0 = w - m - pw, h - m - ph
-        cmd += ["-fill", colors["primary"], "-draw",
-                f"roundrectangle {x0 + 0.562 * pw:.1f},{y0 + 0.906 * ph:.1f} "
-                f"{x0 + 0.794 * pw:.1f},{y0 + 0.928 * ph:.1f} {0.01 * ph:.1f},{0.01 * ph:.1f}"]
-        cmd += layer("hazard-2", colors["primary"], px(260), m + px(30), h - m - px(52), 0.9)
         cmd += ["-font", MONO_FONT, "-pointsize", str(px(15)), "-fill", colors["on_surface_variant"],
                 "-annotate", f"+{m + px(30)}+{mt + px(40)}", f"SYS://{USER_TAG}-HUD  ·  NODE 0x2100",
                 "-fill", colors["outline"],
@@ -981,14 +961,6 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
     acid = colors["primary"]
     cmd = lock_scene(colors, pw, ph)
 
-    # Street layer: acid paint bleeding in from the left edge behind the bank.
-    gh = 430
-    cmd += ["(", str(OUT / "elements" / "grunge-splat.png"), "-resize", f"x{round(gh * k)}",
-            "-fill", acid, "-colorize", "100",
-            *alpha_fx("(1 - i/w)^2.4 * min(1, j/h/0.5)", 0.26, f"{round(gh * 16 / 15 * k)}x{round(gh * k)}"),
-            ")", "-gravity", "NorthWest", "-geometry", f"+{round(cx(xl))}+{round(cy(yb - gh))}",
-            "-composite"]
-
     # Frame: hairline inset with acid corner ticks, as on the wallpaper.
     cmd += stroke("outline") + ["-draw", f"rectangle {cx(xl):.1f},{cy(yt):.1f} {cx(xr):.1f},{cy(yb):.1f}"]
     cmd += corners(xl, yt, xr, yb, 24, 2, acid)
@@ -1052,9 +1024,6 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
         near = side * (LOCK_BANK_X - cw / 2)
         cmd += line([(near, my), (side * 290, my), (side * 290, ry), (side * (rx + 8), ry)], "outline")
         cmd += rect(near - 3, my - 3, near + 3, my + 3, acid)
-    by = LOCK_BANK_Y + 3 * ch + 2 * gap + 21
-    cmd += put("est-2100", "on_surface_variant", 96, -LOCK_BANK_X, by, 0.7)
-    cmd += put("barcode", "outline", 120, LOCK_BANK_X, by, 1.0)
 
     # Auth strip: caption with chevron gauges, acid brackets around the login box.
     lx, ly, lw, lh = LOCK_LOGIN
@@ -1063,18 +1032,6 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
     cmd += put("chevron-progress", "primary", 70, 210, ly - lh / 2 - 22, 0.9, flop=True)
     cmd += corners(lx - lw / 2 - 8, ly - lh / 2 - 8, lx + lw / 2 + 8, ly + lh / 2 + 8, 16, 2, acid)
 
-    # Bottom corners: hazard stripe left, the poster's mech bracket right (as on
-    # the wallpaper), solid first so the floor grid does not show through it.
-    cmd += put("hazard-2", "primary", 173, xl + 20 + 173 / 2, yb - 26, 0.9)
-    bh = 137
-    bw = bh * 2000 / 1379
-    pcx, pcy = xr - bw / 2, yb - bh / 2
-    cmd += put("poster-br", "surface", bw, pcx, pcy, 1.0)
-    cmd += put("poster-br", "outline", bw, pcx, pcy, 0.55)
-    x0, y0 = xr - bw, yb - bh
-    cmd += ["-gravity", "NorthWest", "-stroke", "none", "-fill", acid, "-draw",
-            f"roundrectangle {cx(x0 + 0.562 * bw):.1f},{cy(y0 + 0.906 * bh):.1f} "
-            f"{cx(x0 + 0.794 * bw):.1f},{cy(y0 + 0.928 * bh):.1f} {0.01 * bh * k:.1f},{0.01 * bh * k:.1f}"]
 
     with staged(dst) as tmp:
         run(*cmd, "-depth", "8", tmp)
