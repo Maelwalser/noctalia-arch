@@ -49,20 +49,6 @@ function M.monoFont()
   return monoFamily or nil
 end
 
--- Vertical segmented level meter, lit from the bottom.
-function M.meter(frac, color)
-  local segs, lit = {}, math.floor(math.clamp(frac, 0, 1) * 5 + 0.5)
-  for i = 5, 1, -1 do
-    table.insert(segs, ui.box({
-      width = 4,
-      height = 2,
-      fill = if i <= lit then color else "outline_variant",
-      opacity = if i <= lit then 1 else 0.6,
-    }))
-  end
-  return ui.column({ gap = 1, align = "center" }, segs)
-end
-
 -- Three-digit readout value, e.g. 074.
 function M.readout(text, color)
   return ui.label({

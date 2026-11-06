@@ -1,5 +1,5 @@
 --!nonstrict
--- Backlight readout: pixel sun, level and meter, read from sysfs. Hidden on
+-- Backlight readout: pixel sun and level, read from sysfs. Hidden on
 -- machines without a backlight. Scroll/click are manifest actions.
 local common = require("./common.luau")
 
@@ -39,7 +39,6 @@ function update()
   barWidget.render(ui.row({ gap = 5, align = "center" }, {
     ui.image({ path = common.icon("lum"), width = 18, height = 18, fit = "contain" }),
     common.readout(string.format("%03d", pct), "on_surface"),
-    common.meter(pct / 100, "primary"),
   }))
   barWidget.setTooltip(string.format("Brightness: %d%%", pct))
 end

@@ -867,7 +867,8 @@ PIXEL_ICONS = {
 }
 # Icon file name -> (bitmap, palette role). Alert states get their own colour.
 PIXEL_ICON_FILES = {
-    "vol": ("vol", "primary"), "mute": ("mute", "error"), "lum": ("lum", "primary"),
+    "vol": ("vol", "primary"), "mute": ("mute", "error"), "silent": ("mute", "primary"),
+    "lum": ("lum", "primary"),
     "bell": ("bell", "primary"), "bell-off": ("bell", "outline"),
 }
 

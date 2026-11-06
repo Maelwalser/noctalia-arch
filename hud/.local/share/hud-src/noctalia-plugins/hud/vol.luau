@@ -1,5 +1,5 @@
 --!nonstrict
--- Speaker readout: pixel icon, level and meter. Follows PipeWire through
+-- Speaker readout: pixel icon and level. Follows PipeWire through
 -- `pactl subscribe`; clicks and scrolling are manifest actions (Noctalia IPC).
 local common = require("./common.luau")
 
@@ -13,10 +13,11 @@ local function render()
   if level == nil then
     return
   end
+  -- 0 % shows the muted speaker in the normal colour; red is kept for a real mute.
+  local icon = if muted then "mute" elseif level == 0 then "silent" else "vol"
   barWidget.render(ui.row({ gap = 5, align = "center" }, {
-    ui.image({ path = common.icon(if muted then "mute" else "vol"), width = 18, height = 18, fit = "contain" }),
+    ui.image({ path = common.icon(icon), width = 18, height = 18, fit = "contain" }),
     common.readout(if muted then "MUT" else string.format("%03d", level), if muted then "error" else "on_surface"),
-    common.meter(if muted then 0 else level / 100, "primary"),
   }))
   barWidget.setTooltip(if muted then "Volume: muted" else string.format("Volume: %d%%", level))
 end
