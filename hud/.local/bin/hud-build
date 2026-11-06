@@ -12,7 +12,7 @@ derived from them is committed: this script regenerates everything locally.
 Outputs (all under ~/.local/share/hud unless noted):
   elements/<name>.png        white-on-transparent masks, tinted at runtime by the overlay
   tinted/<name>-<role>.png   palette-coloured copies for consumers that cannot tint
-  lock/                      lockscreen art: static-<output>.png, dial.gif, ring-acid.gif, backdrop.png
+  lock/                      lockscreen art: static-<output>.png, reticle.gif, backdrop.png
   overlay/, bar/             Quickshell overlay layers, Noctalia bar plugin frames
   fastfetch-logo.png, nvim-header.txt
   ~/Pictures/Wallpapers/hud/hud-<w>x<h>.png
@@ -447,6 +447,132 @@ def ridge_mask(ax: float) -> str:
     return f"{d} < 0 ? 0 : min(1, {d}/0.035) * (0.38 + 0.62*exp(-{d}/0.09))"
 
 
+# ── Scene ─────────────────────────────────────────────────────────────────────
+# magick argument builders shared by the wallpaper and the lockscreen, which
+# render the same world (sky, ridge, acid horizon, floor grid).
+
+def alpha_fx(expr: str, opacity: float, size: str, res: str = "512x256") -> list[str]:
+    # Multiplies the current image's alpha by an -fx mask (i/w, j/h in
+    # 0..1). The mask is evaluated on a small canvas (res) and scaled
+    # up, since a per-pixel -fx over a 5K layer takes seconds.
+    return ["(", "+clone", "-alpha", "extract",
+            "(", "+clone", "-resize", f"{res}!", "-fx", expr, "-resize", f"{size}!", ")",
+            "-compose", "Multiply", "-composite", "-evaluate", "multiply", str(opacity), ")",
+            "-compose", "CopyOpacity", "-composite", "-compose", "Over"]
+
+
+def glow(cw: int, ch: int, color: str, cx: float, cy: float, rx: float, ry: float,
+         opacity: float) -> list[str]:
+    k = 8  # blurred at 1/8 scale: a full-size blur this wide is slow on 5K
+    return ["(", "-size", f"{cw}x{ch}", f"xc:{color}",
+            "(", "-size", f"{cw // k}x{ch // k}", "xc:black", "-fill", "white",
+            "-draw", f"ellipse {cx / k:.1f},{cy / k:.1f} {rx / k:.1f},{ry / k:.1f} 0,360",
+            "-blur", f"0x{min(rx, ry) / k / 1.5:.1f}", "-resize", f"{cw}x{ch}!",
+            "-evaluate", "multiply", str(opacity), ")",
+            "-alpha", "off", "-compose", "CopyOpacity", "-composite", "-compose", "Over",
+            ")", "-geometry", "+0+0", "-composite"]
+
+
+def hline(cw: int, y: int, thick: int, blur: int, color: str, center: float,
+          reach: float, opacity: float) -> list[str]:
+    # A horizontal line whose alpha falls off away from `center` (0..1 of the width).
+    lh = thick + 6 * blur + 2
+    top = (lh - thick) // 2
+    return ["(", "-size", f"{cw}x{lh}", "xc:none", "-fill", color,
+            "-draw", f"rectangle 0,{top} {cw},{top + thick - 1}",
+            *(["-channel", "RGBA", "-blur", f"0x{blur}", "+channel"] if blur else []),
+            *alpha_fx(f"max(0, 1 - abs(i/w - {center:.3f}) / {reach})^1.6", opacity, f"{cw}x{lh}"),
+            ")", "-geometry", f"+0+{y - lh // 2}", "-composite"]
+
+
+def lattice(cw: int, ch: int, step: int, arm: int, thick: int, color: str,
+            opacity: float) -> list[str]:
+    c = step // 2
+    return ["(", "-size", f"{step}x{step}", "xc:none", "-fill", color,
+            "-draw", f"rectangle {c - arm},{c} {c + arm},{c + thick - 1}",
+            "-draw", f"rectangle {c},{c - arm} {c + thick - 1},{c + arm}",
+            "-write", "mpr:plus", "+delete", ")",
+            # Tile into one full-width row first: magick's tile: is per
+            # tile, so a small tile over a 5K canvas is very slow.
+            "(", "-size", f"{cw}x{step}", "tile:mpr:plus", "-write", "mpr:row", "+delete", ")",
+            "(", "-size", f"{cw}x{ch}", "tile:mpr:row",
+            *alpha_fx("(1 - j/h)^1.4 * (0.35 + 0.65 * j/h)", opacity, f"{cw}x{ch}"),
+            ")", "-geometry", "+0+0", "-composite"]
+
+
+def scanlines(cw: int, ch: int, pitch: int, opacity: float) -> list[str]:
+    return ["(", "-size", f"{cw}x{pitch}", "xc:none", "-fill", f"rgba(0,0,0,{opacity})",
+            "-draw", f"rectangle 0,0 {cw},0", "-write", "mpr:scan", "+delete", ")",
+            "(", "-size", f"{cw}x{ch}", "tile:mpr:scan", ")",
+            "-geometry", "+0+0", "-composite"]
+
+
+def scene_cmd(colors: dict[str, str], w: int, h: int, hy: int, ax: int, grid: Path) -> list[str]:
+    """The ACID//HUD world as a magick command (no output file): sky, halftone
+    mesh, "+" lattice, floor grid, dot-cloud ridge and the acid horizon, all
+    lit around the axis ax. hy is the horizon row; grid caches the floor."""
+    el = OUT / "elements"
+    s = h / 1200  # design units: a 1200 px tall canvas
+
+    def px(v: float) -> int:
+        return round(v * s)
+
+    cmd = [
+        "magick",
+        # Sky darkens upward from a lit horizon; the floor darkens toward the viewer.
+        "(", "-size", f"{w}x{hy}", f"gradient:{colors['surface']}-{colors['surface_variant']}", ")",
+        "(", "-size", f"{w}x{h - hy}", f"gradient:{colors['surface_variant']}-{colors['surface']}", ")",
+        "-append",
+        # Film grain: low-amplitude gaussian noise, greyscale.
+        "(", "-size", f"{w}x{h}", "xc:gray50", "+noise", "Gaussian",
+        "-colorspace", "gray", "-evaluate", "multiply", "0.05", ")",
+        "-compose", "Plus", "-composite", "-compose", "Over",
+    ]
+    # Atmosphere: a wide neutral haze and a tighter acid bloom on the horizon.
+    cmd += glow(w, h, colors["on_surface"], ax, hy, w * 0.55, px(260), 0.05)
+    cmd += glow(w, h, colors["primary"], ax, hy, w * 0.32, px(110), 0.10)
+    # Sky texture: the halftone mesh, barely there, thinning out toward the
+    # horizon and around the overlay's clock ring (about 0.82 down the sky).
+    cmd += ["(", str(el / "mesh-plane.png"), "-resize", f"{w}x{hy}^", "-gravity", "center",
+            "-extent", f"{w}x{hy}", "+repage", "-gravity", "NorthWest",
+            "-fill", colors["outline"], "-colorize", "100",
+            *alpha_fx(f"(1 - j/h)^0.6 * (1 - 0.9*exp(-(((i/w - {ax / w:.3f}) * {w / hy:.3f})^2"
+                      " + (j/h - 0.82)^2) / 0.12))", 0.6, f"{w}x{hy}"),
+            ")", "-geometry", "+0+0", "-composite"]
+    # Tactical lattice: "+" marks across the sky, fading out toward the horizon.
+    cmd += lattice(w, hy, px(60), px(4), max(1, px(1)), colors["outline"], 0.55)
+    # Floor: a procedural grid in outline that recedes toward the horizon,
+    # then a neon pass in acid (bloom + sharp) in the band nearest the
+    # horizon, so the far lines read as lit right under the ridge.
+    floor_grid(w, h - hy, ax, 0.16, max(1.0, 1.6 * s), grid)
+    cmd += ["(", str(grid), "-fill", colors["outline"], "-colorize", "100",
+            *alpha_fx("0.45 + 0.55 * j/h", 1.0, f"{w}x{h - hy}"),
+            ")", "-geometry", f"+0+{hy}", "-composite"]
+    for blur, opacity in ((px(3), 0.35), (0, 0.30)):
+        cmd += ["(", str(grid), "-fill", colors["primary"], "-colorize", "100",
+                *(["-channel", "RGBA", "-blur", f"0x{blur}", "+channel"] if blur else []),
+                *alpha_fx("exp(-((j/h-0.01)/0.09)^2) * exp(-((i/w-%.3f)/0.9)^2)" % (ax / w),
+                          opacity, f"{w}x{h - hy}"),
+                ")", "-geometry", f"+0+{hy}", "-composite"]
+    # Horizon ridge: dot-cloud terrain cut to a mountain profile. A neutral
+    # pass, then acid on the dots nearest the bloom, lit like the floor.
+    rh = px(265)
+    terrain = ["(", str(el / "terrain.png"), "-resize", f"{w}x",
+               "-crop", f"{w}x{rh}+0+{round(w * 9 / 16 * 0.10)}", "+repage"]
+    ridge = ridge_mask(ax / w)
+    cmd += [*terrain, "-fill", colors["outline"], "-colorize", "100",
+            *alpha_fx(ridge, 0.85, f"{w}x{rh}", "1024x256"),
+            ")", "-geometry", f"+0+{hy - rh}", "-composite"]
+    cmd += [*terrain, "-fill", colors["primary"], "-colorize", "100",
+            *alpha_fx(f"({ridge}) * exp(-((i/w - {ax / w:.3f})/0.2)^2) * (j/h)^2.5",
+                      0.75, f"{w}x{rh}", "1024x256"),
+            ")", "-geometry", f"+0+{hy - rh}", "-composite"]
+    # Horizon line: hairline plus bloom, brightest on the clock axis.
+    cmd += hline(w, hy, max(1, px(1.5)), 0, colors["primary"], ax / w, 0.55, 0.9)
+    cmd += hline(w, hy, px(6), px(10), colors["primary"], ax / w, 0.35, 0.5)
+    return cmd
+
+
 def build_wallpapers(colors: dict[str, str]) -> None:
     WALLPAPERS.mkdir(parents=True, exist_ok=True)
     el = OUT / "elements"
@@ -473,57 +599,6 @@ def build_wallpapers(colors: dict[str, str]) -> None:
                     "-channel", "A", "-evaluate", "multiply", str(opacity), "+channel",
                     ")", "-geometry", f"+{x}+{y}", "-composite"]
 
-        def alpha_fx(expr: str, opacity: float, size: str, res: str = "512x256") -> list[str]:
-            # Multiplies the current image's alpha by an -fx mask (i/w, j/h in
-            # 0..1). The mask is evaluated on a small canvas (res) and scaled
-            # up, since a per-pixel -fx over a 5K layer takes seconds.
-            return ["(", "+clone", "-alpha", "extract",
-                    "(", "+clone", "-resize", f"{res}!", "-fx", expr, "-resize", f"{size}!", ")",
-                    "-compose", "Multiply", "-composite", "-evaluate", "multiply", str(opacity), ")",
-                    "-compose", "CopyOpacity", "-composite", "-compose", "Over"]
-
-        def glow(cw: int, ch: int, color: str, cx: float, cy: float, rx: float, ry: float,
-                 opacity: float) -> list[str]:
-            k = 8  # blurred at 1/8 scale: a full-size blur this wide is slow on 5K
-            return ["(", "-size", f"{cw}x{ch}", f"xc:{color}",
-                    "(", "-size", f"{cw // k}x{ch // k}", "xc:black", "-fill", "white",
-                    "-draw", f"ellipse {cx / k:.1f},{cy / k:.1f} {rx / k:.1f},{ry / k:.1f} 0,360",
-                    "-blur", f"0x{min(rx, ry) / k / 1.5:.1f}", "-resize", f"{cw}x{ch}!",
-                    "-evaluate", "multiply", str(opacity), ")",
-                    "-alpha", "off", "-compose", "CopyOpacity", "-composite", "-compose", "Over",
-                    ")", "-geometry", "+0+0", "-composite"]
-
-        def hline(cw: int, y: int, thick: int, blur: int, color: str, center: float,
-                  reach: float, opacity: float) -> list[str]:
-            # A horizontal line whose alpha falls off away from `center` (0..1 of the width).
-            lh = thick + 6 * blur + 2
-            top = (lh - thick) // 2
-            return ["(", "-size", f"{cw}x{lh}", "xc:none", "-fill", color,
-                    "-draw", f"rectangle 0,{top} {cw},{top + thick - 1}",
-                    *(["-channel", "RGBA", "-blur", f"0x{blur}", "+channel"] if blur else []),
-                    *alpha_fx(f"max(0, 1 - abs(i/w - {center:.3f}) / {reach})^1.6", opacity, f"{cw}x{lh}"),
-                    ")", "-geometry", f"+0+{y - lh // 2}", "-composite"]
-
-        def lattice(cw: int, ch: int, step: int, arm: int, thick: int, color: str,
-                    opacity: float) -> list[str]:
-            c = step // 2
-            return ["(", "-size", f"{step}x{step}", "xc:none", "-fill", color,
-                    "-draw", f"rectangle {c - arm},{c} {c + arm},{c + thick - 1}",
-                    "-draw", f"rectangle {c},{c - arm} {c + thick - 1},{c + arm}",
-                    "-write", "mpr:plus", "+delete", ")",
-                    # Tile into one full-width row first: magick's tile: is per
-                    # tile, so a small tile over a 5K canvas is very slow.
-                    "(", "-size", f"{cw}x{step}", "tile:mpr:plus", "-write", "mpr:row", "+delete", ")",
-                    "(", "-size", f"{cw}x{ch}", "tile:mpr:row",
-                    *alpha_fx("(1 - j/h)^1.4 * (0.35 + 0.65 * j/h)", opacity, f"{cw}x{ch}"),
-                    ")", "-geometry", "+0+0", "-composite"]
-
-        def scanlines(cw: int, ch: int, pitch: int, opacity: float) -> list[str]:
-            return ["(", "-size", f"{cw}x{pitch}", "xc:none", "-fill", f"rgba(0,0,0,{opacity})",
-                    "-draw", f"rectangle 0,0 {cw},0", "-write", "mpr:scan", "+delete", ")",
-                    "(", "-size", f"{cw}x{ch}", "tile:mpr:scan", ")",
-                    "-geometry", "+0+0", "-composite"]
-
         # mt clears the floating Noctalia bar (~36 logical px incl. margin).
         m, t = px(28), max(1, px(1.5))
         mt = m + px(52)
@@ -532,60 +607,7 @@ def build_wallpapers(colors: dict[str, str]) -> None:
         # horizon bloom sits right under it like a sun on the grid.
         ax = round(w * (0.40 if ultrawide else 0.42))
 
-        cmd = [
-            "magick",
-            # Sky darkens upward from a lit horizon; the floor darkens toward the viewer.
-            "(", "-size", f"{w}x{hy}", f"gradient:{colors['surface']}-{colors['surface_variant']}", ")",
-            "(", "-size", f"{w}x{h - hy}", f"gradient:{colors['surface_variant']}-{colors['surface']}", ")",
-            "-append",
-            # Film grain: low-amplitude gaussian noise, greyscale.
-            "(", "-size", f"{w}x{h}", "xc:gray50", "+noise", "Gaussian",
-            "-colorspace", "gray", "-evaluate", "multiply", "0.05", ")",
-            "-compose", "Plus", "-composite", "-compose", "Over",
-        ]
-        # Atmosphere: a wide neutral haze and a tighter acid bloom on the horizon.
-        cmd += glow(w, h, colors["on_surface"], ax, hy, w * 0.55, px(260), 0.05)
-        cmd += glow(w, h, colors["primary"], ax, hy, w * 0.32, px(110), 0.10)
-        # Sky texture: the halftone mesh, barely there, thinning out toward the
-        # horizon and around the overlay's clock ring (about 0.82 down the sky).
-        cmd += ["(", str(el / "mesh-plane.png"), "-resize", f"{w}x{hy}^", "-gravity", "center",
-                "-extent", f"{w}x{hy}", "+repage", "-gravity", "NorthWest",
-                "-fill", colors["outline"], "-colorize", "100",
-                *alpha_fx(f"(1 - j/h)^0.6 * (1 - 0.9*exp(-(((i/w - {ax / w:.3f}) * {w / hy:.3f})^2"
-                          " + (j/h - 0.82)^2) / 0.12))", 0.6, f"{w}x{hy}"),
-                ")", "-geometry", "+0+0", "-composite"]
-        # Tactical lattice: "+" marks across the sky, fading out toward the horizon.
-        cmd += lattice(w, hy, px(60), px(4), max(1, px(1)), colors["outline"], 0.55)
-        # Floor: a procedural grid in outline that recedes toward the horizon,
-        # then a neon pass in acid (bloom + sharp) in the band nearest the
-        # horizon, so the far lines read as lit right under the ridge.
-        grid = CACHE / f"floor-{w}x{h}.png"
-        floor_grid(w, h - hy, ax, 0.16, max(1.0, 1.6 * s), grid)
-        cmd += ["(", str(grid), "-fill", colors["outline"], "-colorize", "100",
-                *alpha_fx("0.45 + 0.55 * j/h", 1.0, f"{w}x{h - hy}"),
-                ")", "-geometry", f"+0+{hy}", "-composite"]
-        for blur, opacity in ((px(3), 0.35), (0, 0.30)):
-            cmd += ["(", str(grid), "-fill", colors["primary"], "-colorize", "100",
-                    *(["-channel", "RGBA", "-blur", f"0x{blur}", "+channel"] if blur else []),
-                    *alpha_fx("exp(-((j/h-0.01)/0.09)^2) * exp(-((i/w-%.3f)/0.9)^2)" % (ax / w),
-                              opacity, f"{w}x{h - hy}"),
-                    ")", "-geometry", f"+0+{hy}", "-composite"]
-        # Horizon ridge: dot-cloud terrain cut to a mountain profile. A neutral
-        # pass, then acid on the dots nearest the bloom, lit like the floor.
-        rh = px(265)
-        terrain = ["(", str(el / "terrain.png"), "-resize", f"{w}x",
-                   "-crop", f"{w}x{rh}+0+{round(w * 9 / 16 * 0.10)}", "+repage"]
-        ridge = ridge_mask(ax / w)
-        cmd += [*terrain, "-fill", colors["outline"], "-colorize", "100",
-                *alpha_fx(ridge, 0.85, f"{w}x{rh}", "1024x256"),
-                ")", "-geometry", f"+0+{hy - rh}", "-composite"]
-        cmd += [*terrain, "-fill", colors["primary"], "-colorize", "100",
-                *alpha_fx(f"({ridge}) * exp(-((i/w - {ax / w:.3f})/0.2)^2) * (j/h)^2.5",
-                          0.75, f"{w}x{rh}", "1024x256"),
-                ")", "-geometry", f"+0+{hy - rh}", "-composite"]
-        # Horizon line: hairline plus bloom, brightest on the clock axis.
-        cmd += hline(w, hy, max(1, px(1.5)), 0, colors["primary"], ax / w, 0.55, 0.9)
-        cmd += hline(w, hy, px(6), px(10), colors["primary"], ax / w, 0.35, 0.5)
+        cmd = scene_cmd(colors, w, h, hy, ax, CACHE / f"floor-{w}x{h}.png")
         # Altimeter rulers on both frame edges, from under the header to the horizon.
         r0, r1, step = mt + px(110), hy - px(40), px(12)
         ticks = []
@@ -722,38 +744,60 @@ def block_art(mask: Path, cols: int) -> str:
 #
 # Coordinates are design units: u = output height / 800, x is measured from the
 # horizontal centre, y from the top edge.
-# The scale must match hyprland/.config/hypr/monitors.lua: the static layer and
-# the dial/ring GIFs are rendered at physical size, so a low scale leaves them
-# upscaled (soft) on that output.
+# Keys are noctalia output selectors: a connector name, or a whole token of the
+# monitor's description (model or serial). External monitors must be keyed by
+# identity, not connector: the dock's DP-2 carries either the Dell or the BenQ,
+# and when a widget's output changes size noctalia scales cx/cy proportionally
+# (box sizes stay put), which pulls the side graphs off the static panels.
+# Every monitor that locks needs an entry here; an unlisted one only gets
+# noctalia's default login box. `hyprctl monitors` shows the description.
+# Geometry and scale must match hyprland/.config/hypr/monitors.lua: the static
+# layer and the reticle GIF are rendered at physical size, so a low scale
+# leaves them upscaled (soft) on that output.
 LOCK_OUTPUTS = {  # logical width, height and scale of each output that locks
-    "eDP-1": (1280, 800, 1.5),
-    "DP-2": (2560, 1080, 2.0),
-    "DP-4": (2560, 1080, 2.0),
+    "eDP-1": (1280, 800, 1.5),       # laptop panel
+    "U4025QW": (2560, 1080, 2.0),    # Dell U4025QW ultrawide, on DP-2 or DP-4
+    "ZOWIE": (1920, 1080, 1.0),      # BenQ ZOWIE XL, on DP-2
 }
-LOCK_RING_Y = 330          # centre of the ring instrument
-LOCK_RING_D = 420          # reference diameter; every ring is a fraction of it
-LOCK_PANEL_X = 430         # side panel centres at ±x
-LOCK_PANEL = (250, 300)    # side panel size
+# The core composition fits the narrowest output (16:10, ±640 u); wider ones
+# show more of the scene, and the edge chrome follows the frame.
+LOCK_FRAME = 19                  # frame inset
+LOCK_HORIZON = 455               # horizon row of the scene
+LOCK_TAG_Y = 112                 # "SYS//LOCKED" plate
+LOCK_CLOCK = (0, 226, 560, 280)  # hero clock box: x, y, w, h (the box scales the text)
+LOCK_SECONDS = (224, 266, 64, 34)
+LOCK_RULER_Y = 336               # tick rail under the clock
+LOCK_DATE_Y = 358
+LOCK_RETICLE = 26                # rotating acid reticle beside the plate
+LOCK_BANK_X = 455                # telemetry card columns at ±x
+LOCK_BANK_Y = 205                # top of the first card
+# Card width, height, vertical gap. Noctalia's graph is a fixed ~180x100 block
+# scaled to fit its box, so the cards are about that shape to fill with it.
+LOCK_CARD = (170, 120, 12)
 LOCK_LOGIN = (0, 676, 720, 128)  # login box: x, y, w, h (noctalia's minimum size)
-LOCK_DIAL_STEP = 15        # the procedural dial repeats every 15°, so a 15° loop is seamless
+# Telemetry cards, top to bottom per bank: (side, caption, stat, stat2). Desktop
+# sysmon widgets cannot show disk stats, and gpu_usage polls the RTX 3050
+# through NVML, which wakes it from runtime suspend every few seconds.
+LOCK_STATS = (
+    (-1, "CPU LOAD", "cpu_usage", None),
+    (-1, "CPU CLOCK", "cpu_freq", None),
+    (-1, "MEMORY", "ram_pct", None),
+    (1, "CORE TEMP", "cpu_temp", None),
+    (1, "LINK RX/TX", "net_rx", "net_tx"),
+    (1, "SWAP", "swap_pct", None),
+)
 
 
-def lock_dial(px: int, color: str, dst: Path) -> None:
-    """Fine tick dial (120 ticks, a major one every 15°) drawn procedurally: crisp
-    at any size and exactly symmetric, which lets the GIF loop over one 15° step."""
-    c = px / 2
-    draws = []
-    for i in range(120):
-        major = i % 5 == 0
-        a = math.radians(i * 3)
-        r1 = px * (0.405 if major else 0.43)
-        r2 = px * 0.47
-        draws += ["-strokewidth", f"{px * (0.006 if major else 0.003):.2f}", "-draw",
-                  f"line {c + r1 * math.sin(a):.2f},{c - r1 * math.cos(a):.2f} "
-                  f"{c + r2 * math.sin(a):.2f},{c - r2 * math.cos(a):.2f}"]
-    run("magick", "-size", f"{px}x{px}", "xc:none", "-stroke", color, "-fill", "none", *draws,
-        "-strokewidth", f"{px * 0.002:.2f}",
-        "-draw", f"circle {c},{c} {c + px * 0.485},{c}", dst)
+def lock_cards():
+    """(index, side, caption, stat, stat2, x0, y0, x1, y1) per telemetry card, in u."""
+    cw, ch, gap = LOCK_CARD
+    rows = {-1: 0, 1: 0}
+    for i, (side, caption, stat, stat2) in enumerate(LOCK_STATS):
+        row = rows[side]
+        rows[side] += 1
+        y0 = LOCK_BANK_Y + row * (ch + gap)
+        x0 = side * LOCK_BANK_X - cw / 2
+        yield i + 1, side, caption, stat, stat2, x0, y0, x0 + cw, y0 + ch
 
 
 def scope_trace(color: str, braid: bool, dst: Path, w: int = 1024, h: int = 128) -> None:
@@ -829,46 +873,49 @@ def build_lock(colors: dict[str, str]) -> None:
     d.mkdir(parents=True, exist_ok=True)
     max_u_px = max(h / 800 * s for _, h, s in LOCK_OUTPUTS.values())  # physical px per u
     with tempfile.TemporaryDirectory(prefix="hud-lock-") as td:
-        # Dial: smooth, slow (1° per 120 ms, 43 s per turn).
-        dial_px = round(LOCK_RING_D * 1.16 * max_u_px)
-        dial = Path(td) / "dial.png"
-        lock_dial(dial_px, colors["outline"], dial)
-        gif_rotation(dial, LOCK_DIAL_STEP, 1, 120, colors["surface"], d / "dial.gif")
-        # Acid ring: a deliberate stepper motion (8° every 0.4 s, 18 s per turn).
-        acid_px = round(LOCK_RING_D * 0.80 * max_u_px)
-        acid = Path(td) / "acid.png"
-        tint(OUT / "elements" / "ring-07.png", colors["primary"], acid_px, acid)
-        gif_rotation(acid, 45, 8, 400, colors["surface"], d / "ring-acid.gif")
+        # Reticle: the acid ring as a stepper (8° every 0.4 s, 18 s per turn).
+        reticle = Path(td) / "reticle.png"
+        tint(OUT / "elements" / "ring-07.png", colors["primary"], round(LOCK_RETICLE * max_u_px), reticle)
+        gif_rotation(reticle, 45, 8, 400, colors["surface"], d / "reticle.gif")
     for name, (w, h, scale) in LOCK_OUTPUTS.items():
         render_lock_static(colors, w, h, scale, d / f"static-{name}.png")
     render_lock_backdrop(colors, d / "backdrop.png")
-    print(f"lock: dial + acid gifs, {len(LOCK_OUTPUTS)} static layers, backdrop")
+    # Layers of the previous ring-instrument layout.
+    for stale in ("dial.gif", "ring-acid.gif"):
+        (d / stale).unlink(missing_ok=True)
+    print(f"lock: reticle gif, {len(LOCK_OUTPUTS)} scenes, backdrop")
+
+
+def lock_scene(colors: dict[str, str], w: int, h: int) -> list[str]:
+    """The wallpaper's world, horizon centred, pushed back under the lock UI,
+    with scanlines and vignette (w, h in physical px)."""
+    hy = round(h * LOCK_HORIZON / 800)
+    cmd = scene_cmd(colors, w, h, hy, round(w / 2), CACHE / f"lock-floor-{w}x{h}.png")
+    cmd += ["-fill", colors["surface"] + "4d", "-draw", f"rectangle 0,0 {w},{h}"]  # ~30 % darker
+    cmd += scanlines(w, h, max(2, round(h / 400)), 0.22)
+    cmd += ["(", "-size", f"{w}x{h}", "-define", "gradient:extent=farthest",
+            "radial-gradient:rgba(0,0,0,0)-rgba(0,0,0,0.6)", ")", "-geometry", "+0+0", "-composite",
+            # The canvas still carries the sky gradient's page geometry, which
+            # would make -gravity center measure from the sky band's middle.
+            "+repage"]
+    return cmd
 
 
 def render_lock_backdrop(colors: dict[str, str], dst: Path) -> None:
-    """Quiet 16:9 stage (Noctalia cover-crops it per output): gradient, grain and
-    the perspective floor, nothing near the edges that a crop could cut."""
-    w, h = 3840, 2160
-    floor_w, floor_h = round(w * 1.2), round(h * 0.42)
+    """The scene alone at 16:9: shown during the lock transition and on outputs
+    missing from LOCK_OUTPUTS (Noctalia cover-crops it)."""
     with staged(dst) as tmp:
-        run("magick", "-size", f"{w}x{h}",
-            f"radial-gradient:{colors['surface_variant']}-{colors['surface']}",
-            "(", "-size", f"{w}x{h}", "xc:gray50", "+noise", "Gaussian",
-            "-colorspace", "gray", "-evaluate", "multiply", "0.05", ")",
-            "-compose", "Plus", "-composite", "-compose", "Over",
-            "(", str(OUT / "elements" / "warp-floor.png"), "-resize", f"{floor_w}x{floor_h}!",
-            "-fill", colors["outline"], "-colorize", "100",
-            "(", "+clone", "-alpha", "extract", "(", "+clone", "-sparse-color", "Barycentric",
-            "0,0 black %[fx:0],%[fx:h] white", ")", "-compose", "Multiply", "-composite", ")",
-            "-compose", "CopyOpacity", "-composite", "-compose", "Over",
-            "-channel", "A", "-evaluate", "multiply", "0.45", "+channel", ")",
-            "-geometry", f"+{(w - floor_w) // 2}+{h - floor_h}", "-composite",
-            "-depth", "8", tmp)
+        run(*lock_scene(colors, 3840, 2160), "-depth", "8", tmp)
 
 
 def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst: Path) -> None:
+    """One output's opaque lock layer: scene plus every static part of the UI,
+    at physical size so it lines up pixel for pixel with the live widgets."""
     pw, ph = round(w * scale), round(h * scale)
     k = h / 800 * scale  # physical px per design unit
+    half = w / 2 / (h / 800)  # half the output width, in u
+    m = LOCK_FRAME
+    xl, xr, yt, yb = -half + m, half - m, m, 800 - m
 
     def cx(x: float) -> float:
         return pw / 2 + x * k
@@ -877,118 +924,160 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
         return y * k
 
     def put(element: str, role: str, width: float, x: float, y: float, opacity: float,
-            flop: bool = False) -> list[str]:
-        # gravity center: geometry offsets are measured from the canvas centre.
+            flop: bool = False, flip: bool = False) -> list[str]:
+        # Centred on (x, y); gravity center measures offsets from the canvas centre.
         return ["(", str(OUT / "elements" / f"{element}.png"), "-resize", f"{round(width * k)}x",
-                *(["-flop"] if flop else []), "-fill", colors[role], "-colorize", "100",
+                *(["-flop"] if flop else []), *(["-flip"] if flip else []),
+                "-fill", colors[role], "-colorize", "100",
                 "-channel", "A", "-evaluate", "multiply", str(opacity), "+channel", ")",
                 "-gravity", "center", "-geometry", f"{round(x * k):+d}{round(y * k - ph / 2):+d}",
                 "-composite"]
 
     def text(s: str, font: str, size: float, role: str, x: float, y: float,
              spacing: float = 0) -> list[str]:
+        # Centred on (x, y).
         return ["-gravity", "center", "-font", font, "-pointsize", f"{size * k:.1f}",
                 "-kerning", f"{spacing * k:.1f}", "-fill", colors[role], "-stroke", "none",
                 "-annotate", f"{round(x * k):+d}{round(y * k - ph / 2):+d}", s]
 
-    def hairline(role: str, width: float = 1.0) -> list[str]:
+    def ltext(s: str, size: float, role: str, x: float, y: float, spacing: float = 0,
+              right: bool = False, rotate: int = 0) -> list[str]:
+        # Baseline text starting at x (or ending there when right=True).
+        if right:
+            x -= text_width(s, MONO_FONT, round(size * k)) / k + spacing * (len(s) - 1)
+        angle = f"{rotate}x{rotate}" if rotate else ""
+        return ["+gravity", "-font", MONO_FONT, "-pointsize", f"{size * k:.1f}",
+                "-kerning", f"{spacing * k:.1f}", "-fill", colors[role], "-stroke", "none",
+                "-annotate", f"{angle}+{round(cx(x))}+{round(cy(y))}", s]
+
+    def stroke(role: str, width: float = 1.0) -> list[str]:
         return ["-gravity", "NorthWest", "-fill", "none", "-stroke", colors[role],
                 "-strokewidth", f"{max(1.0, width * k):.2f}"]
 
-    def rect(x0: float, y0: float, x1: float, y1: float, role: str) -> list[str]:
-        return ["-gravity", "NorthWest", "-stroke", "none", "-fill", colors[role],
-                "-draw", f"rectangle {cx(x0):.1f},{cy(y0):.1f} {cx(x1):.1f},{cy(y1):.1f}"]
+    def line(points: list[tuple[float, float]], role: str, width: float = 1.0) -> list[str]:
+        pts = " ".join(f"{cx(x):.1f},{cy(y):.1f}" for x, y in points)
+        return stroke(role, width) + ["-draw", f"polyline {pts}"]
 
-    ry, rd = LOCK_RING_Y, LOCK_RING_D
-    cmd = ["magick", "-size", f"{pw}x{ph}", "xc:none"]
+    def rect(x0: float, y0: float, x1: float, y1: float, color: str) -> list[str]:
+        return ["-gravity", "NorthWest", "-stroke", "none", "-fill", color,
+                "-draw", f"rectangle {cx(min(x0, x1)):.1f},{cy(min(y0, y1)):.1f} "
+                         f"{cx(max(x0, x1)):.1f},{cy(max(y0, y1)):.1f}"]
 
-    # Screen frame: hairline inset with acid corner ticks (as on the wallpaper).
-    m = 24  # inset, u
-    xl, xr = -(w / 2) * 800 / h + m, (w / 2) * 800 / h - m
-    yt, yb = m, 800 - m
-    cmd += hairline("outline", 1)
-    cmd += ["-draw", f"rectangle {cx(xl):.1f},{cy(yt):.1f} {cx(xr):.1f},{cy(yb):.1f}"]
-    t, arm = 3, 34
-    for x0, y0, dx, dy in ((xl, yt, 1, 1), (xr, yt, -1, 1), (xl, yb, 1, -1), (xr, yb, -1, -1)):
-        cmd += rect(min(x0, x0 + dx * arm), min(y0, y0 + dy * t), max(x0, x0 + dx * arm), max(y0, y0 + dy * t), "primary")
-        cmd += rect(min(x0, x0 + dx * t), min(y0, y0 + dy * arm), max(x0, x0 + dx * t), max(y0, y0 + dy * arm), "primary")
-    cmd += text(f"{USER_TAG}//HUD  ·  SECURE NODE 0x2100", MONO_FONT, 11, "on_surface_variant", 0, yt + 22, 2)
+    def poly(points: list[tuple[float, float]], fill: str, edge: str | None = None) -> list[str]:
+        pts = " ".join(f"{cx(x):.1f},{cy(y):.1f}" for x, y in points)
+        return ["-gravity", "NorthWest", "-fill", fill,
+                *(["-stroke", colors[edge], "-strokewidth", f"{max(1.0, k):.2f}"] if edge
+                  else ["-stroke", "none"]),
+                "-draw", f"polygon {pts}"]
 
-    # Ring instrument, matching the desktop dial (RingStack.qml): square reticle,
-    # dotted ring and the procedural clock face (the tick dial and the acid ring
-    # rotate, so they are GIF widgets on top of this layer).
-    # 1.12 rather than the desktop's 1.30: the header and auth strip sit closer.
-    side = rd * 1.12
-    arm, t = side * 0.12, 1.5
-    x0, y0, x1, y1 = -side / 2, ry - side / 2, side / 2, ry + side / 2
-    ret = colors["outline"] + "b3"  # ~70 %, the reticle's peak on the desktop
-    for qx, qy, dx, dy in ((x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)):
-        for w_, h_ in ((arm, t), (t, arm)):
-            cmd += ["-gravity", "NorthWest", "-stroke", "none", "-fill", ret, "-draw",
-                    f"rectangle {cx(min(qx, qx + dx * w_)):.1f},{cy(min(qy, qy + dy * h_)):.1f} "
-                    f"{cx(max(qx, qx + dx * w_)):.1f},{cy(max(qy, qy + dy * h_)):.1f}"]
-        k4 = 4 * t  # acid knuckle at the very corner
-        cmd += rect(min(qx, qx + dx * k4), min(qy, qy + dy * k4), max(qx, qx + dx * k4), max(qy, qy + dy * k4), "primary")
-    for ex, ey, horiz in ((0, y0, False), (0, y1, False), (x0, ry, True), (x1, ry, True)):
-        lw_, lh_ = (arm * 0.4, t) if horiz else (t, arm * 0.4)
-        ox = 0 if ex == x0 else -lw_ if ex == x1 else -lw_ / 2
-        oy = 0 if ey == y0 else -lh_ if ey == y1 else -lh_ / 2
-        cmd += ["-gravity", "NorthWest", "-stroke", "none", "-fill", ret, "-draw",
-                f"rectangle {cx(ex + ox):.1f},{cy(ey + oy):.1f} {cx(ex + ox + lw_):.1f},{cy(ey + oy + lh_):.1f}"]
-    cmd += put("ring-05", "on_surface_variant", rd * 0.66, 0, ry, 0.55)
-    face = dst.with_name(f".face-{dst.stem}.png")
-    clock_face(round(rd * 0.56 * k), colors["on_surface_variant"], face)
-    cmd += ["(", str(face), "-channel", "A", "-evaluate", "multiply", "0.9", "+channel", ")",
-            "-gravity", "center", "-geometry", f"+0{round(ry * k - ph / 2):+d}", "-composite"]
-    # Inside the face's inner circle (r ~78 u), under the date.
-    cmd += text("SYSTEM//LOCKED", MONO_FONT, 10, "primary", 0, ry + 42, 2)
+    def corners(x0: float, y0: float, x1: float, y1: float, arm: float, t: float,
+                color: str) -> list[str]:
+        out = []
+        for qx, qy, dx, dy in ((x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)):
+            out += rect(qx, qy, qx + dx * arm, qy + dy * t, color)
+            out += rect(qx, qy, qx + dx * t, qy + dy * arm, color)
+        return out
 
-    # Side panels: chamfered hairline cards facing the instrument, joined to it.
-    pw_u, ph_u = LOCK_PANEL
-    fill = colors["surface_variant"] + "8c"  # ~55 % so the backdrop shows through
-    for side, title, cap1, cap2 in ((-1, "SYS // TELEMETRY", "CPU LOAD", "MEMORY"),
-                                    (1, "NET // THERMAL", "CORE TEMP", "LINK RX/TX")):
-        px_, x0, x1 = side * LOCK_PANEL_X, side * LOCK_PANEL_X - pw_u / 2, side * LOCK_PANEL_X + pw_u / 2
-        y0, y1 = ry - ph_u / 2, ry + ph_u / 2
-        ch = 18  # chamfer on the corner nearest the instrument
+    acid = colors["primary"]
+    cmd = lock_scene(colors, pw, ph)
+
+    # Street layer: acid paint bleeding in from the left edge behind the bank.
+    gh = 430
+    cmd += ["(", str(OUT / "elements" / "grunge-splat.png"), "-resize", f"x{round(gh * k)}",
+            "-fill", acid, "-colorize", "100",
+            *alpha_fx("(1 - i/w)^2.4 * min(1, j/h/0.5)", 0.26, f"{round(gh * 16 / 15 * k)}x{round(gh * k)}"),
+            ")", "-gravity", "NorthWest", "-geometry", f"+{round(cx(xl))}+{round(cy(yb - gh))}",
+            "-composite"]
+
+    # Frame: hairline inset with acid corner ticks, as on the wallpaper.
+    cmd += stroke("outline") + ["-draw", f"rectangle {cx(xl):.1f},{cy(yt):.1f} {cx(xr):.1f},{cy(yb):.1f}"]
+    cmd += corners(xl, yt, xr, yb, 24, 2, acid)
+    # Header, mirroring the wallpaper's.
+    cmd += ltext(f"SYS://{USER_TAG}-HUD  ·  NODE 0x2100", 10, "on_surface_variant", xl + 20, yt + 27)
+    cmd += ltext("SESSION LOCKED  //  AUTH PENDING", 10, "outline", xl + 20, yt + 43)
+    cmd += ltext(f"{USER_TAG}//HUD", 10, "primary", xr - 20, yt + 27, right=True)
+    cmd += ltext("LINK SEALED", 10, "outline", xr - 20, yt + 43, right=True)
+    # Altimeter rulers on both frame edges down to the horizon, and read-outs.
+    ticks = []
+    for i, y in enumerate(range(yt + 75, LOCK_HORIZON - 25, 8)):
+        n = 8 if i % 5 == 0 else 3.5
+        ticks += [f"line {cx(xl):.1f},{cy(y):.1f} {cx(xl + n):.1f},{cy(y):.1f}",
+                  f"line {cx(xr):.1f},{cy(y):.1f} {cx(xr - n):.1f},{cy(y):.1f}"]
+    cmd += stroke("outline") + ["-draw", " ".join(ticks)]
+    if xr - 90 > LOCK_BANK_X + LOCK_CARD[0] / 2:  # only where the banks leave room
+        cmd += ltext("HZN +000.0", 7.3, "on_surface_variant", xl + 20, LOCK_HORIZON - 7)
+        cmd += ltext("ALT 0x7F", 7.3, "on_surface_variant", xr - 20, LOCK_HORIZON - 7, right=True)
+    cmd += ltext("ACID//HUD  -  SECURE NODE 0x2100  -  SESSION SEALED", 7.3, "outline",
+                 xr - 16, yt + 90, rotate=90)
+
+    # Hero: acid plate and reticle, the clock (live), tick rail and date line.
+    ty = LOCK_TAG_Y
+    cmd += poly([(-104, ty - 10), (14, ty - 10), (6, ty + 10), (-112, ty + 10)], acid)
+    cmd += text("SYS//LOCKED", MONO_FONT, 10, "on_primary", -49, ty, 1.5)
+    cmd += poly([(22, ty - 10), (112, ty - 10), (104, ty + 10), (14, ty + 10)], "none", "outline")
+    cmd += text("ID 0x2100", MONO_FONT, 8, "on_surface_variant", 63, ty, 1.5)
+    ry, rx = LOCK_RULER_Y, 250
+    rule = []
+    for i in range(-25, 26):
+        n = 8 if i % 5 == 0 else 3.5
+        rule.append(f"line {cx(i * 10):.1f},{cy(ry):.1f} {cx(i * 10):.1f},{cy(ry - n):.1f}")
+    cmd += stroke("outline") + ["-draw", f"line {cx(-rx):.1f},{cy(ry):.1f} {cx(rx):.1f},{cy(ry):.1f}",
+                                "-draw", " ".join(rule)]
+    cmd += rect(-40, ry - 1, 40, ry + 1, acid)
+    cmd += poly([(-5, ry + 4), (5, ry + 4), (0, ry + 10)], acid)
+    cmd += text("NODE 0x2100", MONO_FONT, 8, "outline", -185, LOCK_DATE_Y, 1.5)
+    cmd += text("GRID 21-00", MONO_FONT, 8, "outline", 185, LOCK_DATE_Y, 1.5)
+
+    # Telemetry banks: chamfered cards, each holding one live graph.
+    fill = colors["surface"] + "d9"  # ~85 %: the scene still shows at the edges
+    for idx, side, caption, _stat, _stat2, x0, y0, x1, y1 in lock_cards():
+        c = 14  # chamfer: outer top corner and inner bottom corner
         if side < 0:
-            pts = [(x0, y0), (x1 - ch, y0), (x1, y0 + ch), (x1, y1), (x0, y1)]
+            pts = [(x0 + c, y0), (x1, y0), (x1, y1 - 8), (x1 - 8, y1), (x0, y1), (x0, y0 + c)]
         else:
-            pts = [(x0 + ch, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0 + ch)]
-        poly = " ".join(f"{cx(px):.1f},{cy(py):.1f}" for px, py in pts)
-        cmd += ["-gravity", "NorthWest", "-fill", fill, "-stroke", colors["outline"],
-                "-strokewidth", f"{max(1.0, 1.0 * k):.2f}", "-draw", f"polygon {poly}"]
-        # Acid accent along the outer top edge, divider under the title.
+            pts = [(x0, y0), (x1 - c, y0), (x1, y0 + c), (x1, y1), (x0 + 8, y1), (x0, y1 - 8)]
+        cmd += poly(pts, fill, "outline")
+        tx = x0 + 12
+        cmd += poly([(tx + 4, y0 + 8), (tx + 30, y0 + 8), (tx + 26, y0 + 21), (tx, y0 + 21)], acid)
+        cmd += text(f"{idx:02d}", MONO_FONT, 8, "on_primary", tx + 15, y0 + 14.5)
+        cmd += ltext(caption, 9, "on_surface", tx + 38, y0 + 18, spacing=1.5)
+        cmd += put("slashes-3", "primary", 16, x1 - 22, y0 + 14.5, 0.9)
+        cmd += line([(x0 + 10, y0 + 28), (x1 - 10, y0 + 28)], "outline")
         outer = x0 if side < 0 else x1
-        cmd += rect(min(outer, outer - side * 46), y0 - 1.5, max(outer, outer - side * 46), y0 + 1.5, "primary")
-        cmd += hairline("outline") + ["-draw", f"line {cx(x0 + 14):.1f},{cy(y0 + 34):.1f} {cx(x1 - 14):.1f},{cy(y0 + 34):.1f}"]
-        cmd += text(title, MONO_FONT, 11, "on_surface", px_, y0 + 20, 2)
-        cmd += text(cap1, MONO_FONT, 9, "on_surface_variant", px_, y0 + 52, 2)
-        cmd += text(cap2, MONO_FONT, 9, "on_surface_variant", px_, y0 + 150, 2)
-        cmd += put("tick-strip", "outline", pw_u - 40, px_, y1 - 22, 0.9)
-        # Connector from the reticle to the panel, with an acid node at the panel.
-        near = x1 if side < 0 else x0
-        reach = side * rd * 0.62
-        cmd += hairline("outline") + ["-draw", f"line {cx(reach):.1f},{cy(ry):.1f} {cx(near):.1f},{cy(ry):.1f}"]
-        cmd += rect(near - 3, ry - 3, near + 3, ry + 3, "primary")
-    cmd += put("est-2100", "on_surface_variant", 120, -LOCK_PANEL_X, ry + ph_u / 2 + 36, 0.8)
-    cmd += put("barcode", "outline", 150, LOCK_PANEL_X, ry + ph_u / 2 + 36, 1.0)
+        cmd += rect(outer, y0 + 44, outer - side * 3, y1 - 22, acid)
+    # Connectors from the middle cards to the rail, with acid nodes at the cards.
+    cw, ch, gap = LOCK_CARD
+    my = LOCK_BANK_Y + ch * 1.5 + gap
+    for side in (-1, 1):
+        near = side * (LOCK_BANK_X - cw / 2)
+        cmd += line([(near, my), (side * 290, my), (side * 290, ry), (side * (rx + 8), ry)], "outline")
+        cmd += rect(near - 3, my - 3, near + 3, my + 3, acid)
+    by = LOCK_BANK_Y + 3 * ch + 2 * gap + 21
+    cmd += put("est-2100", "on_surface_variant", 96, -LOCK_BANK_X, by, 0.7)
+    cmd += put("barcode", "outline", 120, LOCK_BANK_X, by, 1.0)
 
-    # Auth strip and login brackets.
+    # Auth strip: caption with chevron gauges, acid brackets around the login box.
     lx, ly, lw, lh = LOCK_LOGIN
     cmd += text("AUTHENTICATION REQUIRED", MONO_FONT, 10, "on_surface_variant", 0, ly - lh / 2 - 22, 3)
     cmd += put("chevron-progress", "primary", 70, -210, ly - lh / 2 - 22, 0.9)
     cmd += put("chevron-progress", "primary", 70, 210, ly - lh / 2 - 22, 0.9, flop=True)
-    gx0, gx1, gy0, gy1, a = lx - lw / 2 - 8, lx + lw / 2 + 8, ly - lh / 2 - 8, ly + lh / 2 + 8, 16
-    for x0, y0, dx, dy in ((gx0, gy0, 1, 1), (gx1, gy0, -1, 1), (gx0, gy1, 1, -1), (gx1, gy1, -1, -1)):
-        cmd += rect(min(x0, x0 + dx * a), min(y0, y0 + dy * 2), max(x0, x0 + dx * a), max(y0, y0 + dy * 2), "primary")
-        cmd += rect(min(x0, x0 + dx * 2), min(y0, y0 + dy * a), max(x0, x0 + dx * 2), max(y0, y0 + dy * a), "primary")
+    cmd += corners(lx - lw / 2 - 8, ly - lh / 2 - 8, lx + lw / 2 + 8, ly + lh / 2 + 8, 16, 2, acid)
 
-    try:
-        with staged(dst) as tmp:
-            run(*cmd, "-depth", "8", tmp)
-    finally:
-        face.unlink(missing_ok=True)
+    # Bottom corners: hazard stripe left, the poster's mech bracket right (as on
+    # the wallpaper), solid first so the floor grid does not show through it.
+    cmd += put("hazard-2", "primary", 173, xl + 20 + 173 / 2, yb - 26, 0.9)
+    bh = 137
+    bw = bh * 2000 / 1379
+    pcx, pcy = xr - bw / 2, yb - bh / 2
+    cmd += put("poster-br", "surface", bw, pcx, pcy, 1.0)
+    cmd += put("poster-br", "outline", bw, pcx, pcy, 0.55)
+    x0, y0 = xr - bw, yb - bh
+    cmd += ["-gravity", "NorthWest", "-stroke", "none", "-fill", acid, "-draw",
+            f"roundrectangle {cx(x0 + 0.562 * bw):.1f},{cy(y0 + 0.906 * bh):.1f} "
+            f"{cx(x0 + 0.794 * bw):.1f},{cy(y0 + 0.928 * bh):.1f} {0.01 * bh * k:.1f},{0.01 * bh * k:.1f}"]
+
+    with staged(dst) as tmp:
+        run(*cmd, "-depth", "8", tmp)
 
 
 def lock_layout_toml() -> str:
@@ -1003,7 +1092,7 @@ def lock_layout_toml() -> str:
         if isinstance(v, bool):
             return "true" if v else "false"
         if isinstance(v, (int, float)):
-            return f"{float(v):.1f}"
+            return repr(float(v))  # exact: 0.92 must not become 0.9
         return '"' + str(v) + '"'
 
     for name, (w, h, _scale) in LOCK_OUTPUTS.items():
@@ -1025,33 +1114,32 @@ def lock_layout_toml() -> str:
             lines += [f"{k} = {q(v)}" for k, v in settings.items()]
             tables.append("\n".join(lines))
 
-        ry, rd = LOCK_RING_Y, LOCK_RING_D
         widget("static", "sticker", w / 2, h / 2, w, h,
                {"image_path": str(lock / f"static-{name}.png"), "background": False}, absolute=True)
-        widget("dial", "sticker", 0, ry, rd * 1.16, rd * 1.16,
-               {"image_path": str(lock / "dial.gif"), "background": False, "opacity": 0.8})
-        widget("ring", "sticker", 0, ry, rd * 0.80, rd * 0.80,
-               {"image_path": str(lock / "ring-acid.gif"), "background": False})
+        widget("reticle", "sticker", -134, LOCK_TAG_Y, LOCK_RETICLE, LOCK_RETICLE,
+               {"image_path": str(lock / "reticle.gif"), "background": False})
         text = {"background": False, "shadow": False}
-        widget("time", "clock", 0, ry - 16, 180, 60,
+        x, y, bw, bh = LOCK_CLOCK
+        widget("time", "clock", x, y, bw, bh,
                {"format": "{:%H:%M}", "center_text": True, "color": "on_surface",
                 "font_family": "Chakra Petch SemiBold", **text})
+        x, y, bw, bh = LOCK_SECONDS
+        widget("seconds", "clock", x, y, bw, bh,
+               {"format": "{:%S}", "center_text": True, "color": "primary",
+                "font_family": "Departure Mono", **text})
         # Numeric date and ISO week: the clock format cannot upper-case a day
         # name, and a mixed-case "Thu" clashes with the all-caps HUD.
-        widget("date", "clock", 0, ry + 22, 170, 14,
+        widget("date", "clock", 0, LOCK_DATE_Y, 200, 16,
                {"format": "{:%d.%m.%y  ·  W%V}", "center_text": True, "color": "on_surface_variant",
                 "font_family": "Departure Mono", **text})
-        pw_u, ph_u = LOCK_PANEL
-        y0 = ry - ph_u / 2
         graph = {"display": "graph", "color": "primary", "color2": "on_surface_variant",
                  "show_label": True, "font_family": "Departure Mono", **text}
-        for side, stats in ((-1, (("cpu", "cpu_usage", None), ("mem", "ram_pct", None))),
-                            (1, (("temp", "cpu_temp", None), ("net", "net_rx", "net_tx")))):
-            for i, (wid, stat, stat2) in enumerate(stats):
-                s = {"stat": stat, **graph}
-                if stat2:
-                    s["stat2"] = stat2
-                widget(wid, "sysmon", side * LOCK_PANEL_X, y0 + 92 + i * 98, pw_u - 36, 62, s)
+        for _idx, _side, _caption, stat, stat2, x0, y0, x1, y1 in lock_cards():
+            s = {"stat": stat, **graph}
+            if stat2:
+                s["stat2"] = stat2
+            # Below the header rule (y0 + 28) down to an 8 u margin.
+            widget(stat, "sysmon", (x0 + x1) / 2, (y0 + 32 + y1 - 8) / 2, x1 - x0 - 20, y1 - y0 - 40, s)
         lx, ly, lw, lh = LOCK_LOGIN
         widget(f"lockscreen-login-box@{name}", "login_box", lx, ly, lw, lh,
                {"layout": "regular", "show_media": False, "show_weather": False,

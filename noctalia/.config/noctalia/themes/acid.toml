@@ -292,35 +292,41 @@ enabled = true
 schema_version = 2 # current layout schema; without it noctalia migrates the table into state
 widget_order = [
   "hud_static_edp1",
-  "hud_dial_edp1",
-  "hud_ring_edp1",
+  "hud_reticle_edp1",
   "hud_time_edp1",
+  "hud_seconds_edp1",
   "hud_date_edp1",
-  "hud_cpu_edp1",
-  "hud_mem_edp1",
-  "hud_temp_edp1",
-  "hud_net_edp1",
+  "hud_cpu_usage_edp1",
+  "hud_cpu_freq_edp1",
+  "hud_ram_pct_edp1",
+  "hud_cpu_temp_edp1",
+  "hud_net_rx_edp1",
+  "hud_swap_pct_edp1",
   "lockscreen-login-box@eDP-1",
-  "hud_static_dp2",
-  "hud_dial_dp2",
-  "hud_ring_dp2",
-  "hud_time_dp2",
-  "hud_date_dp2",
-  "hud_cpu_dp2",
-  "hud_mem_dp2",
-  "hud_temp_dp2",
-  "hud_net_dp2",
-  "lockscreen-login-box@DP-2",
-  "hud_static_dp4",
-  "hud_dial_dp4",
-  "hud_ring_dp4",
-  "hud_time_dp4",
-  "hud_date_dp4",
-  "hud_cpu_dp4",
-  "hud_mem_dp4",
-  "hud_temp_dp4",
-  "hud_net_dp4",
-  "lockscreen-login-box@DP-4",
+  "hud_static_u4025qw",
+  "hud_reticle_u4025qw",
+  "hud_time_u4025qw",
+  "hud_seconds_u4025qw",
+  "hud_date_u4025qw",
+  "hud_cpu_usage_u4025qw",
+  "hud_cpu_freq_u4025qw",
+  "hud_ram_pct_u4025qw",
+  "hud_cpu_temp_u4025qw",
+  "hud_net_rx_u4025qw",
+  "hud_swap_pct_u4025qw",
+  "lockscreen-login-box@U4025QW",
+  "hud_static_zowie",
+  "hud_reticle_zowie",
+  "hud_time_zowie",
+  "hud_seconds_zowie",
+  "hud_date_zowie",
+  "hud_cpu_usage_zowie",
+  "hud_cpu_freq_zowie",
+  "hud_ram_pct_zowie",
+  "hud_cpu_temp_zowie",
+  "hud_net_rx_zowie",
+  "hud_swap_pct_zowie",
+  "lockscreen-login-box@ZOWIE",
 ]
 
 [lockscreen_widgets.widget.hud_static_edp1]
@@ -334,36 +340,24 @@ box_height = 800.0
 image_path = "/home/mael/.local/share/hud/lock/static-eDP-1.png"
 background = false
 
-[lockscreen_widgets.widget.hud_dial_edp1]
+[lockscreen_widgets.widget.hud_reticle_edp1]
 output = "eDP-1"
 type = "sticker"
-cx = 640.0
-cy = 330.0
-box_width = 487.2
-box_height = 487.2
-[lockscreen_widgets.widget.hud_dial_edp1.settings]
-image_path = "/home/mael/.local/share/hud/lock/dial.gif"
-background = false
-opacity = 0.8
-
-[lockscreen_widgets.widget.hud_ring_edp1]
-output = "eDP-1"
-type = "sticker"
-cx = 640.0
-cy = 330.0
-box_width = 336.0
-box_height = 336.0
-[lockscreen_widgets.widget.hud_ring_edp1.settings]
-image_path = "/home/mael/.local/share/hud/lock/ring-acid.gif"
+cx = 506.0
+cy = 112.0
+box_width = 26.0
+box_height = 26.0
+[lockscreen_widgets.widget.hud_reticle_edp1.settings]
+image_path = "/home/mael/.local/share/hud/lock/reticle.gif"
 background = false
 
 [lockscreen_widgets.widget.hud_time_edp1]
 output = "eDP-1"
 type = "clock"
 cx = 640.0
-cy = 314.0
-box_width = 180.0
-box_height = 60.0
+cy = 226.0
+box_width = 560.0
+box_height = 280.0
 [lockscreen_widgets.widget.hud_time_edp1.settings]
 format = "{:%H:%M}"
 center_text = true
@@ -372,13 +366,28 @@ font_family = "Chakra Petch SemiBold"
 background = false
 shadow = false
 
+[lockscreen_widgets.widget.hud_seconds_edp1]
+output = "eDP-1"
+type = "clock"
+cx = 864.0
+cy = 266.0
+box_width = 64.0
+box_height = 34.0
+[lockscreen_widgets.widget.hud_seconds_edp1.settings]
+format = "{:%S}"
+center_text = true
+color = "primary"
+font_family = "Departure Mono"
+background = false
+shadow = false
+
 [lockscreen_widgets.widget.hud_date_edp1]
 output = "eDP-1"
 type = "clock"
 cx = 640.0
-cy = 352.0
-box_width = 170.0
-box_height = 14.0
+cy = 358.0
+box_width = 200.0
+box_height = 16.0
 [lockscreen_widgets.widget.hud_date_edp1.settings]
 format = "{:%d.%m.%y  ·  W%V}"
 center_text = true
@@ -387,14 +396,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_cpu_edp1]
+[lockscreen_widgets.widget.hud_cpu_usage_edp1]
 output = "eDP-1"
 type = "sysmon"
-cx = 210.0
-cy = 272.0
-box_width = 214.0
-box_height = 62.0
-[lockscreen_widgets.widget.hud_cpu_edp1.settings]
+cx = 185.0
+cy = 277.0
+box_width = 150.0
+box_height = 80.0
+[lockscreen_widgets.widget.hud_cpu_usage_edp1.settings]
 stat = "cpu_usage"
 display = "graph"
 color = "primary"
@@ -404,14 +413,31 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_mem_edp1]
+[lockscreen_widgets.widget.hud_cpu_freq_edp1]
 output = "eDP-1"
 type = "sysmon"
-cx = 210.0
-cy = 370.0
-box_width = 214.0
-box_height = 62.0
-[lockscreen_widgets.widget.hud_mem_edp1.settings]
+cx = 185.0
+cy = 409.0
+box_width = 150.0
+box_height = 80.0
+[lockscreen_widgets.widget.hud_cpu_freq_edp1.settings]
+stat = "cpu_freq"
+display = "graph"
+color = "primary"
+color2 = "on_surface_variant"
+show_label = true
+font_family = "Departure Mono"
+background = false
+shadow = false
+
+[lockscreen_widgets.widget.hud_ram_pct_edp1]
+output = "eDP-1"
+type = "sysmon"
+cx = 185.0
+cy = 541.0
+box_width = 150.0
+box_height = 80.0
+[lockscreen_widgets.widget.hud_ram_pct_edp1.settings]
 stat = "ram_pct"
 display = "graph"
 color = "primary"
@@ -421,14 +447,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_temp_edp1]
+[lockscreen_widgets.widget.hud_cpu_temp_edp1]
 output = "eDP-1"
 type = "sysmon"
-cx = 1070.0
-cy = 272.0
-box_width = 214.0
-box_height = 62.0
-[lockscreen_widgets.widget.hud_temp_edp1.settings]
+cx = 1095.0
+cy = 277.0
+box_width = 150.0
+box_height = 80.0
+[lockscreen_widgets.widget.hud_cpu_temp_edp1.settings]
 stat = "cpu_temp"
 display = "graph"
 color = "primary"
@@ -438,14 +464,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_net_edp1]
+[lockscreen_widgets.widget.hud_net_rx_edp1]
 output = "eDP-1"
 type = "sysmon"
-cx = 1070.0
-cy = 370.0
-box_width = 214.0
-box_height = 62.0
-[lockscreen_widgets.widget.hud_net_edp1.settings]
+cx = 1095.0
+cy = 409.0
+box_width = 150.0
+box_height = 80.0
+[lockscreen_widgets.widget.hud_net_rx_edp1.settings]
 stat = "net_rx"
 display = "graph"
 color = "primary"
@@ -455,6 +481,23 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 stat2 = "net_tx"
+
+[lockscreen_widgets.widget.hud_swap_pct_edp1]
+output = "eDP-1"
+type = "sysmon"
+cx = 1095.0
+cy = 541.0
+box_width = 150.0
+box_height = 80.0
+[lockscreen_widgets.widget.hud_swap_pct_edp1.settings]
+stat = "swap_pct"
+display = "graph"
+color = "primary"
+color2 = "on_surface_variant"
+show_label = true
+font_family = "Departure Mono"
+background = false
+shadow = false
 
 [lockscreen_widgets.widget."lockscreen-login-box@eDP-1"]
 output = "eDP-1"
@@ -469,7 +512,7 @@ show_media = false
 show_weather = false
 show_session_buttons = true
 background_color = "surface"
-background_opacity = 0.9
+background_opacity = 0.92
 background_radius = 0.0
 input_opacity = 1.0
 input_radius = 0.0
@@ -477,48 +520,36 @@ show_login_button = false
 center_password_text = true
 show_unlock_hint = false
 
-[lockscreen_widgets.widget.hud_static_dp2]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_static_u4025qw]
+output = "U4025QW"
 type = "sticker"
 cx = 1280.0
 cy = 540.0
 box_width = 2560.0
 box_height = 1080.0
-[lockscreen_widgets.widget.hud_static_dp2.settings]
-image_path = "/home/mael/.local/share/hud/lock/static-DP-2.png"
+[lockscreen_widgets.widget.hud_static_u4025qw.settings]
+image_path = "/home/mael/.local/share/hud/lock/static-U4025QW.png"
 background = false
 
-[lockscreen_widgets.widget.hud_dial_dp2]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_reticle_u4025qw]
+output = "U4025QW"
 type = "sticker"
-cx = 1280.0
-cy = 445.5
-box_width = 657.7
-box_height = 657.7
-[lockscreen_widgets.widget.hud_dial_dp2.settings]
-image_path = "/home/mael/.local/share/hud/lock/dial.gif"
-background = false
-opacity = 0.8
-
-[lockscreen_widgets.widget.hud_ring_dp2]
-output = "DP-2"
-type = "sticker"
-cx = 1280.0
-cy = 445.5
-box_width = 453.6
-box_height = 453.6
-[lockscreen_widgets.widget.hud_ring_dp2.settings]
-image_path = "/home/mael/.local/share/hud/lock/ring-acid.gif"
+cx = 1099.1
+cy = 151.2
+box_width = 35.1
+box_height = 35.1
+[lockscreen_widgets.widget.hud_reticle_u4025qw.settings]
+image_path = "/home/mael/.local/share/hud/lock/reticle.gif"
 background = false
 
-[lockscreen_widgets.widget.hud_time_dp2]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_time_u4025qw]
+output = "U4025QW"
 type = "clock"
 cx = 1280.0
-cy = 423.9
-box_width = 243.0
-box_height = 81.0
-[lockscreen_widgets.widget.hud_time_dp2.settings]
+cy = 305.1
+box_width = 756.0
+box_height = 378.0
+[lockscreen_widgets.widget.hud_time_u4025qw.settings]
 format = "{:%H:%M}"
 center_text = true
 color = "on_surface"
@@ -526,14 +557,29 @@ font_family = "Chakra Petch SemiBold"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_date_dp2]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_seconds_u4025qw]
+output = "U4025QW"
+type = "clock"
+cx = 1582.4
+cy = 359.1
+box_width = 86.4
+box_height = 45.9
+[lockscreen_widgets.widget.hud_seconds_u4025qw.settings]
+format = "{:%S}"
+center_text = true
+color = "primary"
+font_family = "Departure Mono"
+background = false
+shadow = false
+
+[lockscreen_widgets.widget.hud_date_u4025qw]
+output = "U4025QW"
 type = "clock"
 cx = 1280.0
-cy = 475.2
-box_width = 229.5
-box_height = 18.9
-[lockscreen_widgets.widget.hud_date_dp2.settings]
+cy = 483.3
+box_width = 270.0
+box_height = 21.6
+[lockscreen_widgets.widget.hud_date_u4025qw.settings]
 format = "{:%d.%m.%y  ·  W%V}"
 center_text = true
 color = "on_surface_variant"
@@ -541,14 +587,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_cpu_dp2]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_cpu_usage_u4025qw]
+output = "U4025QW"
 type = "sysmon"
-cx = 699.5
-cy = 367.2
-box_width = 288.9
-box_height = 83.7
-[lockscreen_widgets.widget.hud_cpu_dp2.settings]
+cx = 665.8
+cy = 374.0
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_cpu_usage_u4025qw.settings]
 stat = "cpu_usage"
 display = "graph"
 color = "primary"
@@ -558,14 +604,31 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_mem_dp2]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_cpu_freq_u4025qw]
+output = "U4025QW"
 type = "sysmon"
-cx = 699.5
-cy = 499.5
-box_width = 288.9
-box_height = 83.7
-[lockscreen_widgets.widget.hud_mem_dp2.settings]
+cx = 665.8
+cy = 552.2
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_cpu_freq_u4025qw.settings]
+stat = "cpu_freq"
+display = "graph"
+color = "primary"
+color2 = "on_surface_variant"
+show_label = true
+font_family = "Departure Mono"
+background = false
+shadow = false
+
+[lockscreen_widgets.widget.hud_ram_pct_u4025qw]
+output = "U4025QW"
+type = "sysmon"
+cx = 665.8
+cy = 730.4
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_ram_pct_u4025qw.settings]
 stat = "ram_pct"
 display = "graph"
 color = "primary"
@@ -575,14 +638,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_temp_dp2]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_cpu_temp_u4025qw]
+output = "U4025QW"
 type = "sysmon"
-cx = 1860.5
-cy = 367.2
-box_width = 288.9
-box_height = 83.7
-[lockscreen_widgets.widget.hud_temp_dp2.settings]
+cx = 1894.2
+cy = 374.0
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_cpu_temp_u4025qw.settings]
 stat = "cpu_temp"
 display = "graph"
 color = "primary"
@@ -592,14 +655,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_net_dp2]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_net_rx_u4025qw]
+output = "U4025QW"
 type = "sysmon"
-cx = 1860.5
-cy = 499.5
-box_width = 288.9
-box_height = 83.7
-[lockscreen_widgets.widget.hud_net_dp2.settings]
+cx = 1894.2
+cy = 552.2
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_net_rx_u4025qw.settings]
 stat = "net_rx"
 display = "graph"
 color = "primary"
@@ -610,20 +673,37 @@ background = false
 shadow = false
 stat2 = "net_tx"
 
-[lockscreen_widgets.widget."lockscreen-login-box@DP-2"]
-output = "DP-2"
+[lockscreen_widgets.widget.hud_swap_pct_u4025qw]
+output = "U4025QW"
+type = "sysmon"
+cx = 1894.2
+cy = 730.4
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_swap_pct_u4025qw.settings]
+stat = "swap_pct"
+display = "graph"
+color = "primary"
+color2 = "on_surface_variant"
+show_label = true
+font_family = "Departure Mono"
+background = false
+shadow = false
+
+[lockscreen_widgets.widget."lockscreen-login-box@U4025QW"]
+output = "U4025QW"
 type = "login_box"
 cx = 1280.0
 cy = 912.6
 box_width = 972.0
 box_height = 172.8
-[lockscreen_widgets.widget."lockscreen-login-box@DP-2".settings]
+[lockscreen_widgets.widget."lockscreen-login-box@U4025QW".settings]
 layout = "regular"
 show_media = false
 show_weather = false
 show_session_buttons = true
 background_color = "surface"
-background_opacity = 0.9
+background_opacity = 0.92
 background_radius = 0.0
 input_opacity = 1.0
 input_radius = 0.0
@@ -631,48 +711,36 @@ show_login_button = false
 center_password_text = true
 show_unlock_hint = false
 
-[lockscreen_widgets.widget.hud_static_dp4]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_static_zowie]
+output = "ZOWIE"
 type = "sticker"
-cx = 1280.0
+cx = 960.0
 cy = 540.0
-box_width = 2560.0
+box_width = 1920.0
 box_height = 1080.0
-[lockscreen_widgets.widget.hud_static_dp4.settings]
-image_path = "/home/mael/.local/share/hud/lock/static-DP-4.png"
+[lockscreen_widgets.widget.hud_static_zowie.settings]
+image_path = "/home/mael/.local/share/hud/lock/static-ZOWIE.png"
 background = false
 
-[lockscreen_widgets.widget.hud_dial_dp4]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_reticle_zowie]
+output = "ZOWIE"
 type = "sticker"
-cx = 1280.0
-cy = 445.5
-box_width = 657.7
-box_height = 657.7
-[lockscreen_widgets.widget.hud_dial_dp4.settings]
-image_path = "/home/mael/.local/share/hud/lock/dial.gif"
-background = false
-opacity = 0.8
-
-[lockscreen_widgets.widget.hud_ring_dp4]
-output = "DP-4"
-type = "sticker"
-cx = 1280.0
-cy = 445.5
-box_width = 453.6
-box_height = 453.6
-[lockscreen_widgets.widget.hud_ring_dp4.settings]
-image_path = "/home/mael/.local/share/hud/lock/ring-acid.gif"
+cx = 779.1
+cy = 151.2
+box_width = 35.1
+box_height = 35.1
+[lockscreen_widgets.widget.hud_reticle_zowie.settings]
+image_path = "/home/mael/.local/share/hud/lock/reticle.gif"
 background = false
 
-[lockscreen_widgets.widget.hud_time_dp4]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_time_zowie]
+output = "ZOWIE"
 type = "clock"
-cx = 1280.0
-cy = 423.9
-box_width = 243.0
-box_height = 81.0
-[lockscreen_widgets.widget.hud_time_dp4.settings]
+cx = 960.0
+cy = 305.1
+box_width = 756.0
+box_height = 378.0
+[lockscreen_widgets.widget.hud_time_zowie.settings]
 format = "{:%H:%M}"
 center_text = true
 color = "on_surface"
@@ -680,14 +748,29 @@ font_family = "Chakra Petch SemiBold"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_date_dp4]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_seconds_zowie]
+output = "ZOWIE"
 type = "clock"
-cx = 1280.0
-cy = 475.2
-box_width = 229.5
-box_height = 18.9
-[lockscreen_widgets.widget.hud_date_dp4.settings]
+cx = 1262.4
+cy = 359.1
+box_width = 86.4
+box_height = 45.9
+[lockscreen_widgets.widget.hud_seconds_zowie.settings]
+format = "{:%S}"
+center_text = true
+color = "primary"
+font_family = "Departure Mono"
+background = false
+shadow = false
+
+[lockscreen_widgets.widget.hud_date_zowie]
+output = "ZOWIE"
+type = "clock"
+cx = 960.0
+cy = 483.3
+box_width = 270.0
+box_height = 21.6
+[lockscreen_widgets.widget.hud_date_zowie.settings]
 format = "{:%d.%m.%y  ·  W%V}"
 center_text = true
 color = "on_surface_variant"
@@ -695,14 +778,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_cpu_dp4]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_cpu_usage_zowie]
+output = "ZOWIE"
 type = "sysmon"
-cx = 699.5
-cy = 367.2
-box_width = 288.9
-box_height = 83.7
-[lockscreen_widgets.widget.hud_cpu_dp4.settings]
+cx = 345.8
+cy = 374.0
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_cpu_usage_zowie.settings]
 stat = "cpu_usage"
 display = "graph"
 color = "primary"
@@ -712,14 +795,31 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_mem_dp4]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_cpu_freq_zowie]
+output = "ZOWIE"
 type = "sysmon"
-cx = 699.5
-cy = 499.5
-box_width = 288.9
-box_height = 83.7
-[lockscreen_widgets.widget.hud_mem_dp4.settings]
+cx = 345.8
+cy = 552.2
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_cpu_freq_zowie.settings]
+stat = "cpu_freq"
+display = "graph"
+color = "primary"
+color2 = "on_surface_variant"
+show_label = true
+font_family = "Departure Mono"
+background = false
+shadow = false
+
+[lockscreen_widgets.widget.hud_ram_pct_zowie]
+output = "ZOWIE"
+type = "sysmon"
+cx = 345.8
+cy = 730.4
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_ram_pct_zowie.settings]
 stat = "ram_pct"
 display = "graph"
 color = "primary"
@@ -729,14 +829,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_temp_dp4]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_cpu_temp_zowie]
+output = "ZOWIE"
 type = "sysmon"
-cx = 1860.5
-cy = 367.2
-box_width = 288.9
-box_height = 83.7
-[lockscreen_widgets.widget.hud_temp_dp4.settings]
+cx = 1574.2
+cy = 374.0
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_cpu_temp_zowie.settings]
 stat = "cpu_temp"
 display = "graph"
 color = "primary"
@@ -746,14 +846,14 @@ font_family = "Departure Mono"
 background = false
 shadow = false
 
-[lockscreen_widgets.widget.hud_net_dp4]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_net_rx_zowie]
+output = "ZOWIE"
 type = "sysmon"
-cx = 1860.5
-cy = 499.5
-box_width = 288.9
-box_height = 83.7
-[lockscreen_widgets.widget.hud_net_dp4.settings]
+cx = 1574.2
+cy = 552.2
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_net_rx_zowie.settings]
 stat = "net_rx"
 display = "graph"
 color = "primary"
@@ -764,20 +864,37 @@ background = false
 shadow = false
 stat2 = "net_tx"
 
-[lockscreen_widgets.widget."lockscreen-login-box@DP-4"]
-output = "DP-4"
+[lockscreen_widgets.widget.hud_swap_pct_zowie]
+output = "ZOWIE"
+type = "sysmon"
+cx = 1574.2
+cy = 730.4
+box_width = 202.5
+box_height = 108.0
+[lockscreen_widgets.widget.hud_swap_pct_zowie.settings]
+stat = "swap_pct"
+display = "graph"
+color = "primary"
+color2 = "on_surface_variant"
+show_label = true
+font_family = "Departure Mono"
+background = false
+shadow = false
+
+[lockscreen_widgets.widget."lockscreen-login-box@ZOWIE"]
+output = "ZOWIE"
 type = "login_box"
-cx = 1280.0
+cx = 960.0
 cy = 912.6
 box_width = 972.0
 box_height = 172.8
-[lockscreen_widgets.widget."lockscreen-login-box@DP-4".settings]
+[lockscreen_widgets.widget."lockscreen-login-box@ZOWIE".settings]
 layout = "regular"
 show_media = false
 show_weather = false
 show_session_buttons = true
 background_color = "surface"
-background_opacity = 0.9
+background_opacity = 0.92
 background_radius = 0.0
 input_opacity = 1.0
 input_radius = 0.0
