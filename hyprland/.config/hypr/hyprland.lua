@@ -26,6 +26,7 @@ hl.config({
 -- Each require() gets its own Lua scope, so an error in one file does not
 -- abort the others.
 require("monitors")
+require("workspaces")
 require("input")
 require("bindings")
 require("envs")
