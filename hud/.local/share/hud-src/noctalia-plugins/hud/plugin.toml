@@ -144,6 +144,17 @@ entry = "eq.luau"
   min = 0
   max = 200
 
+  # Widest the equalizer gets (logical px; 0 = always fill up to the workspace
+  # gap). 286 matches the CPU/TMP/MEM panel, so it stays that size on the
+  # ultrawides instead of spanning to the workspaces.
+  [[widget.setting]]
+  key = "max_width"
+  type = "int"
+  label_key = "settings.max_width.label"
+  default = 286
+  min = 0
+  max = 4000
+
   [widget.actions]
   left = "panel-toggle control-center audio"
   middle = "none"

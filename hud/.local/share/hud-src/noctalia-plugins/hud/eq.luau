@@ -6,6 +6,8 @@
 -- the centred workspace row, mirroring the gap left of the row. Lanes size to
 -- their content, so the width is computed: output width minus `reserve` (the
 -- rest of the end lane plus the bar margin) minus the right half of the row.
+-- On wide outputs it stops at `max_width`, the width of the system panel, so
+-- it does not stretch across the ultrawide.
 local common = require("./common.luau")
 
 local MIN_BARS = 8
@@ -52,6 +54,10 @@ local function fitBars()
   local reserve = noctalia.getConfig("reserve") or 362
   local gap = noctalia.getConfig("gap") or 13
   local width = w - reserve - (w / 2 + ws / 2) - gap
+  local maxWidth = noctalia.getConfig("max_width") or 286
+  if maxWidth > 0 then
+    width = math.min(width, maxWidth)
+  end
   local n = math.max(MIN_BARS, math.floor((width + BAR_GAP) / (BAR_W + BAR_GAP)))
   return n, math.max(0, math.floor(width - (n * (BAR_W + BAR_GAP) - BAR_GAP)))
 end
