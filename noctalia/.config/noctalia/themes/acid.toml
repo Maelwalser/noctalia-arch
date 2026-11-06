@@ -4,7 +4,7 @@
 # name order, so these keys override the shared config.toml.
 
 [shell]
-corner_radius_scale = 2.25              # ACID//HUD: 18 px liquid-glass corners on toasts/panels; the bar keeps its own radius 0
+corner_radius_scale = 2.25              # ACID//HUD: 18 px liquid-glass corners on toasts/panels; the bar rail matches (its own `radius`)
 # The HUD readout face for all of Noctalia's own UI. It is also the only font
 # the lockscreen's password field and power buttons use (no per-widget option).
 # Terminal and editor fonts are configured elsewhere and stay JetBrainsMono.
@@ -81,24 +81,27 @@ position = "top"
 thickness = 32
 # ACID//HUD: a floating instrument rail. Square hairline panels group related
 # readouts; the HUD ornaments (mael/hud:*) float between them without a box.
-background_opacity = 0.92
+# The rail is clear liquid glass (hyprglass, hypr/plugins.lua): faint fill, no
+# shadow and no border, the plugin lights the rim.
+background_opacity = 0.1
 compositor_blur = true
+shadow = false
 margin_ends = 8
 margin_edge = 6
 concave_edge_corners = false
-radius = 0
+radius = 18                        # the toast corner radius: on the 32 px rail this is a full pill
 border = "outline_variant"
-border_width = 1
-padding = 6
+border_width = 0
+padding = 10                       # the end widgets clear the rounded ends
 widget_spacing = 6
 font_scale = 0.97                  # v4 ui.fontDefaultScale
 color = "on_surface"               # values off-white ...
 icon_color = "primary"             # ... glyphs acid
 capsule = true
-capsule_radius = 0
-capsule_fill = "surface_container"
-capsule_opacity = 0.35
-capsule_border = "outline_variant"
+capsule_radius = 12                # pills inside the pill rail
+capsule_fill = "#ffffff"           # nested glass: a faint light lozenge over the rail ...
+capsule_opacity = 0.07
+capsule_border = "#ffffff26"       # ... with a whisper of a rim
 capsule_border_width = 1
 capsule_padding = 8
 auto_hide = false                  # v4 displayMode = always_visible
@@ -122,32 +125,32 @@ end = ["hud_eq", "tray", "group:ctl", "hud_spinner", "control-center"]
 [[bar.default.capsule_group]]
 id = "clk"
 members = ["hud_tag_clk", "clock"]
-fill = "surface_container"
-opacity = 0.35
-border = "outline_variant"
-radius = 0
+fill = "#ffffff"
+opacity = 0.07
+border = "#ffffff26"
+radius = 12
 padding = 8
 widget_spacing = 8
 
-# System readouts share one panel: CPU as a sparkline, the rest as plain values
-# (three graphs overflow the start lane on the 1280 px laptop panel).
+# System readouts share one panel as plain values (a sparkline is a dark box
+# on the glass; three graphs also overflow the start lane on the 1280 px laptop).
 [[bar.default.capsule_group]]
 id = "sys"
 members = ["hud_tag_sys", "cpu", "hud_sep", "temp", "hud_sep", "ram"]
-fill = "surface_container"
-opacity = 0.35
-border = "outline_variant"
-radius = 0
+fill = "#ffffff"
+opacity = 0.07
+border = "#ffffff26"
+radius = 12
 padding = 8
 widget_spacing = 8
 
 [[bar.default.capsule_group]]
 id = "ctl"
 members = ["hud_tag_ctl", "hud_msg", "hud_sep", "hud_vol", "hud_sep", "hud_lum", "hud_sep", "hud_pwr"]
-fill = "surface_container"
-opacity = 0.35
-border = "outline_variant"
-radius = 0
+fill = "#ffffff"
+opacity = 0.07
+border = "#ffffff26"
+radius = 12
 padding = 8
 widget_spacing = 8
 
@@ -216,7 +219,7 @@ tooltip_format = "{:%A %d %B %Y}" # the date lives here, on the overlay and on t
 
 [widget.cpu]
 stat = "cpu_usage"
-visualization = "graph"
+visualization = "none"
 show_glyph = false
 custom_label = "CPU"
 label_min_width = 26
@@ -263,7 +266,7 @@ hidden = []
 pinned = []
 
 [widget.control-center]
-custom_image = "/home/mael/.local/share/hud/tinted/bracket-cross-primary.png"
+custom_image = "/home/mael/.local/share/hud/bar/control-center.png" # 32 px copy for the 16 px button (hud-build)
 
 # ── Desktop widgets ───────────────────────────────────────────────────────────
 # The ACID//HUD Quickshell overlay (quickshell/.config/quickshell/hud) draws the

@@ -6,12 +6,18 @@ Contour cards lit like iOS Liquid Glass.
   sides. On the reference the left and right rims are invisible.
 - No inner bottom shadow on traced cards: the reference cards are lifted and
   light, never sunk.
+- The two lines are kept equally bright whatever the layer's shape: a line
+  along the layer box's own edge is clipped by it and keeps ~0.41 of its core
+  (a toast touching its layer's top, a bar that fills its layer), so it gets
+  1.58 where a line with room beyond it gets 0.65; and the lit side, which the
+  specular highlight already brightens, is weighted down to 0.63 of the far
+  side. Measured on Noctalia's toast (top clipped) and bar (both clipped).
 
 diff --git a/src/Shaders.hpp b/src/Shaders.hpp
-index 5f4a0ab..1df0021 100644
+index 5f4a0ab..a7465be 100644
 --- a/src/Shaders.hpp
 +++ b/src/Shaders.hpp
-@@ -651,7 +651,14 @@ void main() {
+@@ -651,7 +651,25 @@ void main() {
  
          // lit side faces the light, the far side fades out and can be shadowed
  #ifdef HYPRGLASS_FEATURE_CONTOUR
@@ -20,14 +26,25 @@ index 5f4a0ab..1df0021 100644
 +        // away (the pane's two surfaces both reflect it), and fades out on the edges
 +        // parallel to it: with the light at the top, a line along the top and bottom, none
 +        // on the sides.
-+        // The edge facing away gets 0.65: on a card touching its layer's top edge the
-+        // top line loses half its core, and this evens the two lines out.
-+        float facingDot = dot(contourOutward, lightDir(bevelAngle));
-+        float facing    = clamp(abs(facingDot), 0.0, 1.0) * mix(0.65, 1.0, clamp(facingDot * 0.5 + 0.5, 0.0, 1.0));
++        // Two corrections keep the two lines equally bright whatever the layer's shape
++        // (measured on Noctalia's toast and bar):
++        // - a line along the layer box's own edge is clipped by it and keeps ~0.41 of
++        //   its core (a toast touching its layer's top, a bar that fills its layer), so it
++        //   gets 1.58 where a line with room beyond it gets 0.65;
++        // - the specular highlight already adds to the lit side, so that side is
++        //   weighted down to 0.63 of the far side.
++        float facingDot  = dot(contourOutward, lightDir(bevelAngle));
++        float lit        = clamp(facingDot * 0.5 + 0.5, 0.0, 1.0);
++        vec2  pxPos      = uv * fullSize;
++        vec2  toBoxEdge  = vec2(contourOutward.x > 0.0 ? fullSize.x - pxPos.x : pxPos.x,
++                                contourOutward.y > 0.0 ? fullSize.y - pxPos.y : pxPos.y);
++        float edgeRoomPx = abs(contourOutward.x) > abs(contourOutward.y) ? toBoxEdge.x : toBoxEdge.y;
++        float clipped    = 1.0 - smoothstep(tail, 2.0 * tail, edgeRoomPx);
++        float facing     = clamp(abs(facingDot), 0.0, 1.0) * mix(0.65, 1.58, clipped) * mix(1.0, 0.63, lit);
  #else
          float facing = clamp(dot(sdfOutwardNormal(uv), lightDir(bevelAngle)) * 0.5 + 0.5, 0.0, 1.0);
  #endif
-@@ -711,8 +718,8 @@ void main() {
+@@ -711,8 +729,8 @@ void main() {
      // ========================================
      {
  #ifdef HYPRGLASS_FEATURE_CONTOUR

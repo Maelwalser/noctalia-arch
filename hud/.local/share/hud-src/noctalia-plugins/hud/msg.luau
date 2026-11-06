@@ -1,5 +1,5 @@
 --!nonstrict
--- Notification readout: pixel bell, dimmed with a red DND tag while Do Not
+-- Notification readout: outlined bell (hud-build icon), dimmed with a red DND tag while Do Not
 -- Disturb is on. Left click opens the history (manifest); right click toggles DND.
 local common = require("./common.luau")
 
@@ -38,3 +38,6 @@ function update()
   noctalia.setUpdateInterval(5000)
   refresh()
 end
+
+-- Swap in this output's icon set once its scale is known.
+common.resolveIcons(render)

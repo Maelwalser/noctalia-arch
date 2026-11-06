@@ -5,11 +5,11 @@
 -- Hyprland's event socket; the tile images carry the numbers.
 local common = require("./common.luau")
 
-local WS_DIR = common.dir .. "/ws"
 local MAX_ID = 10 -- hud-build renders tiles 1..10
 
 local workspaces = {} -- id -> window count
 local activeOn = {} -- monitor name -> active workspace id
+local scaleOn = {} -- monitor name -> device scale
 local urgent = {} -- id -> true
 local myOutput = barWidget.outputName()
 local shownActive = nil
@@ -32,8 +32,13 @@ local function publishWidth(tiles, hasActive)
   end
 end
 
+-- hud-build finishes the tiles at device resolution, one set per output scale.
+local function wsDir()
+  return common.scaledDir("ws", myOutput and scaleOn[myOutput], "active-1.png")
+end
+
 local function tilePath(state, id)
-  return string.format("%s/%s-%d.png", WS_DIR, state, id)
+  return string.format("%s/%s-%d.png", wsDir(), state, id)
 end
 
 local function focus(id)
@@ -84,7 +89,8 @@ local function render()
       visible[id] = true
     end
   end
-  local tiles = { ui.image({ path = WS_DIR .. "/cap-l.png", width = CAP_W, height = 20, fit = "contain" }) }
+  local dir = wsDir()
+  local tiles = { ui.image({ path = dir .. "/cap-l.png", width = CAP_W, height = 20, fit = "contain" }) }
   local ids = shownIds()
   for _, id in ids do
     local state, width = "empty", TILE_W
@@ -113,7 +119,7 @@ local function render()
       tooltip = string.format("Workspace %d · %d window%s", id, count, if count == 1 then "" else "s"),
     }))
   end
-  table.insert(tiles, ui.image({ path = WS_DIR .. "/cap-r.png", width = CAP_W, height = 20, fit = "contain" }))
+  table.insert(tiles, ui.image({ path = dir .. "/cap-r.png", width = CAP_W, height = 20, fit = "contain" }))
   barWidget.render(ui.row({ gap = GAP, align = "center" }, tiles))
   publishWidth(#ids, mine ~= nil and table.find(ids, mine) ~= nil)
 end
@@ -138,6 +144,9 @@ local refresh = common.coalesced({ "sh", "-c", "hyprctl -j workspaces && echo @@
   for _, m in mons do
     if m.name and m.activeWorkspace and type(m.activeWorkspace.id) == "number" then
       activeOn[m.name] = m.activeWorkspace.id
+    end
+    if m.name and type(m.scale) == "number" then
+      scaleOn[m.name] = m.scale
     end
   end
   local mine = myActive()

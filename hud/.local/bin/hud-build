@@ -1109,42 +1109,95 @@ def lock_layout_toml() -> str:
     return "\n".join(out) + "\n\n" + "\n\n".join(tables) + "\n"
 
 
-# Pixel icons for the bar readouts (mael/hud vol/lum/msg), 9x9 cells. Original
-# art, drawn here so every icon shares one grid and recolours with the palette.
-PIXEL_ICONS = {
-    "vol": ("....#....", "...##..#.", "#####...#", "#####.#.#", "#####.#.#",
-            "#####.#.#", "#####...#", "...##..#.", "....#...."),
-    "mute": ("....#....", "...##....", "#####....", "#####.#.#", "#####..#.",
-             "#####.#.#", "#####....", "...##....", "....#...."),
-    "lum": ("....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#",
-            "..#####..", "...###...", ".#.....#.", "....#...."),
-    "bell": ("....#....", "...###...", "..#####..", "..#####..", "..#####..",
-             ".#######.", "#########", ".........", "...###..."),
-}
-# Icon file name -> (bitmap, palette role). Alert states get their own colour.
-PIXEL_ICON_FILES = {
-    "vol": ("vol", "primary"), "mute": ("mute", "error"), "silent": ("mute", "primary"),
-    "lum": ("lum", "primary"),
-    "bell": ("bell", "primary"), "bell-off": ("bell", "outline"),
+# Readout icons (mael/hud:msg, vol, lum) in the battery cell's idiom: a thin
+# neutral outline with the live part in acid. Original art on an 18 px logical
+# canvas (the coordinates in bar_icon), 8x supersampled and finished at device
+# resolution per output scale, like the workspace tiles.
+# name -> (outline role, accent role, shape)
+ICON_PX = 18
+BAR_ICONS = {
+    "vol": ("on_surface_variant", "primary", "speaker"),
+    "silent": ("on_surface_variant", None, "speaker"),      # 0 %: no waves
+    "mute": ("on_surface_variant", "error", "speaker-x"),
+    "lum": ("on_surface_variant", "primary", "sun"),
+    "bell": ("on_surface_variant", "primary", "bell"),
+    "bell-off": ("outline", "outline", "bell"),            # DND: dimmed
 }
 
+
+def bar_icon(shape: str, outline: str, accent: str | None, sc: float, dst: Path) -> None:
+    ss = 8
+    m = sc * ss  # logical px -> drawing px
+    px = round(ICON_PX * sc)
+
+    def p(*xy: float) -> str:
+        return " ".join(f"{x * m:.1f},{y * m:.1f}" for x, y in zip(xy[::2], xy[1::2]))
+
+    line = ["-stroke", outline, "-strokewidth", f"{m:.1f}", "-fill", "none"]
+    acid = ["-stroke", accent or "none", "-strokewidth", f"{1.25 * m:.1f}", "-fill", "none"]
+    cap = "stroke-linecap round "  # a draw-primitive setting, not a CLI option
+    draw: list[str] = []
+    if shape.startswith("speaker"):
+        # Box and cone outlined; two sound waves (or a mute cross) in acid.
+        draw += [*line, "-draw", f"polygon {p(2, 6.5, 6, 6.5, 10.5, 3, 10.5, 15, 6, 11.5, 2, 11.5)}"]
+        if accent and shape == "speaker":
+            draw += [*acid, "-draw", f"{cap}ellipse {p(10.5, 9)} {p(3, 3)} -45,45",
+                     "-draw", f"{cap}ellipse {p(10.5, 9)} {p(5.5, 5.5)} -40,40"]
+        elif accent:
+            draw += [*acid, "-draw", f"{cap}line {p(12.5, 6.5, 16.5, 11.5)}",
+                     "-draw", f"{cap}line {p(16.5, 6.5, 12.5, 11.5)}"]
+    elif shape == "sun":
+        # Outlined disc, eight acid rays.
+        draw += [*line, "-draw", f"circle {p(9, 9)} {p(9, 5.5)}"]
+        if accent:
+            draw += acid
+            for k in range(8):
+                a = math.radians(k * 45)
+                draw += ["-draw", f"{cap}line {p(9 + 5.5 * math.cos(a), 9 + 5.5 * math.sin(a), 9 + 7.5 * math.cos(a), 9 + 7.5 * math.sin(a))}"]
+    elif shape == "bell":
+        # Outlined bell, acid clapper bar.
+        draw += [*line, "-draw", f"path 'M {p(4, 11.5)} L {p(4, 8)} A {p(5, 5)} 0 0 1 {p(14, 8)} L {p(14, 11.5)} "
+                                 f"L {p(15.5, 13.5)} L {p(2.5, 13.5)} Z'"]
+        if accent:
+            draw += ["-stroke", "none", "-fill", accent, "-draw", f"rectangle {p(7, 15, 11, 16.5)}"]
+    run("magick", "-size", f"{px * ss}x{px * ss}", "xc:none", *draw,
+        "-filter", "lanczos", "-resize", f"{px}x{px}!", dst)
+
+
 # Workspace tiles: logical size of one slanted tile (the focused one is wider,
-# to carry its stripes) and the render scale (4x keeps edges crisp at the 1x
-# and 1.5x bar scales).
+# to carry its stripes) and the supersample the body is drawn at before it is
+# finished at each output's device resolution (ws_tiles).
 WS_W, WS_ACTIVE_W, WS_H, WS_SKEW, WS_SCALE, WS_MAX = 26, 38, 20, 6, 4, 10
 
 
-def pixel_icon(rows: tuple[str, ...], color: str, cell: int, dst: Path) -> None:
-    cells = [f"rectangle {c * cell},{r * cell} {(c + 1) * cell - 1},{(r + 1) * cell - 1}"
-             for r, row in enumerate(rows) for c, ch in enumerate(row) if ch == "#"]
-    size = f"{len(rows[0]) * cell}x{len(rows) * cell}"
-    run("magick", "-size", size, "xc:none", "-fill", color,
-        *[a for d in cells for a in ("-draw", d)], dst)
+def output_scales() -> list[float]:
+    """Device scales of the connected outputs (always with 1x), for assets that
+    are drawn at device resolution."""
+    scales = {1.0}
+    try:
+        for mon in json.loads(subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True,
+                                             text=True, check=True).stdout):
+            scales.add(round(float(mon.get("scale", 1)), 3))
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError):
+        pass
+    return sorted(scales)
 
 
-def ws_tiles(colors: dict[str, str], out: Path) -> int:
-    """Slanted workspace tiles with the number baked in, one PNG per state."""
-    s = WS_SCALE
+def ws_tiles(colors: dict[str, str], out: Path, sc: float) -> int:
+    """Slanted workspace tiles with the number baked in, one PNG per state, for
+    outputs at scale `sc` (into out/<sc>, which the widget picks by its output's
+    scale). The tiles are finished at device resolution: the body is drawn 4x
+    and downscaled for clean slants, then the digit is set 1:1 in Departure
+    Mono, whose pixel grid is 11 px per em, so it is as crisp as the bar's own
+    text. Noctalia scales images bilinearly, which smeared the digit of a tile
+    rendered at 4x."""
+    out = out / f"{sc:g}"
+    out.mkdir(parents=True, exist_ok=True)
+    s = round(WS_SCALE * sc)  # draw at this multiple of the logical size ...
+
+    def dev(v: float) -> int:  # ... and finish at the device size
+        return round(v * sc)
+
     w, aw, h, k = WS_W * s, WS_ACTIVE_W * s, WS_H * s, WS_SKEW * s
     i = s // 2  # inset so the stroke stays inside the canvas
 
@@ -1174,7 +1227,7 @@ def ws_tiles(colors: dict[str, str], out: Path) -> int:
                     "-draw", body]
             text = colors["outline"]
         elif state == "occupied":
-            draw = ["-fill", colors["surface_variant"], "-stroke", colors["on_surface_variant"],
+            draw = ["-fill", colors["on_surface"] + "1f", "-stroke", colors["on_surface_variant"],
                     "-strokewidth", str(s), "-draw", body,
                     "-stroke", "none", "-fill", colors["primary"], "-draw", marker]
         elif state == "visible":  # focused on another monitor
@@ -1188,16 +1241,17 @@ def ws_tiles(colors: dict[str, str], out: Path) -> int:
             draw = ["-fill", colors["primary"], "-draw", chamfer]
             text = colors["on_primary"]
         # The focused number sits in the left part, clear of the stripes.
-        tw = aw if state == "active" else w
+        tw, tw_logical = (aw, WS_ACTIVE_W) if state == "active" else (w, WS_W)
         if state == "active":
             # Two-digit numbers need the room: keep only the outermost stripe.
             draw += ["-fill", colors["on_primary"] + "80", *(stripes if n < 10 else stripes[:2])]
-            anchor, dx = "west", (WS_SKEW + 2) * s
+            anchor, dx = "west", WS_SKEW + 2
         else:
-            anchor, dx = "center", -s  # the slant's optical middle
-        run("magick", "-size", f"{tw}x{h}", "xc:none", *draw, "-stroke", "none",
-            "-fill", text, "-font", digit_font, "-pointsize", str(12 * s),
-            "-gravity", anchor, "-annotate", f"{dx:+d}+0", str(n), dst)
+            anchor, dx = "center", -1  # the slant's optical middle
+        run("magick", "-size", f"{tw}x{h}", "xc:none", *draw,
+            "-filter", "lanczos", "-resize", f"{dev(tw_logical)}x{dev(WS_H)}!",
+            "-stroke", "none", "-fill", text, "-font", digit_font, "-pointsize", f"{11 * sc:g}",
+            "-gravity", anchor, "-annotate", f"{dev(dx):+d}+0", str(n), dst)
 
     count = 0
     for n in range(1, WS_MAX + 1):
@@ -1207,15 +1261,16 @@ def ws_tiles(colors: dict[str, str], out: Path) -> int:
         act = out / f"active-{n}.png"
         # Two glitch frames shown when a workspace takes focus: a torn scanline
         # band, then a red/white channel split.
-        band_y, band_h = 7 * s, 5 * s
-        run("magick", act, "(", "+clone", "-crop", f"{aw}x{band_h}+0+{band_y}", "+repage",
-            "-roll", f"+{3 * s}+0", ")", "-geometry", f"+0+{band_y}", "-compose", "Copy",
+        daw, dh = dev(WS_ACTIVE_W), dev(WS_H)
+        band_y, band_h = dev(7), dev(5)
+        run("magick", act, "(", "+clone", "-crop", f"{daw}x{band_h}+0+{band_y}", "+repage",
+            "-roll", f"+{dev(3)}+0", ")", "-geometry", f"+0+{band_y}", "-compose", "Copy",
             "-composite", out / f"glitch0-{n}.png")
-        run("magick", "-size", f"{aw}x{h}", "xc:none",
+        run("magick", "-size", f"{daw}x{dh}", "xc:none",
             "(", act, "-fill", colors["error"], "-colorize", "100", ")",
-            "-geometry", f"-{2 * s}+0", "-composite",
+            "-geometry", f"-{dev(2)}+0", "-composite",
             "(", act, "-fill", colors["on_surface"], "-colorize", "100", ")",
-            "-geometry", f"+{2 * s}+0", "-composite", act, "-geometry", "+0+0", "-composite",
+            "-geometry", f"+{dev(2)}+0", "-composite", act, "-geometry", "+0+0", "-composite",
             out / f"glitch1-{n}.png")
         count += 2
     # Slanted acid brackets that close the row.
@@ -1223,6 +1278,7 @@ def ws_tiles(colors: dict[str, str], out: Path) -> int:
     run("magick", "-size", f"{cw}x{h}", "xc:none", "-stroke", colors["primary"],
         "-strokewidth", str(s), "-fill", "none",
         "-draw", f"polyline {k + 5 * s},{i} {k + i},{i} {i},{h - 1 - i} {5 * s},{h - 1 - i}",
+        "-filter", "lanczos", "-resize", f"{dev(WS_SKEW + 6)}x{dev(WS_H)}!",
         out / "cap-l.png")
     run("magick", out / "cap-l.png", "-rotate", "180", out / "cap-r.png")
     return count + 2
@@ -1239,6 +1295,23 @@ def build_bar(colors: dict[str, str]) -> None:
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
     tint(OUT / "elements" / "tri-blade.png", colors["primary"], 64, bar / "emblem.png")
+    # Control-centre button: four corner brackets round a centre cross, drawn for
+    # the 16 px Noctalia shows its custom_image at (the bracket-cross element has
+    # far finer strokes than 16 px can carry). 32 px square, 8x supersampled, so
+    # Noctalia's bilinear scale is a clean 2:1 at 1x.
+    m = 2 * 8
+
+    def q(*xy: float) -> str:
+        return " ".join(f"{x * m:.1f},{y * m:.1f}" for x, y in zip(xy[::2], xy[1::2]))
+
+    draw = ["-stroke", colors["primary"], "-strokewidth", f"{1.5 * m:.1f}", "-fill", "none"]
+    for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
+        cx, cy = 8 - sx * 5.75, 8 - sy * 5.75
+        draw += ["-draw", f"polyline {q(cx + sx * 4, cy, cx, cy, cx, cy + sy * 4)}"]
+    draw += ["-draw", f"line {q(5.5, 8, 10.5, 8)}", "-draw", f"line {q(8, 5.5, 8, 10.5)}"]
+    with staged(bar / "control-center.png") as tmp:
+        run("magick", "-size", f"{16 * m}x{16 * m}", "xc:none", *draw,
+            "-filter", "lanczos", "-resize", "32x32!", tmp)
     # Procedural barcode on a module grid at 6x the widget's 46x12 logical px:
     # 6 px modules land on whole pixels at both 1.5x (4 px) and 1x (6 px), so the
     # bars stay crisp where a downscaled bitmap blurs into grey.
@@ -1254,15 +1327,30 @@ def build_bar(colors: dict[str, str]) -> None:
         run("magick", "-size", f"{cols * mod}x{bar_h}", "xc:none",
             "-fill", colors["on_surface_variant"], *bars, tmp)
 
-    spin_frames, spin_px = 36, 72
-    base = staging["spinner"] / "_base.png"
-    run("magick", OUT / "elements" / "ring-07.png", "-resize", f"{spin_px}x{spin_px}",
-        "-background", "none", "-gravity", "center", "-extent", f"{spin_px}x{spin_px}",
-        "-fill", colors["primary"], "-colorize", "100", base)
-    for i in range(spin_frames):
-        run("magick", base, "-distort", "SRT", f"{i * 360 / spin_frames:.2f}",
-            staging["spinner"] / f"{i:02d}.png")
-    base.unlink()
+    # Spinner: a procedural segmented ring (six 36-degree arcs round a thin
+    # inner circle) in 36 rotation frames, drawn 8x and finished at device
+    # resolution per output scale (bar/spinner/<scale>). The ring element it
+    # replaced carried far more detail than 18 px can hold, and Noctalia's
+    # bilinear downscale of its 72 px frames made a smudge of it.
+    spin_frames, spin_px, ss = 36, 18, 8
+    for sc in output_scales():
+        sub = staging["spinner"] / f"{sc:g}"
+        sub.mkdir()
+        px = round(spin_px * sc)
+        big = px * ss
+        c = big / 2
+        arcs = [a for seg in range(6)
+                for a in ("-draw", f"ellipse {c},{c} {7.25 * sc * ss},{7.25 * sc * ss} "
+                                   f"{seg * 60 + 12},{seg * 60 + 48}")]
+        base = sub / "_base.png"
+        run("magick", "-size", f"{big}x{big}", "xc:none", "-fill", "none",
+            "-stroke", colors["primary"], "-strokewidth", str(2 * sc * ss), *arcs,
+            "-strokewidth", str(sc * ss), "-draw", f"circle {c},{c} {c},{c - 4.5 * sc * ss}",
+            base)
+        for i in range(spin_frames):
+            run("magick", base, "-distort", "SRT", f"{i * 360 / spin_frames:.2f}",
+                "-filter", "lanczos", "-resize", f"{px}x{px}!", sub / f"{i:02d}.png")
+        base.unlink()
 
     # Procedural hazard tape at 4x the widget's default 56x10, one stripe period
     # split into 8 shifts so the frames loop seamlessly.
@@ -1280,9 +1368,12 @@ def build_bar(colors: dict[str, str]) -> None:
             "(", "-size", f"{w}x{h}", "xc:none", "-fill", "white",
             "-draw", f"polygon {h // 2},0 {w},0 {w - h // 2},{h} 0,{h}", ")",
             "-compose", "DstIn", "-composite", staging["hazard"] / f"{i:02d}.png")
-    for name, (rows, role) in PIXEL_ICON_FILES.items():
-        pixel_icon(PIXEL_ICONS[rows], colors[role], 4, staging["icons"] / f"{name}.png")
-    tiles = ws_tiles(colors, staging["ws"])
+    for sc in output_scales():
+        sub = staging["icons"] / f"{sc:g}"
+        sub.mkdir()
+        for name, (outline, accent, shape) in BAR_ICONS.items():
+            bar_icon(shape, colors[outline], colors[accent] if accent else None, sc, sub / f"{name}.png")
+    tiles = sum(ws_tiles(colors, staging["ws"], sc) for sc in output_scales())
 
     for sub, new in staging.items():
         old = bar / f".{sub}.old"
@@ -1292,7 +1383,7 @@ def build_bar(colors: dict[str, str]) -> None:
         new.rename(bar / sub)
         shutil.rmtree(old, ignore_errors=True)
     print(f"bar: emblem, barcode, {spin_frames} spinner + {frames} hazard frames, "
-          f"{len(PIXEL_ICON_FILES)} icons, {tiles} workspace tiles")
+          f"{len(BAR_ICONS)} icons, {tiles} workspace tiles")
 
 
 def build_extras(colors: dict[str, str]) -> None:

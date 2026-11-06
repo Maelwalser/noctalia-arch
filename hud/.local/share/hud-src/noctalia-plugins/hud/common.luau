@@ -5,16 +5,53 @@ local M = {}
 M.dir = "~/.local/share/hud/bar"
 
 -- Frame files are named 00.png, 01.png, ... by hud-build.
-function M.framePath(set, i)
-  return string.format("%s/%s/%02d.png", M.dir, set, i)
+function M.frameIn(dir, i)
+  return string.format("%s/%02d.png", dir, i)
 end
 
-function M.countFrames(set)
+function M.framePath(set, i)
+  return M.frameIn(M.dir .. "/" .. set, i)
+end
+
+function M.countFramesIn(dir)
   local n = 0
-  while noctalia.fileExists(M.framePath(set, n)) do
+  while noctalia.fileExists(M.frameIn(dir, n)) do
     n += 1
   end
   return n
+end
+
+function M.countFrames(set)
+  return M.countFramesIn(M.dir .. "/" .. set)
+end
+
+-- Assets finished at device resolution live in bar/<set>/<scale>/ (hud-build
+-- renders one set per connected output's scale, 1x always); `probe` is a file
+-- every set has. The 1x set stands in for a scale that has no set.
+function M.scaledDir(set, sc, probe)
+  local dir = string.format("%s/%s/%s", M.dir, set, if sc then string.format("%g", sc) else "1")
+  if noctalia.fileExists(dir .. "/" .. probe) then
+    return dir
+  end
+  return string.format("%s/%s/1", M.dir, set)
+end
+
+-- This widget's output scale as Hyprland reports it (noctalia.outputs() rounds
+-- it: 2 on a 1.5x panel); cb(nil) when the output is not found.
+function M.outputScale(cb)
+  local name = barWidget.outputName()
+  noctalia.runAsync({ "hyprctl", "-j", "monitors" }, function(r)
+    local mons = r.exitCode == 0 and noctalia.json.decode(r.stdout)
+    if type(mons) == "table" then
+      for _, m in mons do
+        if m.name == name and type(m.scale) == "number" then
+          cb(m.scale)
+          return
+        end
+      end
+    end
+    cb(nil)
+  end, 3000)
 end
 
 -- Visible fallback instead of an empty slot when hud-build has not run yet.
@@ -31,9 +68,20 @@ function M.wsWidthPath(output)
   return dir, string.format("%s/ws-%s", dir, output or "default")
 end
 
--- Pixel icons rendered by hud-build (bar/icons/<name>.png).
+-- Readout icons rendered by hud-build at device resolution (bar/icons/<scale>/
+-- <name>.png). The 1x set serves until resolveIcons has learnt the scale.
+local iconDir = nil
+
 function M.icon(name)
-  return string.format("%s/icons/%s.png", M.dir, name)
+  return string.format("%s/%s.png", iconDir or M.scaledDir("icons", nil, "vol.png"), name)
+end
+
+-- Look the output's scale up once; onReady re-renders with the right set.
+function M.resolveIcons(onReady)
+  M.outputScale(function(sc)
+    iconDir = M.scaledDir("icons", sc, "vol.png")
+    onReady()
+  end)
 end
 
 function M.hasAssets()

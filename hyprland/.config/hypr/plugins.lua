@@ -24,8 +24,9 @@ end
 
 -- hyprglass: Liquid Glass (blur, edge refraction, specular rim) on layers.
 -- https://github.com/hyprnux/hyprglass
--- ACID//HUD only: the notification toasts become clear glass. Noctalia keeps
--- their fill nearly transparent (themes/acid.toml) so this is what shows.
+-- ACID//HUD only: the notification toasts and the bar rail become clear glass.
+-- Noctalia keeps their fill nearly transparent (themes/acid.toml) so this is
+-- what shows.
 load("hyprglass.so")
 if hl.plugin.hyprglass ~= nil then
     local hg = hl.plugin.hyprglass
@@ -66,5 +67,8 @@ if hl.plugin.hyprglass ~= nil then
         -- tiny because a scaled toast ends on a half-covered row whose alpha
         -- (~0.05) must still get the full glass, or the bottom rim fades out.
         hg.layer("noctalia-notification", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- The bar rail is the same glass: its layer is taller than the rail
+        -- (room Noctalia keeps for a shadow), so the contour traces the rail.
+        hg.layer("noctalia-bar-default", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
     end
 end

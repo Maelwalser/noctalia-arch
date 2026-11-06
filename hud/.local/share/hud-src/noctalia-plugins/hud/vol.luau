@@ -1,5 +1,5 @@
 --!nonstrict
--- Speaker readout: pixel icon and level. Follows PipeWire through
+-- Speaker readout: outlined speaker (hud-build icon) and level. Follows PipeWire through
 -- `pactl subscribe`; clicks and scrolling are manifest actions (Noctalia IPC).
 local common = require("./common.luau")
 
@@ -47,3 +47,6 @@ function update()
   noctalia.setUpdateInterval(30000)
   refresh()
 end
+
+-- Swap in this output's icon set once its scale is known.
+common.resolveIcons(render)

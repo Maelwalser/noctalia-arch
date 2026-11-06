@@ -1,5 +1,5 @@
 --!nonstrict
--- Backlight readout: pixel sun and level, read from sysfs. Hidden on
+-- Backlight readout: outlined sun (hud-build icon) and level, read from sysfs. Hidden on
 -- machines without a backlight. Scroll/click are manifest actions.
 local common = require("./common.luau")
 
@@ -14,6 +14,11 @@ end
 
 local dev = device()
 local last = -1
+
+-- Re-render with this output's icon set once its scale is known.
+common.resolveIcons(function()
+  last = -1
+end)
 
 function update()
   noctalia.setUpdateInterval(1000)
