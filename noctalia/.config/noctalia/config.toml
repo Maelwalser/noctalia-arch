@@ -188,11 +188,36 @@ type = "nightlight"
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 
+# Kept small and brief: one toast on the focused monitor, at most three, gone
+# after 3.5 s. Everything still lands in the history behind the bar indicator.
 [notification]
 enable_daemon = true
 position = "top_right"
-layer = "overlay"                 # v4 overlayLayer
+layer = "top"                     # not over fullscreen video and games
+follow_focused_output = true      # only on the monitor in use, not on every output
+max_visible = 3                   # further toasts queue instead of filling the column
+show_actions = false              # click runs the default action, right-click dismisses
+show_app_name = false             # the icon already names the sender
+width = 300
 keep_dismissed_in_history = false # v4 clearDismissed
+# First matching filter wins. override_duration also cuts critical toasts
+# short, and allowed_urgencies cannot scope a filter (it suppresses the other
+# levels outright), so the senders whose warnings must stay up come first.
+filter_order = ["keep_battery", "keep_calendar", "brief"]
+
+[notification.filter.keep_battery] # Noctalia's low/critical battery warnings keep their own timing
+enabled = true
+match = "battery"
+
+[notification.filter.keep_calendar] # calendar reminders too
+enabled = true
+match = "calendar"
+
+[notification.filter.brief]        # everyone else: 3.5 s, and never sticky
+enabled = true
+match_content = ".*"
+override_duration = 3500
+allow_permanent = false
 
 # ── OSD ───────────────────────────────────────────────────────────────────────
 

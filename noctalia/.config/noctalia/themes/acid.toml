@@ -58,8 +58,15 @@ path = "/home/mael/Pictures/Wallpapers/hud/hud-5120x2160.png"
 [wallpaper.monitors.DP-4]
 path = "/home/mael/Pictures/Wallpapers/hud/hud-5120x2160.png"
 
+# ACID//HUD: toasts drop out of the bar's right end as the same glass panel,
+# hairline border included; the acid countdown bar runs along the top.
 [notification]
 background_opacity = 0.92
+border = true
+border_color = "outline_variant"   # the bar's border
+border_width = 1
+offset_x = 8                       # right edge flush with the bar (bar margin_ends)
+offset_y = 6                       # same gap under the bar as above it (bar margin_edge)
 
 [osd]
 background_opacity = 0.92
