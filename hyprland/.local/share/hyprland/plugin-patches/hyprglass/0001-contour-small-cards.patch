@@ -1,0 +1,31 @@
+Contour outlines tuned for small cards (Noctalia toasts).
+
+- Rebuild the traced outline at up to 120 Hz instead of 30 Hz: Noctalia slides
+  its toasts at the display rate, and at 30 Hz the glass lagged the toast and
+  trailed behind it as a slab.
+- Smooth the field's corner creases less (sigma 0.12 x rim instead of 0.3 x):
+  the toasts have 2 px corners, and the wider smoothing rounded the outline
+  past them, leaving the real corner outside the rim as a dark wedge.
+
+diff --git a/src/Contour.hpp b/src/Contour.hpp
+index 449fdd2..2884b09 100644
+--- a/src/Contour.hpp
++++ b/src/Contour.hpp
+@@ -45,7 +45,7 @@ inline constexpr float NO_DISTANCE_SQUARED = 16384.0f;
+ static_assert(2 * MAX_REACH_TEXELS * MAX_REACH_TEXELS < NO_DISTANCE_SQUARED);
+ 
+ // The Gaussian that rounds the creases where distances from two edges meet.
+-inline constexpr float SMOOTH_SIGMA_PER_BEZEL = 0.3f;
++inline constexpr float SMOOTH_SIGMA_PER_BEZEL = 0.12f;
+ inline constexpr float SMOOTH_SIGMA_MIN_PX    = 1.0f;
+ inline constexpr float SMOOTH_SIGMA_MAX_PX    = 12.0f;
+ inline constexpr float SMOOTH_SIGMA_MIN_TEXELS = 0.75f;
+@@ -53,7 +53,7 @@ inline constexpr int   SMOOTH_MAX_RADIUS      = 12; // texels each side; the sha
+ 
+ // A client that commits every frame still rebuilds at most this often: the last change
+ // of a burst is rebuilt once the interval has passed.
+-inline constexpr std::chrono::milliseconds MIN_REBUILD_INTERVAL{33};
++inline constexpr std::chrono::milliseconds MIN_REBUILD_INTERVAL{8};
+ 
+ // While the layer fades in, its alpha is too coarse for a clean outline: that field is
+ // provisional, and rebuilt once the layer is at least this opaque.

@@ -12,13 +12,16 @@
 # Usage: hypr-plugins            build and install all, then reload Hyprland
 set -euo pipefail
 
-# name  repository  commit (review the diff before bumping a pin: plugins run
-# inside the compositor)
+# name  repository  commit  library (review the diff before bumping a pin:
+# plugins run inside the compositor). Pin a commit from the plugin's branch for
+# the installed Hyprland version where it keeps one (hyprglass: hyprland-X.Y).
 readonly PLUGINS=(
-  "confined-floats https://github.com/mennemann/hyprland-confined-floats 861f1220a5a37c13284ce5d24a3cf6c046fe2d38"
+  "confined-floats https://github.com/mennemann/hyprland-confined-floats 861f1220a5a37c13284ce5d24a3cf6c046fe2d38 build/libconfined-floats.so"
+  "hyprglass https://github.com/hyprnux/hyprglass dc00c628623e5e504b363e26dd489ee766d2fa12 hyprglass.so"
 )
 readonly SRC="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugin-src"
 readonly OUT="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugins"
+readonly PATCHES="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugin-patches"
 
 for tool in git cmake pkg-config; do
   command -v "$tool" &>/dev/null || { echo "hypr-plugins: missing $tool" >&2; exit 1; }
@@ -28,17 +31,30 @@ pkg-config --exists hyprland || { echo "hypr-plugins: Hyprland headers not found
 mkdir -p "$SRC" "$OUT"
 echo "Hyprland $(pkg-config --modversion hyprland)"
 for entry in "${PLUGINS[@]}"; do
-  read -r name repo commit <<<"$entry"
+  read -r name repo commit built <<<"$entry"
   dir="$SRC/$name"
   echo "── $name @ ${commit:0:12}"
   [[ -d "$dir/.git" ]] || git clone -q "$repo" "$dir"
   git -C "$dir" fetch -q origin
+  # Start from the pin exactly, then apply our patches (plugin-patches/<name>).
+  git -C "$dir" reset -q --hard
   git -C "$dir" -c advice.detachedHead=false checkout -q "$commit"
-  cmake -S "$dir" -B "$dir/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
-  cmake --build "$dir/build" -j"$(nproc)"
-  lib="lib$name.so"
+  for patch in "$PATCHES/$name"/*.patch; do
+    [[ -e "$patch" ]] || continue
+    git -C "$dir" apply "$patch"
+    echo "   patched: ${patch##*/}"
+  done
+  if [[ -f "$dir/CMakeLists.txt" ]]; then
+    cmake -S "$dir" -B "$dir/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
+    cmake --build "$dir/build" -j"$(nproc)"
+  else
+    # Plain Makefile; clean first, objects do not track Hyprland header changes.
+    make -C "$dir" clean >/dev/null
+    make -C "$dir" -j"$(nproc)"
+  fi
+  lib="${built##*/}"
   # Replace atomically: Hyprland may have the old file mapped.
-  install -m 755 "$dir/build/$lib" "$OUT/.$lib.new"
+  install -m 755 "$dir/$built" "$OUT/.$lib.new"
   mv -f "$OUT/.$lib.new" "$OUT/$lib"
   echo "   installed $OUT/$lib"
 done

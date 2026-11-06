@@ -9,7 +9,7 @@ hl.config({
 
     decoration = {
         -- ACID//HUD: near-square corners; classic: round ones.
-        rounding = acid and 4 or 20,
+        rounding = acid and 12 or 20, -- acid: same radius as the liquid-glass toasts
         rounding_power = 2,
 
         -- ACID//HUD: wide soft shadow; hyprland.lua tints the active one acid

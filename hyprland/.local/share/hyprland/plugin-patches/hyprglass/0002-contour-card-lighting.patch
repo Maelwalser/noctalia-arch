@@ -1,0 +1,37 @@
+Contour cards lit like iOS Liquid Glass.
+
+- The bevel line lights the edges facing the light and the ones facing away
+  (both surfaces of a pane reflect it) and fades on the edges parallel to it:
+  with the light at the top, a line along the top and bottom and none on the
+  sides. On the reference the left and right rims are invisible.
+- No inner bottom shadow on traced cards: the reference cards are lifted and
+  light, never sunk.
+
+diff --git a/src/Shaders.hpp b/src/Shaders.hpp
+index 5f4a0ab..00c2a00 100644
+--- a/src/Shaders.hpp
++++ b/src/Shaders.hpp
+@@ -651,7 +651,11 @@ void main() {
+ 
+         // lit side faces the light, the far side fades out and can be shadowed
+ #ifdef HYPRGLASS_FEATURE_CONTOUR
+-        float facing = clamp(dot(contourOutward, lightDir(bevelAngle)) * 0.5 + 0.5, 0.0, 1.0);
++        // iOS-style: the rim line shows on the edges facing the light AND the ones facing
++        // away (the pane's two surfaces both reflect it), and fades out on the edges
++        // parallel to it: with the light at the top, a line along the top and bottom, none
++        // on the sides.
++        float facing = clamp(abs(dot(contourOutward, lightDir(bevelAngle))), 0.0, 1.0);
+ #else
+         float facing = clamp(dot(sdfOutwardNormal(uv), lightDir(bevelAngle)) * 0.5 + 0.5, 0.0, 1.0);
+ #endif
+@@ -711,8 +715,8 @@ void main() {
+     // ========================================
+     {
+ #ifdef HYPRGLASS_FEATURE_CONTOUR
+-        // the edge facing away from the light: 1 at the bottom, a quarter at the sides, like a box
+-        float bottomBias = pow(0.5 + 0.5 * contourOutward.y, 2.0);
++        // no inner shadow on traced cards: a liquid-glass card is lit, not sunk
++        float bottomBias = 0.0;
+ #else
+         // max(): item fragments just above the glass box have glassUV.y < 0, where pow() is undefined
+         float bottomBias = pow(max(glassUV.y, 0.0), 2.0);

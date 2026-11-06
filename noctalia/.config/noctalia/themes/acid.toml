@@ -4,7 +4,7 @@
 # name order, so these keys override the shared config.toml.
 
 [shell]
-corner_radius_scale = 0.25              # ACID//HUD: near-square, brutalist corners
+corner_radius_scale = 2.25              # ACID//HUD: 18 px liquid-glass corners on toasts/panels; the bar keeps its own radius 0
 # The HUD readout face for all of Noctalia's own UI. It is also the only font
 # the lockscreen's password field and power buttons use (no per-widget option).
 # Terminal and editor fonts are configured elsewhere and stay JetBrainsMono.
@@ -58,15 +58,14 @@ path = "/home/mael/Pictures/Wallpapers/hud/hud-5120x2160.png"
 [wallpaper.monitors.DP-4]
 path = "/home/mael/Pictures/Wallpapers/hud/hud-5120x2160.png"
 
-# ACID//HUD: toasts drop out of the bar's right end as the same glass panel,
-# hairline border included; the acid countdown bar runs along the top.
+# ACID//HUD: toasts drop out of the bar's right end as liquid glass. The fill
+# is kept faint so hyprglass (hypr/plugins.lua) shows the desktop behind it,
+# bent and lit at the rim; it must stay above that layer's mask_threshold.
 [notification]
-background_opacity = 0.92
-border = true
-border_color = "outline_variant"   # the bar's border
-border_width = 1
+background_opacity = 0.1
+border = false                     # hyprglass draws the lit rim
 offset_x = 8                       # right edge flush with the bar (bar margin_ends)
-offset_y = 6                       # same gap under the bar as above it (bar margin_edge)
+offset_y = 8                       # window tops sit at bar + gaps_out (8): the toast top lines up with them
 
 [osd]
 background_opacity = 0.92
