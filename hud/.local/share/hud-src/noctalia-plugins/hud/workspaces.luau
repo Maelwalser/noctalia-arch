@@ -7,7 +7,6 @@ local common = require("./common.luau")
 
 local WS_DIR = common.dir .. "/ws"
 local MAX_ID = 10 -- hud-build renders tiles 1..10
-local MIN_SHOWN = 5
 
 local workspaces = {} -- id -> window count
 local activeOn = {} -- monitor name -> active workspace id
@@ -52,23 +51,20 @@ local function myActive()
   return nil
 end
 
--- 1..MIN_SHOWN always, plus any higher workspace that exists, without filling
--- the gap up to it (the laptop bar has no room for ten tiles).
+-- Only workspaces that hold windows, plus this monitor's focused one even when
+-- empty, so the row always shows where you are.
 local function shownIds()
+  local mine = myActive()
   local ids = {}
-  for id = 1, MIN_SHOWN do
-    table.insert(ids, id)
-  end
-  local extra = {}
-  for id in workspaces do
-    if id > MIN_SHOWN and id <= MAX_ID then
-      table.insert(extra, id)
+  for id, count in workspaces do
+    if id <= MAX_ID and (count > 0 or id == mine) then
+      table.insert(ids, id)
     end
   end
-  table.sort(extra)
-  for _, id in extra do
-    table.insert(ids, id)
+  if mine and mine <= MAX_ID and workspaces[mine] == nil then
+    table.insert(ids, mine)
   end
+  table.sort(ids)
   return ids
 end
 

@@ -120,16 +120,32 @@ function onAudioSpectrum(valuesCsv, stateCsv)
   end
   resting = false
   -- The top quarter of the spectrum is mostly empty in music: spread the bars
-  -- over the lower three quarters, widening the bands towards the top.
-  local usable = math.max(BARS, math.floor(#values * 0.75))
+  -- over the lower three quarters, widening the bands towards the top. There
+  -- are usually more bars than values (Noctalia sends 16), so positions are
+  -- fractional and narrow bars interpolate between neighbouring values.
+  local n = #values
+  local usable = n * 0.75
+  local function at(x) -- value at fractional 0-based position x, linear
+    local j = math.clamp(math.floor(x), 0, n - 1)
+    local k = math.min(j + 1, n - 1)
+    local t = math.clamp(x - j, 0, 1)
+    return values[j + 1] * (1 - t) + values[k + 1] * t
+  end
   for i = 1, BARS do
-    local a = math.floor(usable * ((i - 1) / BARS) ^ 1.6) + 1
-    local b = math.max(a, math.floor(usable * (i / BARS) ^ 1.6))
-    local sum = 0
-    for j = a, b do
-      sum += values[j] or 0
+    local lo = usable * ((i - 1) / BARS) ^ 1.6
+    local hi = usable * (i / BARS) ^ 1.6
+    local power
+    if hi - lo < 1 then
+      power = at((lo + hi) / 2)
+    else
+      local a, b = math.floor(lo) + 1, math.max(math.floor(lo) + 1, math.ceil(hi))
+      local sum = 0
+      for j = a, b do
+        sum += values[j] or 0
+      end
+      power = sum / (b - a + 1)
     end
-    local v = math.clamp(math.sqrt(sum / (b - a + 1)), 0, 1)
+    local v = math.clamp(math.sqrt(math.max(power, 0)), 0, 1)
     level[i] = math.max(v, level[i] * DECAY)
     if level[i] >= peak[i] then
       peak[i], hold[i] = level[i], PEAK_HOLD

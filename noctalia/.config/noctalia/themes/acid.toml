@@ -145,11 +145,12 @@ radius = 0
 padding = 8
 widget_spacing = 8
 
-# The 1280 px laptop panel has no room for a window title between the system
-# panel and the centred workspaces; the ultrawides keep it.
+# The 1280 px laptop panel has no room between the system panel and the
+# centred workspaces (about 10 px), so the window title and the media readout
+# (which would overlap the workspace row) only show on the ultrawides.
 [bar.default.monitor.laptop]
 match = "eDP-1"
-start = ["hud_emblem", "hud_hazard", "group:clk", "group:sys", "media"]
+start = ["hud_emblem", "hud_hazard", "group:clk", "group:sys"]
 
 [bar.default.dead_zone.actions]
 right = "panel-toggle control-center" # v4 rightClickAction = controlCenter
