@@ -20,8 +20,8 @@
     "warningShimmer": "#ffe36b",
     "merged": "#c8c4bc",
 
-    "promptBorder": "#55555e",
-    "promptBorderShimmer": "#d4ff1e",
+    "promptBorder": "#d4ff1e",
+    "promptBorderShimmer": "#e4ff6b",
     "planMode": "#8fd3cf",
     "autoAccept": "#d4ff1e",
     "bashBorder": "#ffd21e",
