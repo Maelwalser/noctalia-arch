@@ -35,26 +35,6 @@ Item {
         Qt.callLater(glitchIfSwitched);
     }
 
-    SystemClock {
-        id: clock
-        enabled: scene.active
-        precision: SystemClock.Minutes
-    }
-
-    function leap(d) {
-        const y = d.getFullYear();
-        return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-    }
-    function dayOfYear(d) {
-        return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(d.getFullYear(), 0, 1)) / 86400000) + 1;
-    }
-    // ISO 8601 week number (Qt's date formats have none).
-    function isoWeek(d) {
-        const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-        t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
-        return Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
-    }
-
     Item {
         id: content
         anchors.fill: parent
@@ -85,24 +65,6 @@ Item {
             active: scene.active
             x: scene.width - 230 * scene.u - span / 2
             y: scene.height * 0.42
-        }
-
-        Ticker {
-            u: scene.u
-            active: scene.active
-            x: scene.frameSide + 340 * scene.u
-            width: scene.width - x - scene.frameSide - 420 * scene.u
-            y: scene.height - scene.frameSide - 44 * scene.u
-            // Only facts the rest of the desktop does not show. Fixed-width
-            // fields keep the strip length steady, so the crawl never jumps.
-            text: "SYS://" + scene.user + "-HUD  ▸  LOAD " + SysStats.load
-                + "  ▸  THREADS " + String(SysStats.threads).padStart(4, "0")
-                + "  ▸  DISK / " + String(SysStats.diskPct).padStart(2, "0") + "% · " + Math.round(SysStats.diskFreeGb) + "G FREE"
-                + "  ▸  WLAN " + (SysStats.wifiDbm < 0 ? SysStats.wifiDbm + " dBm" : "OFFLINE")
-                + "  ▸  UTC " + String(clock.date.getUTCHours()).padStart(2, "0") + ":" + String(clock.date.getUTCMinutes()).padStart(2, "0")
-                + "  ▸  DAY " + String(scene.dayOfYear(clock.date)).padStart(3, "0") + "/" + (scene.leap(clock.date) ? 366 : 365)
-                + "  ▸  WEEK " + String(scene.isoWeek(clock.date)).padStart(2, "0")
-                + "  ▸  EST. 2100  ▸  "
         }
     }
 

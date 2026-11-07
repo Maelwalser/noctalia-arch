@@ -23,12 +23,6 @@ Singleton {
     // Discrete GPU power state from PCI runtime PM ("active", "suspended", ""
     // when absent). Read from sysfs only: querying nvidia-smi would wake it.
     property string dgpuState: ""
-    // Ticker extras, none of them shown elsewhere on the desktop.
-    property string load: "--"      // 1/5/15 min load averages
-    property int threads: 0         // scheduled threads (loadavg's 4th field)
-    property int diskPct: 0         // root filesystem use
-    property real diskFreeGb: 0
-    property int wifiDbm: 0         // 0 when no wireless link
     property int uptimeSec: 0
     property string host: "--"
     property string kernel: "--"
@@ -45,8 +39,6 @@ Singleton {
         + "for z in /sys/class/thermal/thermal_zone*; do [ \"$(cat $z/type)\" = x86_pkg_temp ] && { echo TEMP $(cat $z/temp); break; }; done; "
         + "awk 'NR>2 && $1 !~ /^(lo|docker|veth|br-|tailscale|virbr)/ {rx+=$2; tx+=$10} END {print \"NET\", rx, tx}' /proc/net/dev; "
         + "for g in /sys/class/drm/card*/gt/gt0; do [ -r $g/rc6_residency_ms ] && { echo IGPU $(cat $g/rc6_residency_ms $g/rps_act_freq_mhz); break; }; done; "
-        + "echo LOAD $(cat /proc/loadavg); df -Pk / | awk 'NR==2 {print \"DISK\", $3, $4}'; "
-        + "awk 'NR>2 {sub(/\\.$/, \"\", $4); print \"WLAN\", $4; exit}' /proc/net/wireless; "
         + "for d in /sys/bus/pci/devices/*; do [ \"$(cat $d/vendor)\" = 0x10de ] && case $(cat $d/class) in 0x03*) echo DGPU $(cat $d/power/runtime_status); break;; esac; done"
 
     function parse(out) {
@@ -81,23 +73,12 @@ Singleton {
                 if (_prevRc6 !== null && now > _prevT)
                     gpu = Math.max(0, Math.min(1, 1 - (rc6 - _prevRc6) / 1000 / (now - _prevT)));
                 _prevRc6 = rc6;
-            } else if (f[0] === "LOAD") {
-                load = f.slice(1, 4).join(" ");
-                threads = Number((f[4] ?? "0/0").split("/")[1]) || 0;
-            } else if (f[0] === "DISK") {
-                const used = Number(f[1]), avail = Number(f[2]);
-                diskPct = used + avail > 0 ? Math.round(used / (used + avail) * 100) : 0;
-                diskFreeGb = avail / 1048576;
-            } else if (f[0] === "WLAN") {
-                wifiDbm = Number(f[1]) || 0;
             } else if (f[0] === "DGPU") {
                 dgpuState = f[1] ?? "";
             } else if (f.length === 2 && /^[0-9.]+$/.test(f[0]) && /^[0-9.]+$/.test(f[1])) {
                 uptimeSec = Math.floor(Number(f[0]));
             }
         }
-        if (!/\nWLAN /.test("\n" + out))
-            wifiDbm = 0;
         _prevT = now;
         sampled();
     }

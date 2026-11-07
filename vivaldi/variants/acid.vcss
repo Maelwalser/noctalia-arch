@@ -10,16 +10,13 @@
 ================================================================================
 */
 
-/* Square HUD corners instead of main.css's rounded ones. */
-.UrlBar-AddressField,
-.SearchField {
-  border-radius: 2px !important;
-}
-
+/* The address and search fields keep main.css's 12 px corners; the tabs take
+   the same radius, which is also Hyprland's rounding and the radius of the
+   liquid-glass toasts, bar capsules and panels. */
 #tabs-container .tab,
 #tabs-container .tab.active,
 .tab-position .tab {
-  border-radius: 2px !important;
+  border-radius: 12px !important;
 }
 
 #browser {
