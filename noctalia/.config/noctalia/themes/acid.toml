@@ -358,12 +358,12 @@ background = false
 [lockscreen_widgets.widget.hud_reticle_edp1]
 output = "eDP-1"
 type = "sticker"
-cx = 506.0
-cy = 112.0
-box_width = 26.0
-box_height = 26.0
+cx = 506.000
+cy = 112.000
+box_width = 26.667
+box_height = 26.667
 [lockscreen_widgets.widget.hud_reticle_edp1.settings]
-image_path = "/home/mael/.local/share/hud/lock/reticle.gif"
+image_path = "/home/mael/.local/share/hud/lock/reticle-eDP-1.gif"
 background = false
 
 [lockscreen_widgets.widget.hud_time_edp1]
@@ -549,12 +549,12 @@ background = false
 [lockscreen_widgets.widget.hud_reticle_u4025qw]
 output = "U4025QW"
 type = "sticker"
-cx = 1099.1
-cy = 151.2
-box_width = 35.1
-box_height = 35.1
+cx = 1099.000
+cy = 151.000
+box_width = 35.000
+box_height = 35.000
 [lockscreen_widgets.widget.hud_reticle_u4025qw.settings]
-image_path = "/home/mael/.local/share/hud/lock/reticle.gif"
+image_path = "/home/mael/.local/share/hud/lock/reticle-U4025QW.gif"
 background = false
 
 [lockscreen_widgets.widget.hud_time_u4025qw]
@@ -740,12 +740,12 @@ background = false
 [lockscreen_widgets.widget.hud_reticle_zowie]
 output = "ZOWIE"
 type = "sticker"
-cx = 779.1
-cy = 151.2
-box_width = 35.1
-box_height = 35.1
+cx = 779.000
+cy = 151.000
+box_width = 36.000
+box_height = 36.000
 [lockscreen_widgets.widget.hud_reticle_zowie.settings]
-image_path = "/home/mael/.local/share/hud/lock/reticle.gif"
+image_path = "/home/mael/.local/share/hud/lock/reticle-ZOWIE.gif"
 background = false
 
 [lockscreen_widgets.widget.hud_time_zowie]

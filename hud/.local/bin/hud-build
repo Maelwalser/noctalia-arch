@@ -12,7 +12,7 @@ derived from them is committed: this script regenerates everything locally.
 Outputs (all under ~/.local/share/hud unless noted):
   elements/<name>.png        white-on-transparent masks, tinted at runtime by the overlay
   tinted/<name>-<role>.png   palette-coloured copies for consumers that cannot tint
-  lock/                      lockscreen art: static-<output>.png, reticle.gif, backdrop.png
+  lock/                      lockscreen art: static-<output>.png, reticle-<output>.gif, backdrop.png
   overlay/, bar/             Quickshell overlay layers, Noctalia bar plugin frames
   fastfetch-logo.png, nvim-header.txt
   ~/Pictures/Wallpapers/hud/hud-<w>x<h>.png
@@ -735,7 +735,7 @@ def block_art(mask: Path, cols: int) -> str:
 # Every monitor that locks needs an entry here; an unlisted one only gets
 # noctalia's default login box. `hyprctl monitors` shows the description.
 # Geometry and scale must match hyprland/.config/hypr/monitors.lua: the static
-# layer and the reticle GIF are rendered at physical size, so a low scale
+# layer and the reticle animation are rendered at physical size, so a low scale
 # leaves them upscaled (soft) on that output.
 LOCK_OUTPUTS = {  # logical width, height and scale of each output that locks
     "eDP-1": (1280, 800, 1.5),       # laptop panel
@@ -752,6 +752,7 @@ LOCK_SECONDS = (224, 266, 64, 34)
 LOCK_RULER_Y = 336               # tick rail under the clock
 LOCK_DATE_Y = 358
 LOCK_RETICLE = 26                # rotating acid reticle beside the plate
+LOCK_RETICLE_X = -134
 LOCK_BANK_X = 455                # telemetry card columns at ±x
 LOCK_BANK_Y = 205                # top of the first card
 # Card width, height, vertical gap. Noctalia's graph is a fixed ~180x100 block
@@ -838,35 +839,52 @@ def clock_face(px: int, color: str, dst: Path) -> None:
         "-draw", f"circle {c},{c} {c + px * 0.475},{c}", dst)
 
 
-def gif_rotation(src: Path, frames: int, step: float, delay_ms: int, background: str,
-                 dst: Path) -> None:
-    """Rotate src by `step` degrees per frame. GIF alpha is 1-bit: it is
-    thresholded at 40 % coverage, so edges are hard but free of fringes."""
+def reticle_box(w: int, h: int, scale: float) -> tuple[int, int, int]:
+    """The reticle's box on an output in physical px: left, top, size. Whole
+    pixels and an even size, so Noctalia draws the GIF texel for texel (a
+    half-pixel box is resampled and goes soft)."""
+    k = h / 800 * scale
+    size = 2 * round(LOCK_RETICLE * k / 2)
+    left = round(w * scale / 2 + LOCK_RETICLE_X * k - size / 2)
+    top = round(LOCK_TAG_Y * k - size / 2)
+    return left, top, size
+
+
+def bake_reticle(ring: Path, scene: Path, left: int, top: int, size: int, dst: Path) -> None:
+    """The reticle GIF: the acid ring as a stepper (8° every 0.4 s, 18 s per
+    turn). GIF alpha is 1-bit, so each frame is composited over the static
+    scene's own pixels at the box instead: the ring keeps its anti-aliased
+    edge and the frame blends into the scene. `ring` is oversized, so the
+    rotation is smoothed when each frame is finished at `size`."""
+    frames = 45
     frame_args: list[str] = []
     for i in range(frames):
-        frame_args += ["(", str(src), "-distort", "SRT", f"{i * step:.3f}", ")"]
+        frame_args += ["(", "mpr:scene", "(", str(ring), "-distort", "SRT", f"{i * 8:.3f}",
+                       "-filter", "Lanczos", "-resize", f"{size}x{size}!", ")",
+                       "-compose", "Over", "-composite", ")"]
     with staged(dst) as tmp:
-        run("magick", "-dispose", "Background", "-delay", str(max(1, delay_ms // 10)),
-            *frame_args, "-channel", "A", "-threshold", "40%", "+channel",
-            "-background", background, "-loop", "0", "-layers", "OptimizeTransparency", tmp)
+        run("magick", "(", str(scene), "-crop", f"{size}x{size}+{left}+{top}", "+repage",
+            "-write", "mpr:scene", "+delete", ")",
+            "-delay", "40", *frame_args, "+dither", "-colors", "256", "-loop", "0", tmp)
 
 
 def build_lock(colors: dict[str, str]) -> None:
     d = OUT / "lock"
     d.mkdir(parents=True, exist_ok=True)
-    max_u_px = max(h / 800 * s for _, h, s in LOCK_OUTPUTS.values())  # physical px per u
     with tempfile.TemporaryDirectory(prefix="hud-lock-") as td:
-        # Reticle: the acid ring as a stepper (8° every 0.4 s, 18 s per turn).
-        reticle = Path(td) / "reticle.png"
-        tint(OUT / "elements" / "ring-07.png", colors["primary"], round(LOCK_RETICLE * max_u_px), reticle)
-        gif_rotation(reticle, 45, 8, 400, colors["surface"], d / "reticle.gif")
-    for name, (w, h, scale) in LOCK_OUTPUTS.items():
-        render_lock_static(colors, w, h, scale, d / f"static-{name}.png")
+        for name, (w, h, scale) in LOCK_OUTPUTS.items():
+            static = d / f"static-{name}.png"
+            render_lock_static(colors, w, h, scale, static)
+            # The reticle rides on this output's scene, at 4x for the rotation.
+            left, top, size = reticle_box(w, h, scale)
+            ring = Path(td) / f"ring-{name}.png"
+            tint(OUT / "elements" / "ring-07.png", colors["primary"], size * 4, ring)
+            bake_reticle(ring, static, left, top, size, d / f"reticle-{name}.gif")
     render_lock_backdrop(colors, d / "backdrop.png")
     # Layers of the previous ring-instrument layout.
-    for stale in ("dial.gif", "ring-acid.gif"):
+    for stale in ("dial.gif", "ring-acid.gif", "reticle.gif", "reticle.webp"):
         (d / stale).unlink(missing_ok=True)
-    print(f"lock: reticle gif, {len(LOCK_OUTPUTS)} scenes, backdrop")
+    print(f"lock: {len(LOCK_OUTPUTS)} reticle gifs, scenes, backdrop")
 
 
 def lock_scene(colors: dict[str, str], w: int, h: int) -> list[str]:
@@ -889,6 +907,48 @@ def render_lock_backdrop(colors: dict[str, str], dst: Path) -> None:
     missing from LOCK_OUTPUTS (Noctalia cover-crops it)."""
     with staged(dst) as tmp:
         run(*lock_scene(colors, 3840, 2160), "-depth", "8", tmp)
+
+
+def glass_map(w: int, h: int, r: float, band: float, scale: float) -> Path:
+    """Per-pixel maps (PPM) for a w x h rounded rectangle of radius r, as
+    hyprglass lights its contour glass. R, G: displacement (50% grey = none):
+    inside a `band` px wide ring at the edge the sample point moves outward
+    along the normal, most at the edge, so the backdrop bends like a lens
+    edge. B: rim light, a bevel line that fades over 1.5 px and lights the
+    edges facing up or down (the bevel light comes from the top, so the
+    sides stay dark), a wider specular sheen along the top edge, and a faint
+    fresnel glow all round. Cached by geometry."""
+    CACHE.mkdir(parents=True, exist_ok=True)
+    dst = CACHE / f"glass-{w}x{h}-{r:g}-{band:g}-{scale:g}.ppm"
+    if dst.exists():
+        return dst
+    hw, hh = w / 2 - r, h / 2 - r
+    cxp, cyp = w / 2 - 0.5, h / 2 - 0.5
+    bevel_px, sheen_px, fresnel_px = 1.5 * scale, 12 * scale, 5 * scale
+    data = bytearray(f"P6\n{w} {h}\n255\n".encode())
+    for y in range(h):
+        qy = abs(y - cyp) - hh
+        for x in range(w):
+            qx = abs(x - cxp) - hw
+            if qx > 0 and qy > 0:  # corner: radial
+                n = math.hypot(qx, qy)
+                d = n - r
+                nx, ny = qx / n, qy / n
+            elif qx > qy:  # a side
+                d, nx, ny = qx - r, 1.0, 0.0
+            else:  # top or bottom
+                d, nx, ny = qy - r, 0.0, 1.0
+            inside = max(0.0, -d)  # px from the edge, inward
+            f = (1 - inside / band) ** 2 if inside < band else 0.0
+            sx = math.copysign(nx * f, x - cxp)
+            sy = math.copysign(ny * f, y - cyp)
+            up = ny if y < cyp else 0.0  # the normal's upward share
+            light = (math.exp(-inside / bevel_px) * ny
+                     + 0.35 * math.exp(-inside / sheen_px) * up
+                     + 0.12 * math.exp(-inside / fresnel_px))
+            data += bytes((round(128 + 127 * sx), round(128 + 127 * sy), round(255 * min(1.0, light))))
+    dst.write_bytes(data)
+    return dst
 
 
 def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst: Path) -> None:
@@ -964,35 +1024,34 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
     def glass(x0: float, y0: float, x1: float, y1: float) -> list[str]:
         """A liquid-glass pane over the canvas drawn so far, matching the
         hyprglass toasts and bar (which cannot reach the session lock): the
-        scene behind it softly blurred and slightly lifted, 18 px corners, a
-        thin rim all round that is brightest along the top and bottom, a soft
-        light along the top edge."""
+        scene behind it bent at the rim like a lens edge, softly blurred and
+        slightly lifted, 18 px corners, and lit as hyprglass lights a contour
+        card: a soft bevel line on the edges facing up and down, a sheen
+        along the top edge and a faint glow all round (see glass_map)."""
         px0, py0 = round(cx(x0)), round(cy(y0))
         gw, gh = round(cx(x1)) - px0, round(cy(y1)) - py0
         r = round(18 * scale)
-        rim = max(1.0, 1.5 * scale)
+        band, amp = 18 * scale, 9 * scale  # lens edge: width and pull in px
+        maps = glass_map(gw, gh, r, band, scale)
         box = f"roundrectangle 0,0 {gw - 1},{gh - 1} {r},{r}"
-        edge = (f"roundrectangle {rim / 2:.1f},{rim / 2:.1f} {gw - 1 - rim / 2:.1f},{gh - 1 - rim / 2:.1f} "
-                f"{r},{r}")
         size = ["-size", f"{gw}x{gh}"]
-        # Rim weight: full at the top and bottom rows, settling to 45% down the sides.
-        ends = ["(", "-size", f"{gw}x{max(1, gh // 2)}", "gradient:white-black", "-evaluate", "Pow", "2.5",
-                "(", "+clone", "-flip", ")", "-append", "-resize", f"{gw}x{gh}!",
-                "-evaluate", "multiply", "0.55", "-evaluate", "add", "45%", "-alpha", "copy", ")"]
-        top = ["(", *size, "gradient:white-black", "-evaluate", "Pow", "6", "-alpha", "copy", ")"]
         return [
             "-gravity", "NorthWest",
-            "(", "+clone", "-crop", f"{gw}x{gh}+{px0}+{py0}", "+repage",
-            "-blur", f"0x{4 * scale:.1f}", "-fill", "#dce6f0", "-colorize", "6",
+            # Lens edge: the band inside the rim samples the scene further out,
+            # so what lies beyond the pane is pulled in and bent along the edge.
+            "(", "+clone", "-crop", f"{gw + 2 * round(amp)}x{gh + 2 * round(amp)}+{px0 - round(amp)}+{py0 - round(amp)}",
+            "+repage", "(", str(maps), "-bordercolor", "gray50", "-border", f"{round(amp)}", ")",
+            "-set", "option:compose:args", f"{amp:.1f}x{amp:.1f}", "-compose", "Displace", "-composite",
+            "-shave", f"{round(amp)}x{round(amp)}", "+repage",
+            "-blur", f"0x{1.4 * scale:.1f}", "-fill", "#dce6f0", "-colorize", "6",
             "(", *size, "xc:none", "-fill", "white", "-stroke", "none", "-draw", box, ")",
             "-compose", "DstIn", "-composite",
-            "(", *size, "xc:none", "-fill", "none", "-stroke", "white", "-strokewidth", f"{rim:.1f}",
-            "-draw", edge, *ends, "-compose", "DstIn", "-composite",
-            "-channel", "A", "-evaluate", "multiply", "0.3", "+channel", ")",
-            "-compose", "Over", "-composite",
-            "(", *size, "xc:none", "-fill", "white", "-stroke", "none", "-draw", box, *top,
-            "-compose", "DstIn", "-composite", "-blur", f"0x{2 * scale:.1f}",
-            "-channel", "A", "-evaluate", "multiply", "0.1", "+channel", ")",
+            # Rim light from the map's blue channel, clipped to the pane.
+            "(", *size, "xc:white", "(", str(maps), "-channel", "B", "-separate", "+channel", ")",
+            "-alpha", "off", "-compose", "CopyOpacity", "-composite",
+            "(", *size, "xc:none", "-fill", "white", "-stroke", "none", "-draw", box, ")",
+            "-compose", "DstIn", "-composite",
+            "-channel", "A", "-evaluate", "multiply", "0.17", "+channel", ")",
             "-compose", "Over", "-composite",
             ")", "-geometry", f"+{px0}+{py0}", "-compose", "Over", "-composite",
         ]
@@ -1087,29 +1146,35 @@ def lock_layout_toml() -> str:
             return repr(float(v))  # exact: 0.92 must not become 0.9
         return '"' + str(v) + '"'
 
-    for name, (w, h, _scale) in LOCK_OUTPUTS.items():
+    for name, (w, h, scale) in LOCK_OUTPUTS.items():
         u = h / 800
         tag = name.lower().replace("-", "")
 
         def widget(wid: str, wtype: str, x: float, y: float, bw: float, bh: float, settings: dict,
-                   absolute: bool = False) -> None:
+                   absolute: bool = False, digits: int = 1) -> None:
             key = wid if wid.startswith("lockscreen-") else f"hud_{wid}_{tag}"
             order.append(key)
             kq = f'"{key}"' if "@" in key else key
             cxp = x if absolute else w / 2 + x * u
             cyp = y if absolute else y * u
             lines = [f"[lockscreen_widgets.widget.{kq}]", f'output = "{name}"', f'type = "{wtype}"',
-                     f"cx = {cxp:.1f}", f"cy = {cyp:.1f}",
-                     f"box_width = {bw if absolute else bw * u:.1f}",
-                     f"box_height = {bh if absolute else bh * u:.1f}",
+                     f"cx = {cxp:.{digits}f}", f"cy = {cyp:.{digits}f}",
+                     f"box_width = {bw if absolute else bw * u:.{digits}f}",
+                     f"box_height = {bh if absolute else bh * u:.{digits}f}",
                      f"[lockscreen_widgets.widget.{kq}.settings]"]
             lines += [f"{k} = {q(v)}" for k, v in settings.items()]
             tables.append("\n".join(lines))
 
         widget("static", "sticker", w / 2, h / 2, w, h,
                {"image_path": str(lock / f"static-{name}.png"), "background": False}, absolute=True)
-        widget("reticle", "sticker", -134, LOCK_TAG_Y, LOCK_RETICLE, LOCK_RETICLE,
-               {"image_path": str(lock / "reticle.gif"), "background": False})
+        # The reticle GIF carries the scene under it, so its box must land on
+        # the same physical pixels it was baked from: whole-pixel geometry
+        # written at full precision (logical px = physical / scale).
+        left, top, size = reticle_box(w, h, scale)
+        widget("reticle", "sticker", (left + size / 2) / scale, (top + size / 2) / scale,
+               size / scale, size / scale,
+               {"image_path": str(lock / f"reticle-{name}.gif"), "background": False},
+               absolute=True, digits=3)
         text = {"background": False, "shadow": False}
         x, y, bw, bh = LOCK_CLOCK
         widget("time", "clock", x, y, bw, bh,
