@@ -6,9 +6,16 @@
 local LAPTOP = "eDP-1"
 local LAST_WORKSPACE = 10 -- matches the ALT + [1-0] binds in bindings.lua
 
+-- Virtual outputs made by `hyprctl output create headless` (claude-shot uses
+-- one named CLAUDE to screenshot apps off-screen). They never count as the
+-- external monitor, or plugging one in would drag workspaces 2-10 onto it.
+local function is_headless(name)
+    return name:sub(1, 6) == "CLAUDE" or name:sub(1, 9) == "HEADLESS-"
+end
+
 local function external_monitor()
     for _, mon in ipairs(hl.get_monitors()) do
-        if mon.name ~= LAPTOP then
+        if mon.name ~= LAPTOP and not is_headless(mon.name) then
             return mon.name
         end
     end
@@ -35,8 +42,10 @@ local function apply_layout()
 
     -- Rules only place workspaces when they are created, so move the ones
     -- that already exist (e.g. after hot-plugging the external monitor).
+    -- Named workspaces (claude-shot's "claude", special ones) have no
+    -- numeric id and are left where they are.
     for _, ws in ipairs(hl.get_workspaces()) do
-        if ws.id >= 1 and ws.id <= LAST_WORKSPACE then
+        if type(ws.id) == "number" and ws.id >= 1 and ws.id <= LAST_WORKSPACE then
             local target = target_monitor(ws.id, external)
             if ws.monitor and ws.monitor.name ~= target then
                 hl.dispatch(hl.dsp.workspace.move({ workspace = tostring(ws.id), monitor = target }))
