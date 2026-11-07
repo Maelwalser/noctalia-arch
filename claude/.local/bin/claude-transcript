@@ -14,10 +14,10 @@ can be read in an editor or a pager.
   claude-transcript --full          include tool calls and results in full
   claude-transcript --list          list the sessions for the current directory
 
-By default a tool call is one quoted line and tool results are left out, so
-the output reads like the chat. Thinking blocks, subagent side chains and the
-context Claude Code injects into prompts (system reminders, skill bodies) are
-never printed.
+By default only the messages are printed: tool calls (Bash, file edits, web
+searches, ...) and their results are left out, so the output reads like the
+chat. Thinking blocks, subagent side chains and the context Claude Code injects
+into prompts (system reminders, skill bodies) are never printed.
 """
 
 from __future__ import annotations
@@ -133,9 +133,7 @@ def tool_summary(block: dict) -> str:
     return name
 
 
-def render_tool_use(block: dict, full: bool) -> list[str]:
-    if not full:
-        return [f"> ⚙ {tool_summary(block)}", ""]
+def render_tool_use(block: dict) -> list[str]:
     name = block.get("name", "tool")
     inp = block.get("input") or {}
     lines = [f"**⚙ {name}**", ""]
@@ -189,8 +187,8 @@ def render(path: Path, full: bool) -> list[str]:
                 text = clean_user_text(text) if kind == "user" else text.strip()
                 if text:
                     body += [text, ""]
-            elif btype == "tool_use":
-                body += render_tool_use(block, full)
+            elif btype == "tool_use" and full:
+                body += render_tool_use(block)
             elif btype == "tool_result" and full:
                 body += render_tool_result(block)
             elif btype == "image":
@@ -202,9 +200,11 @@ def render(path: Path, full: bool) -> list[str]:
         is_result = kind == "user" and all(b.get("type") == "tool_result" for b in blocks if isinstance(b, dict))
         role = "assistant" if is_result else kind
         if role != last_role:
-            heading = "▲ You" if role == "user" else "◆ Claude"
+            # Your turns are level-2 and Claude's level-3 so each exchange
+            # nests as one Markdown section: folding a prompt folds its reply.
+            heading = "## ▲ You" if role == "user" else "### ◆ Claude"
             when = stamp(rec)
-            out += [f"## {heading}" + (f"  ·  {when}" if when else ""), ""]
+            out += [heading + (f"  ·  {when}" if when else ""), ""]
             last_role = role
         out += body
     return out
