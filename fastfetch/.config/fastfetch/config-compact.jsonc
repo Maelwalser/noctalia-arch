@@ -37,7 +37,7 @@
         { "type": "uptime", "key": "UP" },
         { "type": "packages", "key": "PKG", "format": "{pacman}" },
         { "type": "shell", "key": "SH" },
-        { "type": "wm", "key": "WM" },
+        { "type": "wm", "key": "WM", "format": "{pretty-name} {version}" },
         { "type": "terminal", "key": "TRM" },
         {
             "type": "command",
@@ -56,7 +56,12 @@
             "format": "{name}"
         },
         { "type": "memory", "key": "MEM" },
-        { "type": "disk", "key": "DSK", "folders": "/" },
+        {
+            "type": "disk",
+            "key": "DSK",
+            "folders": "/",
+            "format": "{size-used} / {size-total} ({size-percentage})"
+        },
         "break",
         {
             "type": "colors",

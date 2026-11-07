@@ -1,0 +1,33 @@
+{
+    "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+    // ACID//HUD for narrow panes (under ~48 columns): no emblem, only the
+    // modules whose values stay short, so nothing wraps.
+    "logo": {
+        "type": "none",
+        "padding": { "top": 1, "left": 0 }
+    },
+    "display": {
+        "separator": "  ▸ ",
+        "color": {
+            "keys": "magenta",
+            "title": "white",
+            "output": "white"
+        }
+    },
+    "modules": [
+        {
+            "type": "title",
+            "color": {
+                "user": "magenta",
+                "at": "90",
+                "host": "white"
+            },
+            "format": "{user-name}//{host-name}"
+        },
+        { "type": "os", "key": "▍OS", "format": "{name}" },
+        { "type": "kernel", "key": "▍KRN", "format": "{release}" },
+        { "type": "uptime", "key": "▍UP" },
+        { "type": "shell", "key": "▍SH" },
+        { "type": "memory", "key": "▍MEM", "format": "{percentage} of {total}" }
+    ]
+}

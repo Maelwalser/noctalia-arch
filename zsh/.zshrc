@@ -356,16 +356,55 @@ wt() {
   fi
 }
 
+# Fastfetch splash. The layout is picked from the live width, and the splash
+# is redrawn on every resize until the first command runs: a terminal that is
+# tiled after opening (or opens before Hyprland has sized it) would otherwise
+# keep a layout chosen for the wrong width and wrap its lines into the logo.
 if [[ -o interactive ]] && [[ -z "$TMUX" ]] && (( SHLVL == 1 )); then
-  local _ff_cfg_dir="$HOME/.config/fastfetch"
-  local _ff_cols=${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}
-  if (( _ff_cols >= 100 )) && [[ "$_dotfiles_theme" != classic ]]; then
-    fastfetch -c "$_ff_cfg_dir/config-acid.jsonc"
-  elif (( _ff_cols >= 100 )); then
-    fastfetch
-  elif (( _ff_cols >= 60 )); then
-    fastfetch -c "$_ff_cfg_dir/config-compact.jsonc"
-  else
-    fastfetch -c "$_ff_cfg_dir/config-mini.jsonc"
-  fi
+  _ff_render() {
+    local dir="$HOME/.config/fastfetch" cols=${COLUMNS:-80} rows=${LINES:-24}
+    local -a cmd
+    # Widths: the ACID emblem takes 28 columns, the classic text logo 69, and
+    # the longest line of text (the CPU name) 45, so the logo moves on top as
+    # soon as both no longer fit side by side, shrinks to a badge when the
+    # window is too short for it, and the module list shrinks under 48
+    # columns. In the top layout fastfetch only moves one line past an image,
+    # and Ghostty leaves the cursor on its last row, so the right padding, unused
+    # there, is the one blank line between the emblem and the text.
+    if [[ "$_dotfiles_theme" == classic ]]; then
+      if (( cols >= 116 && rows >= 22 )); then
+        cmd=(fastfetch)
+      elif (( cols >= 72 && rows >= 40 )); then
+        cmd=(fastfetch --logo-position top --logo-padding-left 0)
+      elif (( cols >= 48 && rows >= 22 )); then
+        cmd=(fastfetch -c "$dir/config-compact.jsonc")
+      else
+        cmd=(fastfetch -c "$dir/config-mini.jsonc")
+      fi
+    elif (( cols >= 76 && rows >= 22 )); then
+      cmd=(fastfetch -c "$dir/config-acid.jsonc")
+    elif (( cols >= 48 && rows >= 36 )); then
+      cmd=(fastfetch -c "$dir/config-acid.jsonc" --logo-position top --logo-padding-left 0 --logo-padding-right 1)
+    elif (( cols >= 48 && rows >= 28 )); then
+      cmd=(fastfetch -c "$dir/config-acid.jsonc" --logo-position top --logo-padding-left 0 --logo-padding-top 0 --logo-width 10 --logo-height 4 --logo-padding-right 1)
+    elif (( cols >= 48 && rows >= 22 )); then
+      cmd=(fastfetch -c "$dir/config-acid.jsonc" --logo-type none)
+    else
+      cmd=(fastfetch -c "$dir/config-acid-mini.jsonc")
+    fi
+    # Drop the previous splash, kitty-graphics logo and scrollback included.
+    print -n -- $'\e_Ga=d,d=A\e\\\e[H\e[2J\e[3J'
+    "${cmd[@]}"
+  }
+  _ff_render
+  TRAPWINCH() {
+    zle -I 2>/dev/null  # whatever is being typed is redrawn after the splash
+    _ff_render
+  }
+  _ff_stop() {
+    unfunction TRAPWINCH _ff_render _ff_stop
+    add-zsh-hook -d preexec _ff_stop
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook preexec _ff_stop
 fi
