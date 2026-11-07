@@ -15,7 +15,7 @@ Outputs (all under ~/.local/share/hud unless noted):
   tinted/<name>-<role>.png   palette-coloured copies for consumers that cannot tint
   lock/                      lockscreen art: static-<output>.png, reticle-<output>.gif, backdrop.png
   overlay/, bar/             Quickshell overlay layers, Noctalia bar plugin frames
-  fastfetch-logo.png, nvim-header.txt
+  fastfetch-logo.png, nvim-header.txt, nvim-header-large.txt
   ~/Pictures/Wallpapers/hud/hud-<w>x<h>.png
 """
 
@@ -708,26 +708,68 @@ def reload_wallpapers() -> None:
     print("wallpapers: reloaded in noctalia")
 
 
-def block_art(mask: Path, cols: int) -> str:
-    """Render an alpha mask as solid half-block characters (1x2 pixels per cell)."""
-    with tempfile.TemporaryDirectory(prefix="hud-blk-") as td:
+# Block characters that predate the Unicode 16 octants, keyed by the cell's
+# bit pattern (bit n is octant n+1: top-left 1, top-right 2, ... bottom-right
+# 128). Every other pattern is BLOCK OCTANT-* from U+1CD00 up, in pattern order.
+OCTANT_LEGACY = {
+    0x00: " ", 0xFF: "\u2588",
+    0x0F: "\u2580", 0xF0: "\u2584", 0x55: "\u258C", 0xAA: "\u2590",
+    0x05: "\u2598", 0x0A: "\u259D", 0x50: "\u2596", 0xA0: "\u2597",
+    0xA5: "\u259A", 0x5A: "\u259E", 0x5F: "\u259B", 0xAF: "\u259C", 0xF5: "\u2599", 0xFA: "\u259F",
+    0x01: "\U0001CEA8", 0x02: "\U0001CEAB", 0x40: "\U0001CEA3", 0x80: "\U0001CEA0",
+    0x03: "\U0001FB82", 0xC0: "\u2582", 0x3F: "\U0001FB85", 0xFC: "\u2586",
+    0x14: "\U0001FBE6", 0x28: "\U0001FBE7",
+}
+
+
+def octant_table() -> list[str]:
+    table, next_cp = [], 0x1CD00
+    for bits in range(256):
+        char = OCTANT_LEGACY.get(bits)
+        if char is None:
+            char, next_cp = chr(next_cp), next_cp + 1
+        table.append(char)
+    if next_cp != 0x1CDE6:
+        raise RuntimeError("octant table does not line up with U+1CD00..U+1CDE5")
+    return table
+
+
+def octant_art(mask: Path, cols: int) -> str:
+    """Render an alpha mask as Unicode 16 octant characters (2x4 pixels per cell).
+
+    Same technique as the Claude Code logo patch (claude-logo), so the two
+    match. Only terminals that draw Symbols for Legacy Computing themselves
+    (Ghostty) show these; fonts rarely carry them.
+    """
+    width = cols * 2
+    with tempfile.TemporaryDirectory(prefix="hud-oct-") as td:
         pgm = Path(td) / "m.pgm"
-        run("magick", mask, "-alpha", "extract", "-resize", f"{cols}x", "-threshold", "45%",
-            "-compress", "none", pgm)
+        run("magick", mask, "-alpha", "extract", "-trim", "+repage", "-resize", f"{width}x",
+            "-threshold", "45%", "-compress", "none", pgm)
         tokens = pgm.read_text().split()
     # P2 header: magic, width, height, maxval, then pixel values.
-    width, height, maxval = int(tokens[1]), int(tokens[2]), int(tokens[3])
+    height, maxval = int(tokens[2]), int(tokens[3])
     px = [int(v) > maxval // 2 for v in tokens[4:]]
-    glyph = {(False, False): " ", (True, False): "\u2580", (False, True): "\u2584", (True, True): "\u2588"}
-    rows = []
-    for y in range(0, height, 2):
+    # Pad the height to whole cells with the art centred.
+    rows = -(-height // 4) * 4
+    top = (rows - height) // 2
+
+    def on(x: int, y: int) -> bool:
+        y -= top
+        return 0 <= y < height and px[y * width + x]
+
+    table = octant_table()
+    lines = []
+    for cy in range(0, rows, 4):
         line = []
-        for x in range(width):
-            top = px[y * width + x]
-            bottom = y + 1 < height and px[(y + 1) * width + x]
-            line.append(glyph[(top, bottom)])
-        rows.append("".join(line))  # equal widths keep centred dashboards aligned
-    return "\n".join(rows)
+        for cx in range(0, width, 2):
+            bits = 0
+            for r in range(4):
+                for c in range(2):
+                    bits |= on(cx + c, cy + r) << (r * 2 + c)
+            line.append(table[bits])
+        lines.append("".join(line))  # equal widths keep centred dashboards aligned
+    return "\n".join(lines)
 
 
 # ── Lockscreen ────────────────────────────────────────────────────────────────
@@ -1553,8 +1595,12 @@ def build_bar(colors: dict[str, str]) -> None:
 
 def build_extras(colors: dict[str, str]) -> None:
     tint(OUT / "elements" / "tri-blade.png", colors["primary"], 512, OUT / "fastfetch-logo.png")
-    (OUT / "nvim-header.txt").write_text(block_art(OUT / "elements" / "tri-blade.png", 30) + "\n")
-    print("extras: fastfetch-logo.png, nvim-header.txt")
+    # Neovim's dashboard header: the compact one fits a laptop-height window
+    # next to the key list, the large one is for tall windows.
+    blade = OUT / "elements" / "tri-blade.png"
+    (OUT / "nvim-header.txt").write_text(octant_art(blade, 20) + "\n")
+    (OUT / "nvim-header-large.txt").write_text(octant_art(blade, 32) + "\n")
+    print("extras: fastfetch-logo.png, nvim-header.txt, nvim-header-large.txt")
 
 
 def main() -> None:

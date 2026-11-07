@@ -74,18 +74,8 @@ return {
           { icon = "󰒲 ", key = "l", desc = "Lazy", action = ":Lazy", enabled = package.loaded.lazy ~= nil },
           { icon = " ", key = "q", desc = "Quit", action = ":qa" },
         },
-        -- ACID//HUD emblem (half blocks, rendered by `hud-build`) above the
-        -- wordmark. Skipped under the classic theme and on short screens, where
-        -- the dashboard would otherwise overflow and clip the top of the header.
-        header = (function()
-          local f = require("config.dotfiles_theme") == "acid"
-            and vim.o.lines >= 46
-            and io.open(vim.fn.expand("~/.local/share/hud/nvim-header.txt"), "r")
-          local emblem = f and f:read("*a") or ""
-          if f then
-            f:close()
-          end
-          return emblem .. [[
+        -- Only the classic theme shows the wordmark; see the header section below.
+        header = [[
  _______  _______  _______  _                  _________ _______
 (       )(  ___  )(  ____ \( \        |\     /|\__   __/(       )
 | () () || (   ) || (    \/| (        | )   ( |   ) (   | () () |
@@ -94,16 +84,25 @@ return {
 | |   | || (   ) || (      | |         \ \_/ /    | |   | |   | |
 | )   ( || )   ( || (____/\| (____/\    \   /  ___) (___| )   ( |
 |/     \||/     \|(_______/(_______/     \_/   \_______/|/     \|
-]]
-        end)(),
+]],
       },
       sections = {
-        {
-          section = "header",
-          enabled = function()
-            return vim.o.columns >= 70
-          end,
-        },
+        -- ACID//HUD emblem (octant block art rendered by `hud-build`, like the
+        -- Claude Code logo) instead of the wordmark. A function section is
+        -- re-evaluated on resize, so the size follows the window height.
+        function()
+          if require("config.dotfiles_theme") ~= "acid" then
+            return vim.o.columns >= 70 and { section = "header" } or nil
+          end
+          local name = vim.o.lines >= 44 and "nvim-header-large.txt" or "nvim-header.txt"
+          local f = io.open(vim.fn.expand("~/.local/share/hud/" .. name), "r")
+          if not f then
+            return nil
+          end
+          local emblem = f:read("*a"):gsub("\n$", "")
+          f:close()
+          return { header = emblem, padding = 2 }
+        end,
         {
           section = "keys",
           indent = 1,
