@@ -9,7 +9,7 @@ hl.config({
 
     decoration = {
         -- ACID//HUD: near-square corners; classic: round ones.
-        rounding = acid and 12 or 20, -- acid: same radius as the liquid-glass toasts
+        rounding = acid and 18 or 20, -- acid: the liquid-glass toast radius (noctalia/themes/acid.toml corner_radius_scale)
         rounding_power = 2,
 
         -- ACID//HUD: wide soft shadow; hyprland.lua tints the active one acid
@@ -36,6 +36,10 @@ hl.config({
     },
 
     misc = {
+        -- ACID//HUD: keep rendering the desktop under the (opaque) lock surface,
+        -- so the hud-unlock layer beneath it keeps getting frame callbacks and
+        -- its copy of the lock screen stays fresh until the unlock frame.
+        session_lock_xray = acid,
         -- Keeps the "fullscreen" state when switching focus
         on_focus_under_fullscreen = true,
     },
@@ -72,6 +76,25 @@ hl.layer_rule({
 hl.layer_rule({
     name = "hud-overlay",
     match = { namespace = "^hud-overlay$" },
+    no_anim = true,
+    blur = false,
+})
+-- Its glass panes are a second layer that hyprglass renders (plugins.lua),
+-- kept under the content whatever the map order: it unmaps whenever the
+-- desktop is covered and would otherwise come back on top. (order = 1 puts
+-- it below hud-overlay's default 0; -1 left it on top.)
+hl.layer_rule({
+    name = "hud-glass",
+    match = { namespace = "^hud-glass$" },
+    no_anim = true,
+    blur = false,
+    order = 1,
+})
+-- The unlock reveal (overlay layer, mapped only while locked and for the fold):
+-- it animates itself, and hyprglass blurs behind it (plugins.lua).
+hl.layer_rule({
+    name = "hud-unlock",
+    match = { namespace = "^hud-unlock$" },
     no_anim = true,
     blur = false,
 })

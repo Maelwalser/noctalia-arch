@@ -1,39 +1,477 @@
 /* vim: set ft=css: */
 /*
 ================================================================================
-  ACID//HUD theme for Vivaldi. `dotfiles-theme acid` links this file as
-  vivaldi/theme.css (Vivaldi loads every *.css in this css-mods folder); the
-  .vcss extension keeps Vivaldi from loading it under the classic theme.
+  ACID//HUD theme for Vivaldi: liquid glass over a HUD backdrop.
+
+  `dotfiles-theme acid` links this file as vivaldi/theme.css (Vivaldi loads
+  every *.css in this css-mods folder); the .vcss extension keeps Vivaldi from
+  loading it under the classic theme. main.css (fonts, field height) is shared
+  by both themes and loads first.
+
+  Vivaldi's window is opaque to the compositor, so hyprglass cannot light it
+  the way it does the terminal (hypr/plugins.lua). The glass here is CSS: the
+  same recipe as the Noctalia bar, toasts and desktop panes, translucent
+  panes with backdrop blur, a 1 px rim, a top highlight and a soft shadow,
+  over a near-black body with the wallpaper's scanlines and a faint acid
+  horizon under the bar.
+
   Palette from noctalia/.config/noctalia/palettes/acid-hud.json; keep in sync
-  by hand. Vivaldi sets its theme variables inline on #browser, so these need
+  by hand. Radii follow the desktop: 18 px panes (toasts, window corners,
+  Noctalia corner_radius_scale), 12 px capsules (bar capsules, fields, tabs).
+  Vivaldi sets its theme variables inline on #browser, so overrides need
   !important.
+
+  This profile hides the address, status and bookmark bars (the URL field
+  floats in on F8 / Ctrl+L) and shows the panel with F4; the rules for the
+  docked bars are still here so the theme holds up if they come back.
 ================================================================================
 */
 
-/* The address and search fields keep main.css's 12 px corners; the tabs take
-   the same radius, which is also Hyprland's rounding and the radius of the
-   liquid-glass toasts, bar capsules and panels. */
-#tabs-container .tab,
-#tabs-container .tab.active,
-.tab-position .tab {
-  border-radius: 12px !important;
-}
+/* ── Tokens ─────────────────────────────────────────────────────────────── */
 
 #browser {
+  /* Vivaldi theme variables (the GUI theme underneath is the stock Dark). */
   --colorAccentBg: #d4ff1e !important;
   --colorAccentBgDark: #a8cc12 !important;
+  --colorAccentBgDarker: #7fa00e !important;
+  --colorAccentBgFaded: #b6db1a !important;
+  --colorAccentBgAlpha: rgba(212, 255, 30, 0.9) !important;
+  --colorAccentBgAlphaHeavy: rgba(212, 255, 30, 0.65) !important;
+  --colorAccentBgAlphaBlur: rgba(212, 255, 30, 0.75) !important;
+  --colorAccentBorder: #a8cc12 !important;
   --colorAccentFg: #0a0a0c !important;
+  --colorAccentFgAlpha: rgba(10, 10, 12, 0.9) !important;
+  --colorAccentFgFaded: #2a2a2e !important;
   --colorHighlightBg: #d4ff1e !important;
+  --colorHighlightBgAlpha: rgba(212, 255, 30, 0.9) !important;
+  --colorHighlightBgDark: #a8cc12 !important;
+  --colorHighlightBgFaded: #e4ff6b !important;
   --colorHighlightFg: #0a0a0c !important;
+  --colorHighlightFgAlpha: rgba(10, 10, 12, 0.9) !important;
   --colorFocusBg: #d4ff1e !important;
   --colorBg: #0a0a0c !important;
   --colorBgDark: #050506 !important;
+  --colorBgDarker: #040405 !important;
   --colorBgLight: #16161b !important;
+  --colorBgLighter: #1f1f25 !important;
+  --colorBgLightIntense: #1a1a20 !important;
+  --colorBgIntense: #101014 !important;
+  --colorBgIntenser: #0d0d10 !important;
+  --colorBgFaded: #1b1b20 !important;
+  --colorBgAlpha: rgba(10, 10, 12, 0.9) !important;
+  --colorBgAlphaHeavy: rgba(10, 10, 12, 0.65) !important;
+  --colorBgAlphaHeavier: rgba(10, 10, 12, 0.5) !important;
+  --colorBgAlphaBlur: rgba(10, 10, 12, 0.75) !important;
+  --colorTabBar: transparent !important;
   --colorFg: #e8e6e1 !important;
+  --colorFgIntense: #ffffff !important;
+  --colorFgFaded: #c9c7c0 !important;
+  --colorFgFadedMore: #a3a39c !important;
+  --colorFgFadedMost: #8a8f98 !important;
   --colorBorder: #3a3a42 !important;
+  --colorBorderSubtle: #26262c !important;
+  --colorBorderIntense: #4a4a54 !important;
+  --radius: 12px !important;
+  --radiusHalf: 6px !important;
+  --radiusCap: 18px !important;
+  --radiusWindow: 18px !important;
+  --backgroundBlur: blur(16px) saturate(1.3) !important;
+
+  /* Glass recipe. The capsule fill and rim are the bar's (capsule_fill 0.07,
+     capsule_border #ffffff26); the pane body is the toast fill with enough
+     depth to keep text readable over a bright page. */
+  --hud-acid: #d4ff1e;
+  --hud-acid-dim: rgba(212, 255, 30, 0.18);
+  --hud-acid-ring: rgba(212, 255, 30, 0.55);
+  --hud-acid-glow: rgba(212, 255, 30, 0.18);
+  --hud-glass: rgba(255, 255, 255, 0.07);
+  --hud-glass-hover: rgba(255, 255, 255, 0.11);
+  --hud-glass-lit: rgba(255, 255, 255, 0.14);
+  --hud-rim: rgba(255, 255, 255, 0.15);
+  --hud-rim-lit: rgba(255, 255, 255, 0.26);
+  --hud-sheen: rgba(255, 255, 255, 0.18);
+  --hud-hairline: rgba(255, 255, 255, 0.08);
+  --hud-pane: rgba(10, 10, 12, 0.66);
+  --hud-pane-deep: rgba(12, 12, 16, 0.84);
+  --hud-pane-blur: blur(18px) saturate(1.3);
+  --hud-pane-edge: inset 0 0 0 1px var(--hud-rim), inset 0 1px 0 var(--hud-sheen), inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+  --hud-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --hud-ease: 150ms ease;
 }
 
-/* Acid underline marks the active tab instead of a filled pill. */
-#tabs-container .tab.active {
-  box-shadow: inset 0 -2px 0 #d4ff1e !important;
+/* ── Backdrop and frame ─────────────────────────────────────────────────── */
+
+/* The body behind everything: near black, the wallpaper's scanlines and the
+   acid horizon glow just under the bar. A 6 px bezel (Vivaldi's own auto-hide
+   frame width) lets it show round the page pane; Hyprland rounds the outer
+   corners at 18 px, the page pane rounds at 12 px, concentric at this inset. */
+#browser {
+  background-color: #0a0a0c !important;
+  background-image:
+    radial-gradient(60% 70px at 50% -10px, rgba(212, 255, 30, 0.12), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #121216, #0a0a0c 55%) !important;
+  background-origin: border-box !important;
+  background-position: 0 0 !important;
+  background-size: auto !important;
+  background-repeat: no-repeat, repeat, no-repeat !important;
+  border: 6px solid transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#browser.fullscreen {
+  border: 0 !important;
+}
+
+/* The page stack is clipped to the pane; the link preview is its sibling, so
+   it stays outside the clip. */
+#browser:not(.fullscreen) #webview-container {
+  background-color: #0a0a0c !important;
+}
+
+#browser:not(.fullscreen) #webpage-stack {
+  border-radius: 12px !important;
+  overflow: clip;
+  box-shadow: 0 0 0 1px var(--hud-hairline) !important;
+}
+
+/* ── Tab bar: the rail ──────────────────────────────────────────────────── */
+
+#browser #header,
+#browser .tabbar-wrapper,
+#browser #tabs-tabbar-container,
+#browser #tabs-container,
+#browser #tabs-subcontainer {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+
+/* Tabs are glass capsules (the bar's capsule radius); a 4 px gap between them
+   comes from the wrapper so Vivaldi's absolute tab layout is untouched. */
+#browser .tab-wrapper {
+  padding: 0 2px;
+}
+
+#browser #tabs-container .tab,
+#browser #tabs-subcontainer .tab {
+  height: 30px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  background: var(--hud-glass) !important;
+  color: var(--colorFg) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  transition: background-color var(--hud-ease), box-shadow var(--hud-ease), border-color var(--hud-ease), color var(--hud-ease);
+}
+
+#browser #tabs-container .tab-wrapper:hover .tab:not(.active),
+#browser #tabs-subcontainer .tab-wrapper:hover .tab:not(.active) {
+  background: var(--hud-glass-hover) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+#browser #tabs-container .tab-wrapper:focus-visible .tab,
+#browser #tabs-subcontainer .tab-wrapper:focus-visible .tab {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 2px var(--hud-acid) !important;
+}
+
+/* The active tab is lit glass with an acid LED along its lower edge, the
+   bar's active-workspace accent. */
+#browser #tabs-container .tab.active,
+#browser #tabs-subcontainer .tab.active {
+  background: var(--hud-glass-lit) !important;
+  color: var(--hud-acid) !important;
+  border-color: var(--hud-rim-lit) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -2px 0 var(--hud-acid),
+    0 6px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Vivaldi's little curves joining the active tab to the toolbar would hang
+   off a capsule. */
+#browser .tab.active::before,
+#browser .tab.active::after {
+  display: none !important;
+}
+
+#browser .tab .close {
+  border-radius: 6px !important;
+  transition: background-color var(--hud-ease), color var(--hud-ease);
+}
+
+#browser .tab .close:hover {
+  background: var(--hud-acid-dim) !important;
+  color: var(--hud-acid) !important;
+}
+
+#browser .tab-group-indicator {
+  border-radius: 2px !important;
+}
+
+/* The menu, new-tab and window buttons are ghosts that light up as capsules. */
+#browser button.vivaldi,
+#browser .window-buttongroup button {
+  background: transparent !important;
+  border-radius: 10px !important;
+  transition: background-color var(--hud-ease), box-shadow var(--hud-ease);
+}
+
+#browser button.vivaldi:hover,
+#browser .window-buttongroup button:hover {
+  background: var(--hud-glass-hover) !important;
+  box-shadow: inset 0 0 0 1px var(--hud-rim), inset 0 1px 0 var(--hud-sheen) !important;
+}
+
+#browser .window-buttongroup button.window-close:hover {
+  background: rgba(255, 59, 48, 0.28) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 59, 48, 0.45), inset 0 1px 0 var(--hud-sheen) !important;
+}
+
+/* ── Toolbar buttons ────────────────────────────────────────────────────── */
+
+#browser .button-toolbar:not(.toolbar-spacer, .toolbar-spacer-flexible, .toolbar-spacer-panel, .toolbar-divider) > .ToolbarButton-Button {
+  border-radius: 10px !important;
+  transition: background-color var(--hud-ease), box-shadow var(--hud-ease), color var(--hud-ease);
+}
+
+#browser .button-toolbar:not(.toolbar-spacer, .toolbar-spacer-flexible, .toolbar-spacer-panel, .toolbar-divider) > .ToolbarButton-Button:hover {
+  background-color: var(--hud-glass-hover) !important;
+  box-shadow: inset 0 0 0 1px var(--hud-rim), inset 0 1px 0 var(--hud-sheen) !important;
+}
+
+#browser .button-toolbar:not(.toolbar-spacer, .toolbar-spacer-flexible, .toolbar-spacer-panel, .toolbar-divider) > .ToolbarButton-Button:active,
+#browser .button-toolbar.active:not(.toolbar-spacer, .toolbar-spacer-flexible, .toolbar-spacer-panel, .toolbar-divider) > .ToolbarButton-Button,
+#browser .ToolbarButton-Button[aria-pressed="true"] {
+  background-color: var(--hud-acid-dim) !important;
+  color: var(--hud-acid) !important;
+  box-shadow: inset 0 0 0 1px rgba(212, 255, 30, 0.4), inset 0 1px 0 var(--hud-sheen) !important;
+}
+
+#browser .toolbar-divider .ToolbarButton-Button {
+  opacity: 0.35;
+}
+
+/* ── Address and search fields ──────────────────────────────────────────── */
+
+#browser .UrlBar-AddressField,
+#browser .UrlBar-SearchField,
+#browser .SearchField {
+  background: var(--hud-glass) !important;
+  border: 1px solid var(--hud-rim) !important;
+  border-radius: 12px !important;
+  color: var(--colorFg) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  transition: box-shadow var(--hud-ease), border-color var(--hud-ease);
+}
+
+/* The URL field floating in over the page (address bar hidden, F8 / Ctrl+L):
+   a full pill at main.css's 36 px, the bar rail's radius. */
+#browser .UrlBar-AddressField.urlfield-anchor {
+  position: absolute;
+  isolation: isolate;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 18px !important;
+  padding: 0 8px !important;
+  box-shadow: var(--hud-pane-edge), var(--hud-shadow) !important;
+}
+
+/* The fill and blur live on a layer under the field, not on the field: an
+   element with backdrop-filter is a backdrop root, and the suggestion
+   dropdown inside it could then only blur the field, not the page. */
+#browser .UrlBar-AddressField.urlfield-anchor::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--hud-pane-deep);
+  backdrop-filter: var(--hud-pane-blur);
+}
+
+#browser .UrlBar-AddressField:focus-within,
+#browser .UrlBar-SearchField:focus-within,
+#browser .SearchField:focus-within {
+  outline: none !important;
+  border-color: var(--hud-acid-ring) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 18px var(--hud-acid-glow) !important;
+}
+
+#browser .UrlBar-AddressField.urlfield-anchor:focus-within {
+  box-shadow: var(--hud-pane-edge), 0 0 0 1px var(--hud-acid-ring), 0 0 22px var(--hud-acid-glow), var(--hud-shadow) !important;
+}
+
+#browser .UrlBar-UrlField,
+#browser .SearchField input {
+  background: transparent !important;
+  color: var(--colorFg) !important;
+}
+
+/* URL suggestions: a pane hanging off the field. */
+#browser .OmniDropdown {
+  margin-top: 6px;
+  background: var(--hud-pane-deep) !important;
+  backdrop-filter: var(--hud-pane-blur);
+  border: 1px solid var(--hud-rim) !important;
+  border-radius: 18px !important;
+  color: var(--colorFg) !important;
+  box-shadow: inset 0 1px 0 var(--hud-sheen), var(--hud-shadow) !important;
+  overflow: hidden;
+}
+
+/* ── Auto-hide panes and the panel ──────────────────────────────────────── */
+
+/* Toolbars that slide in from an edge are glass panes, like the toasts. */
+#browser .auto-hide-wrapper {
+  isolation: isolate;
+  background: transparent !important;
+  border-radius: 18px !important;
+  box-shadow: var(--hud-pane-edge), var(--hud-shadow) !important;
+}
+
+/* A parked pane sits only 12 px off-screen, so its shadow would show. */
+#browser .auto-hide-wrapper:not(.show) {
+  box-shadow: none !important;
+}
+
+/* Fill and blur on a layer under the pane (see the URL field), so popups
+   inside the panel still blur the page. Vivaldi uses ::before itself. */
+#browser .auto-hide-wrapper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--hud-pane);
+  backdrop-filter: var(--hud-pane-blur);
+  pointer-events: none;
+}
+
+#browser .auto-hide-wrapper #panels-container,
+#browser .auto-hide-wrapper #panels,
+#browser .auto-hide-wrapper .mainbar,
+#browser .auto-hide-wrapper .bookmark-bar,
+#browser .auto-hide-wrapper .toolbar-statusbar,
+#browser .auto-hide-wrapper #tabs-tabbar-container,
+#browser .mainbar,
+#browser .bookmark-bar,
+#browser footer#footer,
+#browser #switch,
+#browser .panel-group,
+#browser .panel,
+#browser .panel-collapse-guard {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Docked panel strip (F4) and its floating panel content over the page. */
+#browser .inner #panels-container {
+  background: transparent !important;
+  border: 0 !important;
+}
+
+#browser #panels-container.left .panel-group {
+  border-left: 1px solid var(--hud-hairline) !important;
+}
+
+#browser #panels-container.right .panel-group {
+  border-right: 1px solid var(--hud-hairline) !important;
+}
+
+#browser .inner #panels-container.overlay .panel-group {
+  position: relative;
+  isolation: isolate;
+  background: transparent !important;
+  box-shadow: var(--hud-pane-edge), var(--hud-shadow) !important;
+}
+
+#browser .inner #panels-container.overlay .panel-group::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--hud-pane);
+  backdrop-filter: var(--hud-pane-blur);
+  pointer-events: none;
+}
+
+#browser .inner #panels-container.overlay.left .panel-group {
+  border-radius: 0 18px 18px 0 !important;
+}
+
+#browser .inner #panels-container.overlay.right .panel-group {
+  border-radius: 18px 0 0 18px !important;
+}
+
+/* Link preview (bottom left of the page): a small capsule. */
+#browser .StatusInfo {
+  background: transparent !important;
+}
+
+#browser .StatusInfo-Content {
+  background: var(--hud-pane-deep) !important;
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--hud-rim) !important;
+  border-radius: 10px !important;
+  padding: 4px 10px !important;
+  color: var(--colorFg) !important;
+  box-shadow: inset 0 1px 0 var(--hud-sheen) !important;
+}
+
+/* ── Popups, dialogs, tooltips ──────────────────────────────────────────── */
+
+#browser .button-popup,
+#browser .extension-popup,
+#browser #modal-bg .modal-wrapper,
+#browser .quick-command-container .quick-commands,
+#browser .find-in-page,
+#browser .HintTooltip__content,
+#browser .workspace-popup,
+#browser .SearchField .menu,
+#browser .tabstack-popup,
+#browser .TabButtonPopup,
+#browser .addressfield-popup {
+  background: var(--hud-pane-deep) !important;
+  backdrop-filter: var(--hud-pane-blur);
+  border: 1px solid var(--hud-rim) !important;
+  border-radius: 14px !important;
+  color: var(--colorFg) !important;
+  box-shadow: inset 0 1px 0 var(--hud-sheen), var(--hud-shadow) !important;
+}
+
+#browser #modal-bg .modal-wrapper,
+#browser .quick-command-container .quick-commands {
+  border-radius: 18px !important;
+}
+
+/* Tab hover preview: thumbnail and caption on one pane. */
+#browser .tooltip .tooltip-item {
+  background: var(--hud-pane-deep) !important;
+  backdrop-filter: var(--hud-pane-blur);
+  border: 1px solid var(--hud-rim) !important;
+  border-radius: 14px !important;
+  box-shadow: inset 0 1px 0 var(--hud-sheen), var(--hud-shadow) !important;
+  overflow: hidden;
+}
+
+#browser .tooltip .thumbnail-image {
+  border-radius: 13px 13px 0 0 !important;
+}
+
+/* Vivaldi's pointer arrows under popups would float off the glass. */
+#browser .button-popup:before,
+#browser .extension-popup:before,
+#browser .extension-popup:after,
+#browser .HintTooltip__content:after {
+  display: none !important;
+}
+
+#browser .dialog-content,
+#browser .dialog-header,
+#browser .dialog-footer {
+  background: transparent !important;
 }

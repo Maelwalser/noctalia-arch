@@ -74,6 +74,49 @@ if hl.plugin.hyprglass ~= nil then
         -- Noctalia's "glass" transparency mode the panel box is a faint rounded
         -- fill (alpha ~0.08) the size of its layer, so the toast settings fit.
         hg.layer("noctalia-attached-panel", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- The desktop overlay's panes (quickshell hud, GlassScene.qml): faint
+        -- rounded fills on their own layer, so each gets its own rim; the
+        -- overlay's text stays on hud-overlay, which is not listed. Big panes
+        -- over the wallpaper's soft lights: a stronger blur melts the scanlines
+        -- and grid into the glow inside the pane, a wider, taller lens edge
+        -- bends the lights visibly at the rim with more light on it, and a
+        -- lighter tint than the toasts keeps the body from reading as a flat
+        -- grey box against the rim.
+        hg.preset("acid_pane", {
+            inherits = "acid_clear",
+            blur_strength = 0.55,
+            edge_thickness_px = 22,
+            edge_height = 14,
+            refraction_strength = 2.6,
+            specular_strength = 0.9,
+            fresnel_strength = 0.12,
+            dark = { tint_color = 0xdce6f00c },
+        })
+        hg.layer("hud-glass", { preset = "acid_pane", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- The unlock reveal (quickshell hud, UnlockFold.qml): the lock scene
+        -- swings away as two frosted panes. Plain frost, no rim or lens (the
+        -- shader draws the pane edges itself): the layer's alpha is the pane's
+        -- presence, and the feather turns it into the blur's strength, so the
+        -- frost thins out with the pane. Below the threshold the shader only
+        -- casts a soft shadow, which must stay sharp.
+        hg.preset("acid_fold", {
+            inherits = "acid_clear",
+            blur_strength = 1.2,
+            blur_iterations = 3,
+            edge_thickness_px = 1,
+            edge_height = 0,
+            refraction_strength = 0.0,
+            chromatic_aberration = 0.0,
+            fresnel_strength = 0.0,
+            specular_strength = 0.0,
+            bevel_strength = 0.0,
+            lens_distortion = 0.0,
+            dark = {
+                tint_color = 0xdce6f008,
+                brightness = 1.0,
+            },
+        })
+        hg.layer("hud-unlock", { preset = "acid_fold", mask_mode = "alpha", mask_threshold = 0.12, mask_feather = 0.3 })
         -- The terminal is the same glass, a shade darker: a dark tint and a
         -- dim on bright windows behind it keep the text readable, the rim is
         -- an even fresnel glow plus the top bevel light, and the focused

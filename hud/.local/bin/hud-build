@@ -462,11 +462,13 @@ def alpha_fx(expr: str, opacity: float, size: str, res: str = "512x256") -> list
 
 
 def glow(cw: int, ch: int, color: str, cx: float, cy: float, rx: float, ry: float,
-         opacity: float) -> list[str]:
+         opacity: float, angle: float = 0) -> list[str]:
+    # A soft elliptical light, optionally tilted (a light leak across the sky).
     k = 8  # blurred at 1/8 scale: a full-size blur this wide is slow on 5K
     return ["(", "-size", f"{cw}x{ch}", f"xc:{color}",
             "(", "-size", f"{cw // k}x{ch // k}", "xc:black", "-fill", "white",
-            "-draw", f"ellipse {cx / k:.1f},{cy / k:.1f} {rx / k:.1f},{ry / k:.1f} 0,360",
+            "-draw", f"translate {cx / k:.1f},{cy / k:.1f} rotate {angle} "
+                     f"ellipse 0,0 {rx / k:.1f},{ry / k:.1f} 0,360",
             "-blur", f"0x{min(rx, ry) / k / 1.5:.1f}", "-resize", f"{cw}x{ch}!",
             "-evaluate", "multiply", str(opacity), ")",
             "-alpha", "off", "-compose", "CopyOpacity", "-composite", "-compose", "Over",
@@ -528,9 +530,19 @@ def scene_cmd(colors: dict[str, str], w: int, h: int, hy: int, ax: int, grid: Pa
         "-colorspace", "gray", "-evaluate", "multiply", "0.05", ")",
         "-compose", "Plus", "-composite", "-compose", "Over",
     ]
-    # Atmosphere: a wide neutral haze and a tighter acid bloom on the horizon.
-    cmd += glow(w, h, colors["on_surface"], ax, hy, w * 0.55, px(260), 0.05)
-    cmd += glow(w, h, colors["primary"], ax, hy, w * 0.32, px(110), 0.10)
+    # Light. The liquid-glass panes over this scene blur and bend what is
+    # under them, so the world needs soft, large, luminous shapes (a black
+    # sky refracts into a grey box): a wide neutral haze and a layered acid
+    # bloom on the horizon, a cool haze high in the right of the sky, a
+    # floor glow at the lower left, and two tilted light leaks across the sky.
+    cmd += glow(w, h, colors["on_surface"], ax, hy, w * 0.55, px(260), 0.07)
+    cmd += glow(w, h, colors["primary"], ax, hy, w * 0.42, px(170), 0.18)
+    cmd += glow(w, h, colors["primary"], ax, hy, w * 0.18, px(70), 0.22)
+    cmd += glow(w, h, colors["on_surface"], w * 0.82, px(230), w * 0.20, px(150), 0.07)
+    cmd += glow(w, h, colors["primary"], w * 0.16, h - px(170), w * 0.24, px(170), 0.16)
+    cmd += glow(w, h, colors["on_surface"], w * 0.16, h - px(170), w * 0.16, px(120), 0.05)
+    cmd += glow(w, h, colors["on_surface"], w * 0.38, px(330), w * 0.48, px(34), 0.05, -16)
+    cmd += glow(w, h, colors["primary"], w * 0.64, px(250), w * 0.36, px(26), 0.07, -16)
     # Sky texture: the halftone mesh, barely there, thinning out toward the
     # horizon and around the overlay's clock ring (about 0.82 down the sky).
     cmd += ["(", str(el / "mesh-plane.png"), "-resize", f"{w}x{hy}^", "-gravity", "center",
@@ -578,7 +590,6 @@ def build_wallpapers(colors: dict[str, str]) -> None:
     el = OUT / "elements"
     for w, h in WALLPAPER_SIZES:
         s = h / 1200  # design units: a 1200 px tall canvas
-        ultrawide = w / h > 2
 
         def px(v: float) -> int:
             return round(v * s)
@@ -603,9 +614,9 @@ def build_wallpapers(colors: dict[str, str]) -> None:
         m, t = px(28), max(1, px(1.5))
         mt = m + px(52)
         hy = px(655)  # horizon
-        # The overlay's clock ring stands on this axis (HudScene.qml), so the
-        # horizon bloom sits right under it like a sun on the grid.
-        ax = round(w * (0.40 if ultrawide else 0.42))
+        # The overlay's hero clock is centred (Layout.qml), so the horizon
+        # bloom sits right under it like a sun on the grid.
+        ax = round(w / 2)
 
         cmd = scene_cmd(colors, w, h, hy, ax, CACHE / f"floor-{w}x{h}.png")
         # Altimeter rulers on both frame edges, from under the header to the horizon.
@@ -628,7 +639,7 @@ def build_wallpapers(colors: dict[str, str]) -> None:
         # Scanlines and vignette last, so they sit over every layer above.
         cmd += scanlines(w, h, max(2, px(3)), 0.22)
         cmd += ["(", "-size", f"{w}x{h}", "-define", "gradient:extent=farthest",
-                "radial-gradient:rgba(0,0,0,0)-rgba(0,0,0,0.55)", ")", "-geometry", "+0+0", "-composite"]
+                "radial-gradient:rgba(0,0,0,0)-rgba(0,0,0,0.42)", ")", "-geometry", "+0+0", "-composite"]
         # Thin inset frame with acid corner ticks: only the sides are drawn, the
         # top and bottom hairlines read as stray lines under the bar and along
         # the screen edge.

@@ -1,8 +1,8 @@
 import QtQuick
 
 // Right-column instrument: an oscilloscope whose trace swells with live network
-// traffic, over a wire hand raising a spinning orb. Mirrors Telemetry's header
-// and type so the two columns read as one system.
+// traffic, on its glass pane, over a wire hand raising a spinning orb. Mirrors
+// Telemetry's header and type so the two columns read as one system.
 Column {
     id: root
 
@@ -56,14 +56,8 @@ Column {
         width: root.span
         height: 74 * root.u
 
-        Rectangle {
-            anchors.fill: parent
-            color: "transparent"
-            border.color: Theme.outline
-            border.width: Math.max(1, root.u)
-            opacity: 0.55
-        }
-        // Acid corner ticks, as on the wallpaper frame.
+        // No box: the glass pane's rim frames the scope. Acid corner ticks,
+        // as on the wallpaper frame.
         Repeater {
             model: [[0, 0, 1, 1], [1, 0, -1, 1], [0, 1, 1, -1], [1, 1, -1, -1]]
             Item {
@@ -199,7 +193,8 @@ Column {
             width: 168 * root.u
             height: width
             anchors.horizontalCenter: parent.horizontalCenter
-            y: 6 * root.u - relic.drift * 10 * root.u
+            // Low enough for the halo to clear the glass pane's bottom rim.
+            y: 30 * root.u - relic.drift * 10 * root.u
 
             HudImage {
                 name: "orb-halo"
