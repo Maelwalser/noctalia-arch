@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Lock the session the ACID//HUD way: the HUD overlay first slides its two
+# glass doors shut over the desktop (the reverse of the unlock reveal,
+# quickshell/hud/UnlockFold.qml) and locks through Noctalia when they meet.
+# If the HUD is not running, or the lock has not come after the doors have
+# had time to close, lock directly so a keypress never goes unanswered.
+set -u
+
+locked() {
+  local sid="${XDG_SESSION_ID:-}"
+  [[ -n "$sid" ]] || sid=$(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="$USER" '$3 == u && $4 == "seat0" { print $1; exit }')
+  [[ -n "$sid" ]] && [[ "$(loginctl show-session "$sid" -p LockedHint --value 2>/dev/null)" == yes ]]
+}
+
+locked && exit 0
+if qs -c hud ipc call lock close "" >/dev/null 2>&1; then
+  # The doors take ~1.2 s, then Noctalia needs a moment to map its lock surface.
+  for _ in $(seq 1 30); do
+    sleep 0.1
+    locked && exit 0
+  done
+fi
+exec noctalia msg session lock

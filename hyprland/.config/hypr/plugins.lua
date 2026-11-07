@@ -99,9 +99,10 @@ if hl.plugin.hyprglass ~= nil then
         hg.layer("hud-glass", { preset = "acid_pane", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
         -- The unlock reveal (quickshell hud, UnlockFold.qml): the lock scene
         -- parts as two frosted glass doors. The layer's alpha is the door's
-        -- presence, and in contour mode the lens edge, rim and chromatic
-        -- fringe follow the door's outline; the feather turns the alpha into
-        -- the blur's strength. Below the threshold the shader only casts a
+        -- presence, and the feather turns it into the blur's strength. Plain
+        -- alpha mode, not contour: the contour is rebuilt on a timer and
+        -- lagged the moving door into visible steps, and the shader draws the
+        -- door's border itself. Below the threshold the shader only casts a
         -- soft shadow, which must stay sharp.
         hg.preset("acid_fold", {
             inherits = "acid_clear",
@@ -116,10 +117,10 @@ if hl.plugin.hyprglass ~= nil then
             bevel_strength = 0.2,
             dark = {
                 tint_color = 0xe8dcf510,  -- the frost's lavender, not the toasts' cool white
-                brightness = 1.0,
+                brightness = 1.0,  -- the shader dims the desktop itself (glassDim)
             },
         })
-        hg.layer("hud-unlock", { preset = "acid_fold", mask_mode = "contour", mask_threshold = 0.12, mask_feather = 0.3 })
+        hg.layer("hud-unlock", { preset = "acid_fold", mask_mode = "alpha", mask_threshold = 0.12, mask_feather = 0.3 })
         -- The terminal is the same glass, a shade darker: a dark tint and a
         -- dim on bright windows behind it keep the text readable, the rim is
         -- an even fresnel glow plus the top bevel light, and the focused

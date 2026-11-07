@@ -2,14 +2,28 @@
 # Start, stop or toggle the ACID//HUD Quickshell desktop overlay (~/.config/quickshell/hud).
 set -euo pipefail
 
-running() { pgrep -u "$USER" -f 'qs -c hud$|quickshell -c hud$' >/dev/null; }
+# The live instances of this config, by pid. Asked of quickshell rather than
+# matched on the command line: a reloaded instance re-executes itself as a
+# bare `quickshell`, which a pattern on `qs -c hud` misses, and two
+# instances then fight over the same windows and IPC.
+pids() {
+  qs list --all 2>/dev/null | awk -v cfg="$HOME/.config/quickshell/hud/shell.qml" '
+    /^Instance/ { pid = "" }
+    /Process ID:/ { pid = $3 }
+    /Config path:/ && $3 == cfg && pid != "" { print pid }'
+}
+
+running() { [[ -n "$(pids)" ]]; }
 
 start() {
   command -v qs >/dev/null || { echo "hud-overlay: quickshell not installed (pacman -S quickshell)" >&2; exit 1; }
   running || setsid -f qs -c hud >/dev/null 2>&1
 }
 
-stop() { pkill -u "$USER" -f 'qs -c hud$|quickshell -c hud$' || true; }
+stop() {
+  local p
+  for p in $(pids); do kill "$p" 2>/dev/null || true; done
+}
 
 case "${1:-toggle}" in
   start) start ;;

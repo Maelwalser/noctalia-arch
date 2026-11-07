@@ -117,8 +117,9 @@ hl.bind("SUPER + J", hl.dsp.layout("togglesplit"))
 -- Close window
 hl.bind("ALT + SHIFT + q", hl.dsp.window.close())
 
--- Lock screen
-hl.bind("SUPER + l", hl.dsp.exec_cmd("noctalia msg session lock"))
+-- Lock screen: the HUD closes its glass doors over the desktop first, then
+-- locks (hud/.local/bin/hud-lock; a plain `noctalia msg session lock` skips the animation)
+hl.bind("SUPER + l", hl.dsp.exec_cmd("$HOME/.local/bin/hud-lock"))  -- Hyprland's PATH has no ~/.local/bin
 
 -- --- Window Movement (Vim-style) ---
 -- Tiled windows swap places in the layout. Floating windows step by

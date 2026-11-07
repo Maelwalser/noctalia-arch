@@ -9,7 +9,9 @@ import Quickshell.Hyprland
 // glass panes (hyprglass renders them, see hyprland/plugins.lua), hud-overlay
 // the content on top of them. Start with `hud-overlay start`. A third window,
 // hud-unlock, plays the unlock reveal (UnlockFold.qml) on Noctalia's session
-// hooks: `qs -c hud ipc call lock locked|unlocked` (themes/acid.toml).
+// hooks: `qs -c hud ipc call lock locked|unlocked` (themes/acid.toml), and
+// its reverse on `lock close` (hud-lock), locking the session once the doors
+// are shut on every output.
 ShellRoot {
     id: shell
 
@@ -21,6 +23,9 @@ ShellRoot {
         target: "lock"
         function locked(): void { shell.unlockedSeen = 0; shell.eachFold(f => f.arm()); }
         function unlocked(): void { shell.eachFold(f => f.release()); }
+        // Lock: shut the doors over the desktop, then lock (hud-lock). With an
+        // output named, only that one plays and nothing is locked (for review).
+        function close(output: string): void { shell.eachFold(f => f.close(), output); }
         // Tuning without locking: play it over the static lock art, or freeze
         // it at a point of the fold (0..1) for a screenshot; `clear` ends that.
         // `output` is a connector name (e.g. the claude-shot monitor), "" = all.
@@ -32,6 +37,16 @@ ShellRoot {
         function arm(output: string): void { shell.eachFold(f => f.arm(), output); }
         function release(output: string): void { shell.eachFold(f => f.release(), output); }
         function dump(output: string, path: string): void { shell.eachFold(f => f.dump(path + "-" + f.screen.name + ".png"), output); }
+    }
+
+    // The doors are shut on every output: lock now, and the lock surface
+    // covers the identical scene.
+    readonly property bool allShut: screens.instances.length > 0 && screens.instances.every(o => o.fold.closed)
+    onAllShutChanged: if (allShut) lockSession.running = true
+    Process {
+        id: lockSession
+        command: ["noctalia", "msg", "session", "lock"]
+        onExited: (code, status) => { if (code !== 0) console.warn("hud: noctalia msg session lock exited with", code); }
     }
 
     // Safety net for the armed window (it is opaque): if the session shows as
@@ -145,6 +160,36 @@ ShellRoot {
                     id: unlock
                     anchors.fill: parent
                     screen: output.modelData
+                }
+            }
+
+            // The lock's live readouts (LockWidgets.qml), above the lock
+            // surface (`above_lock` layer rule, hyprland/looknfeel.lua).
+            // Mapped, but blank, while the doors close, so it is surely in
+            // place (a layer surface needs its configure round trip, and its
+            // images are loaded) when they are shut: from then on it shows
+            // them over the fold's identical copy, then over the lock
+            // surface; it goes with the unlock, when the fold's capture
+            // carries them instead.
+            PanelWindow {
+                screen: output.modelData
+                anchors { top: true; bottom: true; left: true; right: true }
+                exclusionMode: ExclusionMode.Ignore
+                color: "transparent"
+                mask: Region {}
+                visible: unlock.readoutsUp
+
+                WlrLayershell.layer: WlrLayer.Overlay
+                WlrLayershell.namespace: "hud-lockwidgets"
+                WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+                LockWidgets {
+                    anchors.fill: parent
+                    screen: output.modelData
+                    active: parent.visible
+                    backed: true
+                    covered: unlock.covering
+                    opacity: unlock.closing ? 0 : 1
                 }
             }
         }

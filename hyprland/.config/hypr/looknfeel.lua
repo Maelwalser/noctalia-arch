@@ -98,6 +98,15 @@ hl.layer_rule({
     no_anim = true,
     blur = false,
 })
+-- The lock's live readouts (clock, date, reticle), drawn by the HUD over
+-- Noctalia's lock surface so the doors carry them both ways.
+hl.layer_rule({
+    name = "hud-lockwidgets",
+    match = { namespace = "^hud-lockwidgets$" },
+    no_anim = true,
+    blur = false,
+    above_lock = true,
+})
 
 -- Custom "snappy" curve. Format: name, { type, points = { {x0, y0}, {x1, y1} } }
 hl.curve("myBezier", { type = "bezier", points = { { 0.05, 0.9 }, { 0.1, 1.05 } } })

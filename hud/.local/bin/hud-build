@@ -52,7 +52,7 @@ COLORS_JSON = HOME / ".config/hud/colors.json"
 DEFAULT_COLORS = {
     "primary": "#ef5fc6",
     "on_primary": "#140a1c",
-    "secondary": "#8f8cff",
+    "secondary": "#ff8fdc",
     "tertiary": "#ffa35e",  # the amber highlight: used sparingly
     "surface": "#0b0712",
     "surface_variant": "#1a1226",
@@ -816,7 +816,7 @@ LOCK_BANK_Y = 205                # top of the first card
 # Card width, height, vertical gap. Noctalia's graph is a fixed ~180x100 block
 # scaled to fit its box, so the cards are about that shape to fill with it.
 LOCK_CARD = (170, 120, 12)
-LOCK_LOGIN = (0, 676, 720, 128)  # login box: x, y, w, h (noctalia's minimum size)
+LOCK_LOGIN = (0, 676, 480, 72)   # login box: x, y, w, h (password field only: noctalia's minimum is 70 tall)
 # Telemetry cards, top to bottom per bank: (side, caption, stat, stat2). Desktop
 # sysmon widgets cannot show disk stats, and gpu_usage polls the RTX 3050
 # through NVML, which wakes it from runtime suspend every few seconds.
@@ -1048,6 +1048,49 @@ def glass_map(w: int, h: int, r: float, band: float, scale: float) -> Path:
     return dst
 
 
+def fold_glass(colors: dict[str, str], pw: int, ph: int) -> list[str]:
+    """The glass sheet the unlock fold parts, as it lights the lock scene
+    before anything moves (quickshell/hud/shaders/fold.frag): two faint light
+    bands leaning across the screen, at xs = x + 0.1 y (screen widths from
+    the centre, y up) equal to +-0.23, as a light above and to one side would
+    throw them. Baked into the lock art so the lock screen already is that
+    sheet and the fold's first frame is the lock to the pixel; the shader
+    draws no bands of its own, only the seam that then splits the sheet.
+    Same formulas as the shader; the bands are far smoother than an 1/8
+    map's sample spacing, so that is scaled up."""
+    def rgb(c: str) -> tuple[float, float, float]:
+        return tuple(int(c[i:i + 2], 16) / 255 for i in (1, 3, 5))
+
+    def mix(a, b, t: float):
+        return tuple(x + (y - x) * t for x, y in zip(a, b))
+
+    white = (1.0, 1.0, 1.0)
+    veil = mix(rgb(colors["on_surface_variant"]), rgb(colors["on_surface"]), 0.35)
+    band_c = mix(white, veil, 0.5)
+    core_c = mix(white, rgb(colors["tertiary"]), 0.3)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    sw, sh = max(1, pw // 8), max(1, ph // 8)
+    dst = CACHE / ("fold-bands-" + "-".join(
+        [f"{pw}x{ph}"] + [colors[k][1:] for k in ("tertiary", "on_surface", "on_surface_variant")]) + ".ppm")
+    if not dst.exists():
+        # 16-bit: the bands are faint and smooth, 8 bits would band them.
+        data = bytearray(f"P6\n{sw} {sh}\n65535\n".encode())
+        for j in range(sh):
+            y = (0.5 - (j + 0.5) / sh) * ph / pw
+            for i in range(sw):
+                xs = (i + 0.5) / sw - 0.5 + 0.1 * y
+                d1, d2 = xs - 0.23, xs + 0.23
+                band = math.exp(-d1 * d1 / 0.0020) + math.exp(-d2 * d2 / 0.0020)
+                core = math.exp(-d1 * d1 / 0.00015) + math.exp(-d2 * d2 / 0.00015)
+                for b, c in zip(band_c, core_c):
+                    v = band * 0.07 * b + core * 0.05 * c
+                    data += round(65535 * min(1.0, max(0.0, v))).to_bytes(2, "big")
+        dst.write_bytes(data)
+    return ["-gravity", "NorthWest",
+            "(", str(dst), "-filter", "Catrom", "-resize", f"{pw}x{ph}!", ")",
+            "-compose", "Plus", "-composite", "-compose", "Over"]
+
+
 def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst: Path,
                        image: Path | None = None) -> None:
     """One output's opaque lock layer: scene plus every static part of the UI,
@@ -1224,10 +1267,13 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
     lx, ly, lw, lh = LOCK_LOGIN
     cmd += glass(lx - lw / 2, ly - lh / 2, lx + lw / 2, ly + lh / 2)
     cmd += text("AUTHENTICATION REQUIRED", MONO_FONT, 10, "on_surface_variant", 0, ly - lh / 2 - 22, 3)
-    cmd += put("chevron-progress", "primary", 70, -210, ly - lh / 2 - 22, 0.9)
-    cmd += put("chevron-progress", "primary", 70, 210, ly - lh / 2 - 22, 0.9, flop=True)
+    cmd += put("chevron-progress", "primary", 70, -(lw / 2 - 60), ly - lh / 2 - 22, 0.9)
+    cmd += put("chevron-progress", "primary", 70, lw / 2 - 60, ly - lh / 2 - 22, 0.9, flop=True)
     cmd += corners(lx - lw / 2 - 8, ly - lh / 2 - 8, lx + lw / 2 + 8, ly + lh / 2 + 8, 16, 2, acid)
 
+    # The unlock's glass sheet: its light bands over the whole UI, as the
+    # fold draws them (the live widgets sit above it).
+    cmd += fold_glass(colors, pw, ph)
 
     with staged(dst) as tmp:
         run(*cmd, "-depth", "8", tmp)
@@ -1269,32 +1315,12 @@ def lock_layout_toml() -> str:
 
         widget("static", "sticker", w / 2, h / 2, w, h,
                {"image_path": str(lock / f"static-{name}.png"), "background": False}, absolute=True)
-        # The reticle GIF carries the scene under it, so its box must land on
-        # the same physical pixels it was baked from: whole-pixel geometry
-        # written at full precision (logical px = physical / scale).
-        left, top, size = reticle_box(w, h, scale)
-        widget("reticle", "sticker", (left + size / 2) / scale, (top + size / 2) / scale,
-               size / scale, size / scale,
-               {"image_path": str(lock / f"reticle-{name}.gif"), "background": False},
-               absolute=True, digits=3)
+        # The reticle (reticle_box), the hero clock (LOCK_CLOCK), the seconds
+        # (LOCK_SECONDS), the date and the week (LOCK_DATE_*) are live readouts
+        # the HUD draws itself, above the lock surface and in its closing
+        # doors (quickshell/hud/LockWidgets.qml, which repeats this spec), so
+        # they are not Noctalia widgets.
         text = {"background": False, "shadow": False}
-        x, y, bw, bh = LOCK_CLOCK
-        widget("time", "clock", x, y, bw, bh,
-               {"format": "{:%H:%M}", "center_text": True, "color": "on_surface",
-                "font_family": "Chakra Petch SemiBold", **text})
-        x, y, bw, bh = LOCK_SECONDS
-        widget("seconds", "clock", x, y, bw, bh,
-               {"format": "{:%S}", "center_text": True, "color": "primary",
-                "font_family": "Departure Mono", **text})
-        # Numeric date and ISO week: the clock format cannot upper-case a day
-        # name, and a mixed-case "Thu" clashes with the all-caps HUD.
-        dx, wx = LOCK_DATE_X
-        widget("date", "clock", dx, LOCK_DATE_Y, 120, 16,
-               {"format": "{:%d.%m.%y}", "center_text": True, "color": "on_surface_variant",
-                "font_family": "Departure Mono", **text})
-        widget("week", "clock", wx, LOCK_DATE_Y, 80, 16,
-               {"format": "W{:%V}", "center_text": True, "color": "on_surface_variant",
-                "font_family": "Departure Mono", **text})
         graph = {"display": "graph", "color": "primary", "color2": "on_surface_variant",
                  "show_label": True, "font_family": "Departure Mono", **text}
         for _idx, _side, _caption, stat, stat2, x0, y0, x1, y1 in lock_cards():
@@ -1304,13 +1330,19 @@ def lock_layout_toml() -> str:
             # Below the header rule (y0 + 28) down to an 8 u margin.
             widget(stat, "sysmon", (x0 + x1) / 2, (y0 + 32 + y1 - 8) / 2, x1 - x0 - 20, y1 - y0 - 40, s)
         lx, ly, lw, lh = LOCK_LOGIN
-        # The box itself is clear: the static art carries a glass pane under it.
+        # The box itself is clear: the static art carries a glass pane under it,
+        # and the password field is a faint tint on that glass. Noctalia's
+        # session chips are opaque surface-filled buttons with no translucent
+        # variant, so they stay off the lock (the session panel has them); the
+        # compact layout is the field alone and allows a strip narrower than
+        # the regular layout's 720 minimum. No reveal (eye) button either: the
+        # field is the only thing in the row, so it fills it and sits centred.
         widget(f"lockscreen-login-box@{name}", "login_box", lx, ly, lw, lh,
-               {"layout": "regular", "show_media": False, "show_weather": False,
-                "show_session_buttons": True, "background_color": "surface",
-                "background_opacity": 0.0, "background_radius": 18.0, "input_opacity": 1.0,
-                "input_radius": 12.0, "show_login_button": False, "center_password_text": True,
-                "show_unlock_hint": False})
+               {"layout": "compact", "show_media": False, "show_weather": False,
+                "show_session_buttons": False, "background_color": "surface",
+                "background_opacity": 0.0, "background_radius": 18.0, "input_opacity": 0.35,
+                "input_radius": 12.0, "show_login_button": False, "show_password_reveal": False,
+                "center_password_text": True, "show_unlock_hint": False})
 
     out.append("widget_order = [\n" + "".join(f'  "{k}",\n' for k in order) + "]")
     return "\n".join(out) + "\n\n" + "\n\n".join(tables) + "\n"

@@ -315,11 +315,6 @@ enabled = true
 schema_version = 2 # current layout schema; without it noctalia migrates the table into state
 widget_order = [
   "hud_static_edp1",
-  "hud_reticle_edp1",
-  "hud_time_edp1",
-  "hud_seconds_edp1",
-  "hud_date_edp1",
-  "hud_week_edp1",
   "hud_cpu_usage_edp1",
   "hud_cpu_freq_edp1",
   "hud_ram_pct_edp1",
@@ -328,11 +323,6 @@ widget_order = [
   "hud_swap_pct_edp1",
   "lockscreen-login-box@eDP-1",
   "hud_static_u4025qw",
-  "hud_reticle_u4025qw",
-  "hud_time_u4025qw",
-  "hud_seconds_u4025qw",
-  "hud_date_u4025qw",
-  "hud_week_u4025qw",
   "hud_cpu_usage_u4025qw",
   "hud_cpu_freq_u4025qw",
   "hud_ram_pct_u4025qw",
@@ -341,11 +331,6 @@ widget_order = [
   "hud_swap_pct_u4025qw",
   "lockscreen-login-box@U4025QW",
   "hud_static_zowie",
-  "hud_reticle_zowie",
-  "hud_time_zowie",
-  "hud_seconds_zowie",
-  "hud_date_zowie",
-  "hud_week_zowie",
   "hud_cpu_usage_zowie",
   "hud_cpu_freq_zowie",
   "hud_ram_pct_zowie",
@@ -365,77 +350,6 @@ box_height = 800.0
 [lockscreen_widgets.widget.hud_static_edp1.settings]
 image_path = "/home/mael/.local/share/hud/lock/static-eDP-1.png"
 background = false
-
-[lockscreen_widgets.widget.hud_reticle_edp1]
-output = "eDP-1"
-type = "sticker"
-cx = 506.000
-cy = 112.000
-box_width = 26.667
-box_height = 26.667
-[lockscreen_widgets.widget.hud_reticle_edp1.settings]
-image_path = "/home/mael/.local/share/hud/lock/reticle-eDP-1.gif"
-background = false
-
-[lockscreen_widgets.widget.hud_time_edp1]
-output = "eDP-1"
-type = "clock"
-cx = 640.0
-cy = 226.0
-box_width = 560.0
-box_height = 280.0
-[lockscreen_widgets.widget.hud_time_edp1.settings]
-format = "{:%H:%M}"
-center_text = true
-color = "on_surface"
-font_family = "Chakra Petch SemiBold"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_seconds_edp1]
-output = "eDP-1"
-type = "clock"
-cx = 864.0
-cy = 266.0
-box_width = 64.0
-box_height = 34.0
-[lockscreen_widgets.widget.hud_seconds_edp1.settings]
-format = "{:%S}"
-center_text = true
-color = "primary"
-font_family = "Departure Mono"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_date_edp1]
-output = "eDP-1"
-type = "clock"
-cx = 588.0
-cy = 358.0
-box_width = 120.0
-box_height = 16.0
-[lockscreen_widgets.widget.hud_date_edp1.settings]
-format = "{:%d.%m.%y}"
-center_text = true
-color = "on_surface_variant"
-font_family = "Departure Mono"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_week_edp1]
-output = "eDP-1"
-type = "clock"
-cx = 672.0
-cy = 358.0
-box_width = 80.0
-box_height = 16.0
-[lockscreen_widgets.widget.hud_week_edp1.settings]
-format = "W{:%V}"
-center_text = true
-color = "on_surface_variant"
-font_family = "Departure Mono"
-background = false
-shadow = false
 
 [lockscreen_widgets.widget.hud_cpu_usage_edp1]
 output = "eDP-1"
@@ -545,19 +459,20 @@ output = "eDP-1"
 type = "login_box"
 cx = 640.0
 cy = 676.0
-box_width = 720.0
-box_height = 128.0
+box_width = 480.0
+box_height = 72.0
 [lockscreen_widgets.widget."lockscreen-login-box@eDP-1".settings]
-layout = "regular"
+layout = "compact"
 show_media = false
 show_weather = false
-show_session_buttons = true
+show_session_buttons = false
 background_color = "surface"
 background_opacity = 0.0
 background_radius = 18.0
-input_opacity = 1.0
+input_opacity = 0.35
 input_radius = 12.0
 show_login_button = false
+show_password_reveal = false
 center_password_text = true
 show_unlock_hint = false
 
@@ -571,77 +486,6 @@ box_height = 1080.0
 [lockscreen_widgets.widget.hud_static_u4025qw.settings]
 image_path = "/home/mael/.local/share/hud/lock/static-U4025QW.png"
 background = false
-
-[lockscreen_widgets.widget.hud_reticle_u4025qw]
-output = "U4025QW"
-type = "sticker"
-cx = 1099.000
-cy = 151.000
-box_width = 35.000
-box_height = 35.000
-[lockscreen_widgets.widget.hud_reticle_u4025qw.settings]
-image_path = "/home/mael/.local/share/hud/lock/reticle-U4025QW.gif"
-background = false
-
-[lockscreen_widgets.widget.hud_time_u4025qw]
-output = "U4025QW"
-type = "clock"
-cx = 1280.0
-cy = 305.1
-box_width = 756.0
-box_height = 378.0
-[lockscreen_widgets.widget.hud_time_u4025qw.settings]
-format = "{:%H:%M}"
-center_text = true
-color = "on_surface"
-font_family = "Chakra Petch SemiBold"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_seconds_u4025qw]
-output = "U4025QW"
-type = "clock"
-cx = 1582.4
-cy = 359.1
-box_width = 86.4
-box_height = 45.9
-[lockscreen_widgets.widget.hud_seconds_u4025qw.settings]
-format = "{:%S}"
-center_text = true
-color = "primary"
-font_family = "Departure Mono"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_date_u4025qw]
-output = "U4025QW"
-type = "clock"
-cx = 1209.8
-cy = 483.3
-box_width = 162.0
-box_height = 21.6
-[lockscreen_widgets.widget.hud_date_u4025qw.settings]
-format = "{:%d.%m.%y}"
-center_text = true
-color = "on_surface_variant"
-font_family = "Departure Mono"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_week_u4025qw]
-output = "U4025QW"
-type = "clock"
-cx = 1323.2
-cy = 483.3
-box_width = 108.0
-box_height = 21.6
-[lockscreen_widgets.widget.hud_week_u4025qw.settings]
-format = "W{:%V}"
-center_text = true
-color = "on_surface_variant"
-font_family = "Departure Mono"
-background = false
-shadow = false
 
 [lockscreen_widgets.widget.hud_cpu_usage_u4025qw]
 output = "U4025QW"
@@ -751,19 +595,20 @@ output = "U4025QW"
 type = "login_box"
 cx = 1280.0
 cy = 912.6
-box_width = 972.0
-box_height = 172.8
+box_width = 648.0
+box_height = 97.2
 [lockscreen_widgets.widget."lockscreen-login-box@U4025QW".settings]
-layout = "regular"
+layout = "compact"
 show_media = false
 show_weather = false
-show_session_buttons = true
+show_session_buttons = false
 background_color = "surface"
 background_opacity = 0.0
 background_radius = 18.0
-input_opacity = 1.0
+input_opacity = 0.35
 input_radius = 12.0
 show_login_button = false
+show_password_reveal = false
 center_password_text = true
 show_unlock_hint = false
 
@@ -777,77 +622,6 @@ box_height = 1080.0
 [lockscreen_widgets.widget.hud_static_zowie.settings]
 image_path = "/home/mael/.local/share/hud/lock/static-ZOWIE.png"
 background = false
-
-[lockscreen_widgets.widget.hud_reticle_zowie]
-output = "ZOWIE"
-type = "sticker"
-cx = 779.000
-cy = 151.000
-box_width = 36.000
-box_height = 36.000
-[lockscreen_widgets.widget.hud_reticle_zowie.settings]
-image_path = "/home/mael/.local/share/hud/lock/reticle-ZOWIE.gif"
-background = false
-
-[lockscreen_widgets.widget.hud_time_zowie]
-output = "ZOWIE"
-type = "clock"
-cx = 960.0
-cy = 305.1
-box_width = 756.0
-box_height = 378.0
-[lockscreen_widgets.widget.hud_time_zowie.settings]
-format = "{:%H:%M}"
-center_text = true
-color = "on_surface"
-font_family = "Chakra Petch SemiBold"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_seconds_zowie]
-output = "ZOWIE"
-type = "clock"
-cx = 1262.4
-cy = 359.1
-box_width = 86.4
-box_height = 45.9
-[lockscreen_widgets.widget.hud_seconds_zowie.settings]
-format = "{:%S}"
-center_text = true
-color = "primary"
-font_family = "Departure Mono"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_date_zowie]
-output = "ZOWIE"
-type = "clock"
-cx = 889.8
-cy = 483.3
-box_width = 162.0
-box_height = 21.6
-[lockscreen_widgets.widget.hud_date_zowie.settings]
-format = "{:%d.%m.%y}"
-center_text = true
-color = "on_surface_variant"
-font_family = "Departure Mono"
-background = false
-shadow = false
-
-[lockscreen_widgets.widget.hud_week_zowie]
-output = "ZOWIE"
-type = "clock"
-cx = 1003.2
-cy = 483.3
-box_width = 108.0
-box_height = 21.6
-[lockscreen_widgets.widget.hud_week_zowie.settings]
-format = "W{:%V}"
-center_text = true
-color = "on_surface_variant"
-font_family = "Departure Mono"
-background = false
-shadow = false
 
 [lockscreen_widgets.widget.hud_cpu_usage_zowie]
 output = "ZOWIE"
@@ -957,18 +731,19 @@ output = "ZOWIE"
 type = "login_box"
 cx = 960.0
 cy = 912.6
-box_width = 972.0
-box_height = 172.8
+box_width = 648.0
+box_height = 97.2
 [lockscreen_widgets.widget."lockscreen-login-box@ZOWIE".settings]
-layout = "regular"
+layout = "compact"
 show_media = false
 show_weather = false
-show_session_buttons = true
+show_session_buttons = false
 background_color = "surface"
 background_opacity = 0.0
 background_radius = 18.0
-input_opacity = 1.0
+input_opacity = 0.35
 input_radius = 12.0
 show_login_button = false
+show_password_reveal = false
 center_password_text = true
 show_unlock_hint = false
