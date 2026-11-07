@@ -1,0 +1,504 @@
+Contour: nested shapes (mask_nested), a lens laid on a pane.
+
+- hg.layer(..., { mask_nested = alpha }): content inside a traced shape that
+  is drawn above this alpha is a nested shape with its own edge, bend and
+  highlights: the capsules inside a bar, the selected tab of a tab bar. The
+  seed pass votes over each texel's translucent surroundings so glyphs on the
+  bar are not shapes and glyphs on a capsule do not punch holes in it; the
+  distance transform carries two signed fields (the outline's and the nested
+  shapes'), both smoothed, and the pack pass hands the glass shader the
+  nested field inside a nested shape, the outline's everywhere else, with
+  a = 1 inside a nested shape.
+- In the glass shader a nested shape's lens edge is half the pane's, its rim
+  line catches light on the sides too and gets 1.3x, after the iOS 26 tab
+  bar: the selected tab's lens has a soft rim all round where the bar's
+  sides have none. Measured on Noctalia's bar at 1.5x: capsule rim top/bottom
+  about +18/+20 over its body, sides +10; the rail's own rim +14/+11.
+- Layers without mask_nested render as before: the nested field is +reach
+  everywhere and never chosen.
+
+diff --git a/README.md b/README.md
+index dc73681..a4df269 100644
+--- a/README.md
++++ b/README.md
+@@ -337,6 +337,13 @@ hg.layer("quickshell:notifications", { mask_mode = "contour" })
+ - A layer behind an opaque window keeps the `alpha` look until it has been redrawn in full once
+ - A GPU that cannot render it falls back to `alpha`, with a notification
+ 
++**Nested shapes:** `mask_nested` gives the shapes an app draws *inside* a traced shape their own edge, bend and highlights, like a lens laid on a pane: the pills inside a bar, the selected tab of a tab bar. Content above that alpha (and above `mask_threshold`) is a nested shape; the region around it votes, so text and icons, which sit on both, neither become shapes nor punch holes in one. Set it between the outer shape's alpha and the nested shape's, where both are translucent.
++
++```lua
++-- a bar at alpha 0.1 whose pills add 0.1 on top
++hg.layer("quickshell:bar", { mask_mode = "contour", mask_nested = 0.15 })
++```
++
+ **Cost:** none for layers that do not use it. For a layer that does, one extra texture read per glass pixel, and a few short GPU passes and a few MB of memory while a contour layer exists (shared work buffers included), freed when the last one closes or stops using `contour`. `hyprctl hyprglass stats` counts the rebuilds (`contour_build`).
+ 
+ **Fixed shape:** `shape` gives a layer's glass its own rounded box, so a floating bar or a card inside a larger layer gets its own edge, bend and highlights instead of those of the whole layer. `inset` trims the layer's edges (one value, or top, right, bottom, left) and `radius` rounds the corners, `-1` for a pill; both in logical px (up to 16384), and a negative inset reaches past that edge. Content outside the shape is still drawn, without glass. Inside it, `mask_mode` still decides where the glass goes: set the layer's `mask_threshold` to `0` to fill the whole shape.
+@@ -373,6 +380,7 @@ hg.layer("debug-panel", { exclude = true })
+ | `live_resample` | bool | Per-layer override of `layers.live_resample` |
+ | `mask_mode` | string | `"auto"`, `"region"`, `"alpha"` or `"contour"`. Per-layer override of `layers.mask_mode` |
+ | `mask_feather` | float | Per-layer override of `layers.mask_feather` |
++| `mask_nested` | float | Contour only: alpha above which content inside the traced shape is a nested shape with its own edge (`0`, the default, = none) |
+ | `shape` | table | Fixed glass shape: `{ inset = px or { top, right, bottom, left }, radius = px }`, both optional (`0`); `radius = -1` = pill |
+ | `exclude` | bool | Blacklist this namespace instead of whitelisting it |
+ 
+diff --git a/src/Contour.cpp b/src/Contour.cpp
+index 39431f3..f41b84d 100644
+--- a/src/Contour.cpp
++++ b/src/Contour.cpp
+@@ -202,17 +202,24 @@ bool CField::build(Render::CRenderContext& ctx, const SBuildKey& key, const SP<R
+         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+     };
+ 
+-    // 1. which texels are inside the outline: the layer's alpha against the mask threshold,
+-    //    scaled by its fade so a layer part way through a fade keeps its shape
++    // 1. which texels are inside the outline, and inside a nested shape: the layer's alpha
++    //    against the thresholds, scaled by its fade so a layer part way through a fade keeps
++    //    its shape
+     {
+-        const auto& uniforms = programs->seedUniforms;
++        const auto& uniforms   = programs->seedUniforms;
++        const float fade       = std::clamp(fadeAlpha, 0.0f, 1.0f);
++        const int   voteRadius = std::clamp(static_cast<int>(std::lround(NESTED_VOTE_RADIUS_LOGICAL * key.scale / divisor)), 1, NESTED_VOTE_MAX_RADIUS);
++        const int   voteStep   = std::max(voteRadius / NESTED_VOTE_TAPS_PER_SIDE, 1);
+         pass(programs->seed, first, layerRender, [&] {
+             glUniform1i(uniforms.tex, 0);
+             glUniform2f(uniforms.boxOffsetPx, static_cast<float>(box.x), static_cast<float>(box.y));
+             glUniform2f(uniforms.boxSizePx, static_cast<float>(plan.boxWidth), static_cast<float>(plan.boxHeight));
+             glUniform2f(uniforms.sourceSizePx, static_cast<float>(layerRender->m_size.x), static_cast<float>(layerRender->m_size.y));
+             glUniform1f(uniforms.divisor, divisor);
+-            glUniform1f(uniforms.threshold, key.threshold * std::clamp(fadeAlpha, 0.0f, 1.0f));
++            glUniform1f(uniforms.threshold, key.threshold * fade);
++            glUniform1f(uniforms.nested, key.nested * fade);
++            glUniform1i(uniforms.voteRadius, voteRadius);
++            glUniform1i(uniforms.voteStep, voteStep);
+         });
+     }
+ 
+diff --git a/src/Contour.hpp b/src/Contour.hpp
+index 2884b09..9d92f44 100644
+--- a/src/Contour.hpp
++++ b/src/Contour.hpp
+@@ -59,6 +59,13 @@ inline constexpr std::chrono::milliseconds MIN_REBUILD_INTERVAL{8};
+ // provisional, and rebuilt once the layer is at least this opaque.
+ inline constexpr float COMPLETE_ALPHA = 0.98f;
+ 
++// The nested vote (mask_nested, contourseed.frag) looks this many logical px each side of a
++// texel, at about this many taps per axis: wide enough that a glyph's own strokes never carry
++// the vote, narrow enough that a pill's edge is where the app drew it.
++inline constexpr float NESTED_VOTE_RADIUS_LOGICAL = 4.0f;
++inline constexpr int   NESTED_VOTE_MAX_RADIUS     = 8;  // texels
++inline constexpr int   NESTED_VOTE_TAPS_PER_SIDE  = 3;
++
+ // A build waits for a frame that redraws the whole layer. After this many tries in a row it
+ // stops asking for more damage, so a layer that is never fully redrawn cannot loop the renderer.
+ inline constexpr int MAX_UNCOVERED_FRAMES = 6;
+@@ -123,6 +130,8 @@ struct SPlan {
+ struct SBuildKey {
+     SPlan plan;
+     float threshold   = 0.0f; // mask_threshold, before the layer's fade
++    float nested      = 0.0f; // mask_nested, before the layer's fade; 0 = no nested shapes
++    float scale       = 1.0f; // the monitor's, for the nested vote's window
+     bool  provisional = false; // built while the layer was still fading in
+     // Where the box sits in the framebuffer, only while part of it is off the screen: the
+     // visible part is all that was drawn. (0, 0) while it is entirely on screen.
+diff --git a/src/GlassLayerSurface.cpp b/src/GlassLayerSurface.cpp
+index 7733408..86a0251 100644
+--- a/src/GlassLayerSurface.cpp
++++ b/src/GlassLayerSurface.cpp
+@@ -514,6 +514,15 @@ float CGlassLayerSurface::resolveMaskThreshold() const {
+     return threshold;
+ }
+ 
++float CGlassLayerSurface::resolveMaskNested() const {
++    if (const auto layerSurface = m_layerSurface.lock()) {
++        const auto it = g_pGlobalState->layerNamespaceMaskNested.find(layerSurface->m_namespace);
++        if (it != g_pGlobalState->layerNamespaceMaskNested.end())
++            return it->second;
++    }
++    return 0.0f;
++}
++
+ std::optional<Contour::SBuildKey> CGlassLayerSurface::contourBuildKey(PHLMONITOR monitor, const CBox& layerBox, const Vector2D& targetSize, float alpha,
+                                                                       const SResolveContext& resolveContext) const {
+     if (!monitor)
+@@ -541,10 +550,13 @@ std::optional<Contour::SBuildKey> CGlassLayerSurface::contourBuildKey(PHLMONITOR
+ 
+     // a NaN would never equal itself in the field's build key and rebuild it every frame
+     const float maskThreshold = resolveMaskThreshold();
++    const float maskNested    = resolveMaskNested();
+ 
+     return Contour::SBuildKey{
+         .plan        = *plan,
+         .threshold   = std::isfinite(maskThreshold) ? maskThreshold : 0.001f,
++        .nested      = std::isfinite(maskNested) ? maskNested : 0.0f,
++        .scale       = scale,
+         .provisional = alpha < Contour::COMPLETE_ALPHA,
+         .boxX        = onScreen ? 0 : static_cast<int>(layerBox.x),
+         .boxY        = onScreen ? 0 : static_cast<int>(layerBox.y),
+diff --git a/src/GlassLayerSurface.hpp b/src/GlassLayerSurface.hpp
+index 62caa8f..e4c62ca 100644
+--- a/src/GlassLayerSurface.hpp
++++ b/src/GlassLayerSurface.hpp
+@@ -170,6 +170,8 @@ class CGlassLayerSurface {
+ 
+     // mask_threshold for this layer as configured: namespace entry, else layers:mask_threshold.
+     [[nodiscard]] float resolveMaskThreshold() const;
++    // mask_nested for this layer: namespace entry, else 0 (no nested shapes).
++    [[nodiscard]] float resolveMaskNested() const;
+ 
+     [[nodiscard]] bool           resolveThemeIsDark() const;
+     [[nodiscard]] std::string    resolvePresetName() const;
+diff --git a/src/Globals.hpp b/src/Globals.hpp
+index ac15652..1c6ac9b 100644
+--- a/src/Globals.hpp
++++ b/src/Globals.hpp
+@@ -78,6 +78,8 @@ struct SGlobalState {
+     std::unordered_map<std::string, ELayerMaskMode> layerNamespaceMaskModes;
+     // Per-namespace mask_feather override (namespace → feather)
+     std::unordered_map<std::string, float> layerNamespaceMaskFeathers;
++    // Per-namespace mask_nested (namespace → alpha above which content inside the outline is a nested shape)
++    std::unordered_map<std::string, float> layerNamespaceMaskNested;
+     // Per-namespace fixed glass shape (namespace → shape); absent = the whole layer box
+     std::unordered_map<std::string, SLayerShape> layerNamespaceShapes;
+ 
+diff --git a/src/PluginConfig.cpp b/src/PluginConfig.cpp
+index 75c8388..1bf6060 100644
+--- a/src/PluginConfig.cpp
++++ b/src/PluginConfig.cpp
+@@ -769,6 +769,7 @@ struct SPendingLayer {
+     std::string                   preset;
+     float                         maskThreshold = -1.0f;
+     float                         maskFeather   = -1.0f;
++    float                         maskNested    = -1.0f;
+     bool                          exclude       = false;
+     int                           liveResample  = -1; // -1 = not set
+     std::optional<ELayerMaskMode> maskMode;
+@@ -818,7 +819,7 @@ static std::optional<SLayerShape> readLuaLayerShape(lua_State* L, int tableIdx)
+ }
+ 
+ // What hyprglass.layer takes in its table; anything else is reported.
+-static constexpr std::array<std::string_view, 7> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "live_resample", "mask_mode", "shape"};
++static constexpr std::array<std::string_view, 8> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "mask_nested", "live_resample", "mask_mode", "shape"};
+ 
+ static int handleLuaLayer(lua_State* L) {
+     s_hyprglassCalledThisReload = true;
+@@ -886,6 +887,13 @@ static int handleLuaLayer(lua_State* L) {
+             typeError("mask_feather", "a finite number, 0 or more");
+         lua_pop(L, 1);
+ 
++        lua_getfield(L, 2, "mask_nested");
++        if (const auto value = luaFiniteNumber(L, -1); value && *value >= 0.0)
++            entry.maskNested = static_cast<float>(*value);
++        else if (!lua_isnil(L, -1))
++            typeError("mask_nested", "a finite number, 0 or more");
++        lua_pop(L, 1);
++
+         lua_getfield(L, 2, "live_resample");
+         if (lua_isboolean(L, -1))
+             entry.liveResample = lua_toboolean(L, -1) ? 1 : 0;
+@@ -935,6 +943,7 @@ static void resetLayerNamespaces() {
+     g_pGlobalState->layerNamespaceLiveResample.clear();
+     g_pGlobalState->layerNamespaceMaskModes.clear();
+     g_pGlobalState->layerNamespaceMaskFeathers.clear();
++    g_pGlobalState->layerNamespaceMaskNested.clear();
+     g_pGlobalState->layerNamespaceShapes.clear();
+ }
+ 
+@@ -952,6 +961,8 @@ void commitPendingLayers() {
+                 g_pGlobalState->layerNamespaceMaskThresholds[entry.ns] = entry.maskThreshold;
+             if (entry.maskFeather >= 0.0f)
+                 g_pGlobalState->layerNamespaceMaskFeathers[entry.ns] = entry.maskFeather;
++            if (entry.maskNested > 0.0f)
++                g_pGlobalState->layerNamespaceMaskNested[entry.ns] = entry.maskNested;
+             if (entry.liveResample >= 0)
+                 g_pGlobalState->layerNamespaceLiveResample[entry.ns] = entry.liveResample != 0;
+             if (entry.maskMode)
+diff --git a/src/ShaderManager.cpp b/src/ShaderManager.cpp
+index d1ef665..e205def 100644
+--- a/src/ShaderManager.cpp
++++ b/src/ShaderManager.cpp
+@@ -135,6 +135,9 @@ bool CShaderManager::compileContourPrograms() {
+     seed.sourceSizePx  = locate(m_contour.seed, "sourceSizePx");
+     seed.divisor       = locate(m_contour.seed, "divisor");
+     seed.threshold     = locate(m_contour.seed, "threshold");
++    seed.nested        = locate(m_contour.seed, "nested");
++    seed.voteRadius    = locate(m_contour.seed, "voteRadius");
++    seed.voteStep      = locate(m_contour.seed, "voteStep");
+ 
+     auto& edt          = m_contour.edtUniforms;
+     edt.tex            = locate(m_contour.edt, "tex");
+diff --git a/src/ShaderManager.hpp b/src/ShaderManager.hpp
+index ae09c87..1eaea41 100644
+--- a/src/ShaderManager.hpp
++++ b/src/ShaderManager.hpp
+@@ -98,7 +98,7 @@ struct SContourPrograms {
+     SP<CShader> pack   = makeShared<CShader>();
+ 
+     struct {
+-        GLint tex = -1, boxOffsetPx = -1, boxSizePx = -1, sourceSizePx = -1, divisor = -1, threshold = -1;
++        GLint tex = -1, boxOffsetPx = -1, boxSizePx = -1, sourceSizePx = -1, divisor = -1, threshold = -1, nested = -1, voteRadius = -1, voteStep = -1;
+     } seedUniforms;
+     struct {
+         GLint tex = -1, fieldSize = -1, direction = -1, reachTexels = -1, resolveSigned = -1, texelPx = -1, reachPx = -1;
+diff --git a/src/Shaders.hpp b/src/Shaders.hpp
+index a7465be..aeffcaf 100644
+--- a/src/Shaders.hpp
++++ b/src/Shaders.hpp
+@@ -145,6 +145,11 @@ uniform highp sampler2D contourTex; // r: signed distance to the outline in px (
+ uniform vec2 contourUVScale;      // box UV -> field UV: the field covers whole texels, the box need not
+ uniform float contourReferencePx; // the bezel is a fraction of this, not of the layer's short side
+ uniform float contourReachPx;     // where the field stops; the edge effects fade out before it
++// Nested shapes (mask_nested): the lens edge is this fraction of the pane's, the rim line
++// gets this gain, and on the sides at least this much of its facing-the-light brightness.
++const float NESTED_EDGE_SCALE = 0.5;
++const float NESTED_LINE_GAIN  = 1.3;
++const float NESTED_SIDE_LIGHT = 0.45;
+ #endif
+ 
+ in vec2 v_texcoord;
+@@ -384,6 +389,9 @@ void main() {
+     float contourGradLen = length(contourSample.gb);
+     // zero where the field is flat (deep inside, or past its reach): no edge there
+     vec2  contourOutward = contourGradLen > 0.05 ? contourSample.gb / contourGradLen : vec2(0.0);
++    // 1 inside a nested shape (mask_nested): a lens laid on the pane, with a narrower edge
++    // and a rim that shows on its sides too, like the selected tab of an iOS 26 tab bar.
++    float nestedRim      = contourSample.a;
+ #else
+     float cornerSdf    = getCornerSDF(uv);
+     float cornerAlpha  = 1.0 - smoothstep(-1.5, 0.5, cornerSdf);
+@@ -418,6 +426,9 @@ void main() {
+     float minDim = min(glassBoxSizePx.x, glassBoxSizePx.y);
+ #endif
+     float bezelWidthPx = max(edgeThickness * minDim, 1e-4); // same floor as invBezelWidthPx
++#ifdef HYPRGLASS_FEATURE_CONTOUR
++    bezelWidthPx *= mix(1.0, NESTED_EDGE_SCALE, nestedRim);
++#endif
+ 
+     // ========================================
+     // EDGE PROXIMITY + DIRECTION
+@@ -434,7 +445,7 @@ void main() {
+     // The field is smoothed, so it has no corner seam to avoid. Its reach is the end of the
+     // data: the window takes the effects to zero before it, rather than cutting them off.
+     float bevelSdf = cornerSdf;
+-    float edgeProximity = min(exp(bevelSdf * invBezelWidthPx), 1.0) *
++    float edgeProximity = min(exp(bevelSdf / bezelWidthPx), 1.0) *
+                           (1.0 - smoothstep(0.5 * contourReachPx, contourReachPx, -bevelSdf));
+     vec2 inwardDir = -contourOutward;
+ #else
+@@ -669,7 +680,10 @@ void main() {
+                                 contourOutward.y > 0.0 ? fullSize.y - pxPos.y : pxPos.y);
+         float edgeRoomPx = abs(contourOutward.x) > abs(contourOutward.y) ? toBoxEdge.x : toBoxEdge.y;
+         float clipped    = 1.0 - smoothstep(tail, 2.0 * tail, edgeRoomPx);
+-        float facing     = clamp(abs(facingDot), 0.0, 1.0) * mix(0.65, 1.58, clipped) * mix(1.0, 0.63, lit);
++        // A nested shape is a lens on the pane: its rim catches light on the sides as well
++        // (the reference's selected tab has a soft rim all round), and a little more of it.
++        float side       = mix(clamp(abs(facingDot), 0.0, 1.0), max(abs(facingDot), NESTED_SIDE_LIGHT), nestedRim);
++        float facing     = side * mix(0.65, 1.58, clipped) * mix(1.0, 0.63, lit) * mix(1.0, NESTED_LINE_GAIN, nestedRim);
+ #else
+         float facing = clamp(dot(sdfOutwardNormal(uv), lightDir(bevelAngle)) * 0.5 + 0.5, 0.0, 1.0);
+ #endif
+@@ -842,13 +856,15 @@ void main() {
+     // when the layer's content changes. Texel (i, j) is framebuffer row j, like everywhere else.
+     // ----------------------------------------------------------------------------
+ 
+-    // Pass 1: which texels are inside the outline. The result is the start of a distance
+-    // transform: per channel the squared distance to the nearest texel of the other kind
+-    // (r: for an inside texel, to an outside one; g: the opposite), 0 on texels of that
+-    // other kind and FAR where nothing is known yet.
++    // Pass 1: which texels are inside the outline, and with mask_nested which of those are
++    // inside a nested shape. The result is the start of a distance transform: per channel
++    // the squared distance to the nearest texel of a kind, 0 on texels of that kind and FAR
++    // where nothing is known yet. r: to an outside texel, g: to an inside one, b: to one
++    // outside the nested shapes, a: to one inside them.
+     {"contourseed.frag", R"GLSL(
+ #version 300 es
+ precision highp float;
++precision highp int;
+ precision highp sampler2D;
+ 
+ uniform sampler2D tex;       // the layer's own render, alpha is the mask
+@@ -857,16 +873,20 @@ uniform vec2 boxSizePx;
+ uniform vec2 sourceSizePx;
+ uniform float divisor;       // framebuffer px per texel: 1, 2, 4 or 8
+ uniform float threshold;     // alpha at which the app's content counts
++uniform float nested;        // alpha at which content inside the outline is a nested shape; 0 = none
++uniform int voteRadius;      // texels each side the nested vote looks at
++uniform int voteStep;        // texels between its taps
+ 
+ layout(location = 0) out vec4 fragColor;
+ 
+ const float FAR = 16384.0;   // above any squared distance within reach, and exact in half floats (Contour.hpp)
++// Content at least this opaque is a glyph or an icon, which says nothing about the shape it
++// sits on: the nested vote skips it.
++const float OPAQUE = 0.5;
+ 
+-void main() {
+-    vec2 texel = floor(gl_FragCoord.xy);
+-
+-    // Mean alpha over the texel's block. A tap on the shared corner of 2x2 pixels already
+-    // averages them in hardware, so one tap per 2 px, and only the block's own pixels.
++// Mean alpha over a texel's block. A tap on the shared corner of 2x2 pixels already
++// averages them in hardware, so one tap per 2 px, and only the block's own pixels.
++float blockAlpha(vec2 texel) {
+     float taps    = max(divisor * 0.5, 1.0);
+     float stepPx  = divisor > 1.5 ? 2.0 : 1.0;
+     float startPx = divisor > 1.5 ? 1.0 : 0.5;
+@@ -881,17 +901,53 @@ void main() {
+             sum += texture(tex, q / sourceSizePx).a;
+         }
+     }
++    return sum / (taps * taps);
++}
++
++void main() {
++    vec2 texel = floor(gl_FragCoord.xy);
++    float alpha = blockAlpha(texel);
++    bool inside = alpha >= threshold;
++
++    // A nested shape is a region the app fills above `nested`: a pill inside a bar. Text and
++    // icons sit on both the bar and its pills, so one texel's alpha cannot tell them apart:
++    // the translucent texels around it vote, and a texel is nested where most of them are.
++    // Opaque texels abstain, so glyphs on the bar are not pills and glyphs on a pill do not
++    // punch holes in it. The window straddles an edge evenly, so the edge stays where the
++    // app drew it.
++    bool nestedHere = false;
++    if (inside && nested > 0.0) {
++        float yes = 0.0;
++        float no  = 0.0;
++        for (int j = -voteRadius; j <= voteRadius; j += voteStep) {
++            for (int i = -voteRadius; i <= voteRadius; i += voteStep) {
++                vec2 n = texel + vec2(float(i), float(j));
++                if (n.x < 0.0 || n.y < 0.0 || n.x * divisor >= boxSizePx.x || n.y * divisor >= boxSizePx.y)
++                    continue;
++                float a = blockAlpha(n);
++                if (a >= OPAQUE)
++                    continue;
++                if (a >= nested) yes += 1.0; else no += 1.0;
++            }
++        }
++        nestedHere = yes > no;
++    }
+ 
+-    bool inside = sum / (taps * taps) >= threshold;
+-    fragColor = vec4(inside ? FAR : 0.0, inside ? 0.0 : FAR, 0.0, 1.0);
++    if (!inside)
++        fragColor = vec4(0.0, FAR, 0.0, FAR);
++    else if (!nestedHere)
++        fragColor = vec4(FAR, 0.0, 0.0, FAR);
++    else
++        fragColor = vec4(FAR, 0.0, FAR, 0.0);
+ }
+ )GLSL"},
+ 
+     // Passes 2 and 3: the exact Euclidean distance transform, one axis at a time (squared
+     // distance = min over the row of (offset^2 + what the previous axis found)), looking at
+     // most reachTexels away. Texels past the box count as outside, so a layer's own edge is an
+-    // outline. The last pass turns both distances into one signed distance in framebuffer px,
+-    // half a texel in from each class's centre so that zero is the outline itself.
++    // outline. The last pass turns the distances into two signed distances in framebuffer px,
++    // half a texel in from each class's centre so that zero is the outline itself: r to the
++    // outline, g to the nested shapes (positive outside them, +reach where there are none).
+     {"contouredt.frag", R"GLSL(
+ #version 300 es
+ precision highp float;
+@@ -910,36 +966,39 @@ layout(location = 0) out vec4 fragColor;
+ 
+ const float FAR = 16384.0;
+ 
+-vec2 known(vec2 p) {
++vec4 known(vec2 p) {
+     if (p.x < 0.0 || p.y < 0.0 || p.x >= fieldSize.x || p.y >= fieldSize.y)
+-        return vec2(0.0, FAR);
+-    return texelFetch(tex, ivec2(p), 0).rg;
++        return vec4(0.0, FAR, 0.0, FAR);
++    return texelFetch(tex, ivec2(p), 0);
+ }
+ 
+ void main() {
+     vec2 p = floor(gl_FragCoord.xy);
+-    vec2 best = known(p);
++    vec4 best = known(p);
+     for (int k = 1; k <= reachTexels; k++) {
+         float offsetSq = float(k * k);
+         // nothing farther can beat what is found
+-        if (offsetSq >= max(best.x, best.y)) break;
++        if (offsetSq >= max(max(best.x, best.y), max(best.z, best.w))) break;
+         vec2 step = direction * float(k);
+         best = min(best, min(known(p + step), known(p - step)) + offsetSq);
+     }
+ 
+     if (resolveSigned == 1) {
+         // an outside texel has best.x == 0: its own squared distance to "outside" is nothing
+-        float signedPx = best.x > 0.0 ? -(sqrt(best.x) - 0.5) * texelPx
+-                                      :  (sqrt(best.y) - 0.5) * texelPx;
+-        fragColor = vec4(clamp(signedPx, -reachPx, reachPx), 0.0, 0.0, 1.0);
++        float outlinePx = best.x > 0.0 ? -(sqrt(best.x) - 0.5) * texelPx
++                                       :  (sqrt(best.y) - 0.5) * texelPx;
++        // likewise a texel outside every nested shape has best.z == 0
++        float nestedPx  = best.z > 0.0 ? -(sqrt(best.z) - 0.5) * texelPx
++                                       :  (sqrt(best.w) - 0.5) * texelPx;
++        fragColor = vec4(clamp(outlinePx, -reachPx, reachPx), clamp(nestedPx, -reachPx, reachPx), 0.0, 1.0);
+     } else {
+-        fragColor = vec4(best, 0.0, 1.0);
++        fragColor = best;
+     }
+ }
+ )GLSL"},
+ 
+-    // Passes 4 and 5: a Gaussian along one axis on the signed distance. The distance is linear
+-    // through the outline, so this leaves the outline where it is and only rounds the creases
++    // Passes 4 and 5: a Gaussian along one axis on both signed distances. A distance is linear
++    // through its outline, so this leaves the outline where it is and only rounds the creases
+     // where distances from two edges meet at a corner.
+     {"contoursmooth.frag", R"GLSL(
+ #version 300 es
+@@ -959,19 +1018,23 @@ void main() {
+     ivec2 p = ivec2(gl_FragCoord.xy);
+     ivec2 last = ivec2(fieldSize) - 1;
+     ivec2 axis = ivec2(direction);
+-    float sum = 0.0;
++    vec2 sum = vec2(0.0);
+     float weights = 0.0;
+     for (int k = -radius; k <= radius; k++) {
+         float w = exp(float(k * k) * negHalfInvSigmaSq);
+-        sum += w * texelFetch(tex, clamp(p + axis * k, ivec2(0), last), 0).r;
++        sum += w * texelFetch(tex, clamp(p + axis * k, ivec2(0), last), 0).rg;
+         weights += w;
+     }
+-    fragColor = vec4(sum / weights, 0.0, 0.0, 1.0);
++    fragColor = vec4(sum / weights, 0.0, 1.0);
+ }
+ )GLSL"},
+ 
+     // Pass 6: the field the glass shader reads. r: the signed distance, gb: its gradient
+-    // (outward, about unit length), so the shader needs one fetch for both.
++    // (outward, about unit length), so the shader needs one fetch for both; a: 1 inside a
++    // nested shape. There the distance and gradient are the nested shape's own: it lies on top of the
++    // outline's shape like a lens on a pane, with its edge all round and the pane's field
++    // untouched outside it. Each gradient comes from its own continuous field, so the step
++    // between the two at the nested edge is not in it.
+     {"contourfield.frag", R"GLSL(
+ #version 300 es
+ precision highp float;
+@@ -987,12 +1050,13 @@ layout(location = 0) out vec4 fragColor;
+ void main() {
+     ivec2 p = ivec2(gl_FragCoord.xy);
+     ivec2 last = ivec2(fieldSize) - 1;
+-    float centre = texelFetch(tex, p, 0).r;
+-    float left   = texelFetch(tex, clamp(p + ivec2(-1, 0), ivec2(0), last), 0).r;
+-    float right  = texelFetch(tex, clamp(p + ivec2(1, 0), ivec2(0), last), 0).r;
+-    float above  = texelFetch(tex, clamp(p + ivec2(0, -1), ivec2(0), last), 0).r;
+-    float below  = texelFetch(tex, clamp(p + ivec2(0, 1), ivec2(0), last), 0).r;
+-    fragColor = vec4(centre, vec2(right - left, below - above) / (2.0 * texelPx), 1.0);
++    vec2 centre = texelFetch(tex, p, 0).rg;
++    vec2 left   = texelFetch(tex, clamp(p + ivec2(-1, 0), ivec2(0), last), 0).rg;
++    vec2 right  = texelFetch(tex, clamp(p + ivec2(1, 0), ivec2(0), last), 0).rg;
++    vec2 above  = texelFetch(tex, clamp(p + ivec2(0, -1), ivec2(0), last), 0).rg;
++    vec2 below  = texelFetch(tex, clamp(p + ivec2(0, 1), ivec2(0), last), 0).rg;
++    int c = centre.g < 0.0 ? 1 : 0;
++    fragColor = vec4(centre[c], vec2(right[c] - left[c], below[c] - above[c]) / (2.0 * texelPx), float(c));
+ }
+ )GLSL"},
+ };

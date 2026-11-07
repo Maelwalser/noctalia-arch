@@ -69,7 +69,11 @@ if hl.plugin.hyprglass ~= nil then
         hg.layer("noctalia-notification", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
         -- The bar rail is the same glass: its layer is taller than the rail
         -- (room Noctalia keeps for a shadow), so the contour traces the rail.
-        hg.layer("noctalia-bar-default", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- The capsules inside it (themes/acid.toml, a translucent fill over the
+        -- rail's) are nested shapes (patch 0003): each gets its own rim, bend
+        -- and top light, a lens laid on the rail like iOS 26's selected tab.
+        -- mask_nested sits between the rail's alpha (0.1) and the capsules'.
+        hg.layer("noctalia-bar-default", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15 })
         -- Panels attached to the bar (control centre, session, wallpaper): in
         -- Noctalia's "glass" transparency mode the panel box is a faint rounded
         -- fill (alpha ~0.08) the size of its layer, so the toast settings fit.
