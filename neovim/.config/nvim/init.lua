@@ -382,6 +382,7 @@ vim.keymap.set("n", "<leader>de", function()
 end)
 
 require("config.lazy")
+require("config.claude_prompt")
 
 -- Enable spell checking for markdown and text files
 vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {

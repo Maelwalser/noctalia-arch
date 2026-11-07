@@ -1,0 +1,249 @@
+#!/usr/bin/env -S python3 -I
+"""Render a Claude Code session transcript as Markdown.
+
+Claude Code keeps every session as JSON lines under
+~/.claude/projects/<project-slug>/<session-id>.jsonl. This prints the
+conversation from one of those files as Markdown, newest message last, so it
+can be read in an editor or a pager.
+
+  claude-transcript                 the session this shell runs inside of
+                                    ($CLAUDE_CODE_SESSION_ID), else the newest
+                                    session for the current directory
+  claude-transcript <session-id>    that session, looked up under ~/.claude/projects
+  claude-transcript <file.jsonl>    that transcript file
+  claude-transcript --full          include tool calls and results in full
+  claude-transcript --list          list the sessions for the current directory
+
+By default a tool call is one quoted line and tool results are left out, so
+the output reads like the chat. Thinking blocks, subagent side chains and the
+context Claude Code injects into prompts (system reminders, skill bodies) are
+never printed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+PROJECTS = Path.home() / ".claude" / "projects"
+RESULT_LIMIT = 4000  # characters of a tool result kept in --full mode
+SYSTEM_BLOCK = re.compile(r"<system-reminder>.*?</system-reminder>\s*", re.S)
+COMMAND_BLOCK = re.compile(r"<(command-name|command-message|command-args|local-command-stdout)>(.*?)</\1>", re.S)
+
+
+def project_slug(path: Path) -> str:
+    # Claude Code names a project directory after the absolute path with every
+    # path separator and dot turned into a dash.
+    return re.sub(r"[/.]", "-", str(path))
+
+
+def project_dir(cwd: Path | None = None) -> Path:
+    return PROJECTS / project_slug(cwd or Path.cwd())
+
+
+def resolve(target: str | None) -> Path:
+    if target:
+        p = Path(target).expanduser()
+        if p.suffix == ".jsonl":
+            if not p.is_file():
+                sys.exit(f"claude-transcript: no such transcript: {p}")
+            return p
+        hits = sorted(PROJECTS.glob(f"*/{target}*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if not hits:
+            sys.exit(f"claude-transcript: no session matching {target!r} under {PROJECTS}")
+        return hits[0]
+
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if session:
+        hits = list(PROJECTS.glob(f"*/{session}.jsonl"))
+        if hits:
+            return hits[0]
+        sys.exit(f"claude-transcript: session {session} has no transcript yet")
+
+    candidates = sorted(project_dir().glob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not candidates:
+        sys.exit(f"claude-transcript: no sessions for {Path.cwd()} under {PROJECTS}")
+    return candidates[0]
+
+
+def records(path: Path):
+    with path.open(encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+
+def stamp(rec: dict) -> str:
+    ts = rec.get("timestamp")
+    if not ts:
+        return ""
+    try:
+        when = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+    except ValueError:
+        return ""
+    return when.strftime("%H:%M")
+
+
+def clean_user_text(text: str) -> str:
+    text = SYSTEM_BLOCK.sub("", text)
+    # A slash command arrives as tagged fragments; show it the way it was typed.
+    parts = dict(COMMAND_BLOCK.findall(text))
+    if "command-name" in parts:
+        name = parts["command-name"].strip()
+        args = parts.get("command-args", "").strip()
+        out = parts.get("local-command-stdout", "").strip()
+        text = f"{name} {args}".strip()
+        if out:
+            text += f"\n\n```\n{out}\n```"
+    return text.strip()
+
+
+def fence(body: str, lang: str = "") -> list[str]:
+    body = body.rstrip("\n")
+    ticks = "```"
+    while ticks in body:
+        ticks += "`"
+    return [f"{ticks}{lang}", body, ticks]
+
+
+def tool_summary(block: dict) -> str:
+    name = block.get("name", "tool")
+    inp = block.get("input") or {}
+    if not isinstance(inp, dict):
+        return name
+    if name == "Bash":
+        head = str(inp.get("description") or inp.get("command", "")).strip().splitlines()
+        return f"{name}: {head[0] if head else ''}"
+    for key in ("file_path", "path", "pattern", "query", "url", "skill", "description", "prompt", "command"):
+        if inp.get(key):
+            val = str(inp[key]).strip().splitlines()[0]
+            if len(val) > 100:
+                val = val[:97] + "..."
+            return f"{name}: {val}"
+    return name
+
+
+def render_tool_use(block: dict, full: bool) -> list[str]:
+    if not full:
+        return [f"> ⚙ {tool_summary(block)}", ""]
+    name = block.get("name", "tool")
+    inp = block.get("input") or {}
+    lines = [f"**⚙ {name}**", ""]
+    if name == "Bash" and isinstance(inp, dict) and inp.get("command"):
+        lines += fence(str(inp["command"]), "bash")
+    else:
+        lines += fence(json.dumps(inp, indent=2, ensure_ascii=False), "json")
+    return lines + [""]
+
+
+def result_text(block: dict) -> str:
+    content = block.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text")
+    return ""
+
+
+def render_tool_result(block: dict) -> list[str]:
+    text = result_text(block).strip()
+    if not text:
+        return []
+    if len(text) > RESULT_LIMIT:
+        text = text[:RESULT_LIMIT] + f"\n... ({len(text) - RESULT_LIMIT} more characters)"
+    label = "**✗ result**" if str(block.get("is_error")).lower() == "true" else "**→ result**"
+    return [label, "", *fence(text), ""]
+
+
+def render(path: Path, full: bool) -> list[str]:
+    out = [f"# Claude session `{path.stem}`", "", f"_{path}_", ""]
+    last_role = None
+    for rec in records(path):
+        kind = rec.get("type")
+        if kind == "summary" and rec.get("summary"):
+            out += ["## ⟲ Compaction summary", "", str(rec["summary"]).strip(), ""]
+            last_role = None
+            continue
+        if kind not in ("user", "assistant") or rec.get("isSidechain") or rec.get("isMeta"):
+            continue
+        content = (rec.get("message") or {}).get("content")
+        blocks = [{"type": "text", "text": content}] if isinstance(content, str) else (content or [])
+
+        body: list[str] = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type")
+            if btype == "text":
+                text = block.get("text", "")
+                text = clean_user_text(text) if kind == "user" else text.strip()
+                if text:
+                    body += [text, ""]
+            elif btype == "tool_use":
+                body += render_tool_use(block, full)
+            elif btype == "tool_result" and full:
+                body += render_tool_result(block)
+            elif btype == "image":
+                body += ["_[image]_", ""]
+        if not body:
+            continue
+
+        # Tool results are user-role records; keep them under Claude's heading.
+        is_result = kind == "user" and all(b.get("type") == "tool_result" for b in blocks if isinstance(b, dict))
+        role = "assistant" if is_result else kind
+        if role != last_role:
+            heading = "▲ You" if role == "user" else "◆ Claude"
+            when = stamp(rec)
+            out += [f"## {heading}" + (f"  ·  {when}" if when else ""), ""]
+            last_role = role
+        out += body
+    return out
+
+
+def list_sessions() -> None:
+    files = sorted(project_dir().glob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not files:
+        sys.exit(f"claude-transcript: no sessions for {Path.cwd()}")
+    for f in files:
+        first = ""
+        for rec in records(f):
+            if rec.get("type") == "user" and isinstance((rec.get("message") or {}).get("content"), str):
+                first = clean_user_text(rec["message"]["content"]).splitlines()[0] if rec["message"]["content"].strip() else ""
+                if first:
+                    break
+        when = dt.datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        print(f"{f.stem}  {when}  {first[:80]}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("target", nargs="?", help="session id (prefix) or transcript .jsonl path")
+    ap.add_argument("-f", "--full", action="store_true", help="include tool inputs and results")
+    ap.add_argument("-l", "--list", action="store_true", help="list sessions for the current directory")
+    ap.add_argument("-o", "--output", type=Path, help="write to this file instead of stdout")
+    args = ap.parse_args()
+
+    if args.list:
+        list_sessions()
+        return
+
+    path = resolve(args.target)
+    text = "\n".join(render(path, args.full)).rstrip() + "\n"
+    if args.output:
+        args.output.write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+
+
+if __name__ == "__main__":
+    main()

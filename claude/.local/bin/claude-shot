@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# claude-shot — run GUI apps on an invisible Hyprland monitor and screenshot
+# them there, so an agent checking its UI work never steals focus or switches
+# the workspace you are working on.
+#
+#   claude-shot start "<command>"        launch on the hidden monitor, wait for its window
+#   claude-shot snap [-w [CLASS]] [out]  screenshot the monitor (-w: one window), print the path
+#   claude-shot status                   the hidden monitor and the windows on it
+#   claude-shot stop                     close those windows and remove the monitor
+#
+# The hidden monitor is a Hyprland headless output named CLAUDE, placed far
+# from the real layout so the cursor can never wander onto it. Layer-shell
+# clients (bar, wallpaper, HUD) spawn on it as well, so a plain snap shows the
+# whole desktop as it would look on a real screen.
+#
+# Env: CLAUDE_SHOT_RES (1920x1080@60), CLAUDE_SHOT_SCALE (1),
+#      CLAUDE_SHOT_DIR (${TMPDIR:-/tmp}/claude-shot),
+#      CLAUDE_SHOT_TIMEOUT seconds to wait for the window on start (15).
+# Needs: Hyprland >= 0.55 (Lua config, `hyprctl eval`), grim, jq.
+set -euo pipefail
+
+OUT="CLAUDE"
+WS="claude"
+RES="${CLAUDE_SHOT_RES:-1920x1080@60}"
+SCALE="${CLAUDE_SHOT_SCALE:-1}"
+POS="20000x0"
+DIR="${CLAUDE_SHOT_DIR:-${TMPDIR:-/tmp}/claude-shot}"
+TIMEOUT="${CLAUDE_SHOT_TIMEOUT:-15}"
+
+die() { echo "claude-shot: $*" >&2; exit 1; }
+
+# `hyprctl eval` answers "ok", or "error: ..." with the Lua error.
+hypr_eval() {
+    local out
+    out=$(hyprctl eval "$1") || die "hyprctl eval failed: $out"
+    [[ "$out" == "ok" ]] || die "$out"
+}
+
+have_output() {
+    hyprctl monitors all -j | jq -e --arg o "$OUT" '.[] | select(.name == $o)' >/dev/null
+}
+
+active_ws() {
+    hyprctl monitors -j | jq -r --arg o "$OUT" '.[] | select(.name == $o) | .activeWorkspace.name'
+}
+
+# Windows on the hidden workspace, one JSON object per line.
+clients() {
+    hyprctl clients -j | jq -c --arg w "$WS" '.[] | select(.workspace.name == $w)'
+}
+
+ensure_output() {
+    # Rules first: the output then comes up at POS with WS as its default
+    # workspace, instead of auto-placed next to the real monitors on a numbered one.
+    hypr_eval "hl.monitor({ output = '$OUT', mode = '$RES', position = '$POS', scale = $SCALE })
+hl.workspace_rule({ workspace = 'name:$WS', monitor = '$OUT', default = true })"
+    if ! have_output; then
+        hyprctl output create headless "$OUT" >/dev/null
+        for _ in $(seq 20); do have_output && break; sleep 0.1; done
+        have_output || die "headless output $OUT did not appear"
+    fi
+    [[ "$(active_ws)" == "$WS" ]] \
+        || die "$OUT shows workspace '$(active_ws)' instead of '$WS'; run 'claude-shot stop' and start again"
+}
+
+case "${1:-}" in
+start)
+    cmd="${2:-}"
+    [[ -n "$cmd" ]] || die 'usage: claude-shot start "<command>"'
+    [[ "$cmd" != *"]==]"* ]] || die "command must not contain ]==]"
+    ensure_output
+    before=$(clients | jq -r .address | sort)
+    # The Lua long bracket passes the command through untouched; "silent"
+    # keeps keyboard focus and the active workspace where they are.
+    hypr_eval "hl.exec_cmd([==[[workspace name:$WS silent] $cmd]==])"
+    new=""
+    for _ in $(seq $((TIMEOUT * 10))); do
+        new=$(comm -13 <(echo "$before") <(clients | jq -r .address | sort) | head -1)
+        [[ -n "$new" ]] && break
+        sleep 0.1
+    done
+    [[ -n "$new" ]] || die "no window appeared on $OUT within ${TIMEOUT}s (check 'claude-shot status' later, or the command itself)"
+    clients | jq -r --arg a "$new" \
+        'select(.address == $a) | "window \(.class) \(.size[0])x\(.size[1]) address=\(.address)"'
+    ;;
+snap)
+    shift
+    file="" window="" want_window=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        -w | --window)
+            want_window=1
+            if [[ -n "${2:-}" && "$2" != *.png ]]; then
+                window="$2"
+                shift
+            fi
+            ;;
+        *) file="$1" ;;
+        esac
+        shift
+    done
+    have_output || die "no hidden monitor; run 'claude-shot start \"<command>\"' first"
+    mkdir -p "$DIR"
+    [[ -n "$file" ]] || file=$(mktemp --suffix=.png "$DIR/snap-XXXXXX")
+    if ((want_window)); then
+        geo=$(clients | jq -r --arg c "$window" \
+            'select($c == "" or (.class | test($c))) | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"' | head -1)
+        [[ -n "$geo" ]] || die "no window ${window:+matching '$window' }on $OUT"
+        grim -g "$geo" "$file"
+    else
+        grim -o "$OUT" "$file"
+    fi
+    echo "$file"
+    ;;
+status)
+    if have_output; then
+        hyprctl monitors -j | jq -r --arg o "$OUT" \
+            '.[] | select(.name == $o) | "monitor \($o): \(.width)x\(.height) scale \(.scale) workspace \(.activeWorkspace.name)"'
+        clients | jq -r '"window \(.class) \(.size[0])x\(.size[1]) address=\(.address) title=\(.title)"'
+    else
+        echo "monitor $OUT: not present"
+    fi
+    ;;
+stop)
+    have_output || { echo "monitor $OUT: not present, nothing to stop"; exit 0; }
+    hypr_eval "for _, w in ipairs(hl.get_windows()) do
+    if w.workspace.name == '$WS' then hl.dispatch(hl.dsp.window.close({ window = w })) end
+end"
+    for _ in $(seq 30); do
+        [[ -z "$(clients)" ]] && break
+        sleep 0.1
+    done
+    # Anything that ignored the close request gets killed before the output goes.
+    pids=$(clients | jq -r .pid | sort -u)
+    if [[ -n "$pids" ]]; then
+        echo "$pids" | xargs -r kill -9
+        sleep 0.3
+    fi
+    hyprctl output remove "$OUT" >/dev/null
+    ;;
+*)
+    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1
+    ;;
+esac
