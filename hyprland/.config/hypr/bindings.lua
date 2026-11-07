@@ -193,6 +193,7 @@ hl.bind("ALT + SHIFT + O", hl.dsp.exec_cmd("obsidian"), { description = "Obsidia
 hl.bind("ALT + SHIFT + B", hl.dsp.exec_cmd(browser), { description = "Browser" })
 hl.bind("ALT + RETURN", hl.dsp.exec_cmd(terminal), { description = "Terminal" })
 hl.bind("ALT + SHIFT + D", hl.dsp.exec_cmd(terminal .. " -e lazydocker"), { description = "Docker" })
+hl.bind("ALT + SHIFT + P", hl.dsp.exec_cmd("sioyek"), { description = "PDF reader" })
 
 hl.bind("SUPER + W", hl.dsp.exec_cmd("noctalia msg panel-toggle wallpaper"))
 hl.bind("SUPER + V", hl.dsp.exec_cmd("noctalia msg panel-toggle clipboard"), { description = "Clipboard history" })
