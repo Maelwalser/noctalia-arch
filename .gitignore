@@ -47,6 +47,7 @@ ghostty/.config/ghostty/theme.conf
 tmux/.config/tmux/theme.conf
 tmux/.config/tmux/noctalia.conf
 sioyek/.config/sioyek/prefs_user.config
+eza/.config/eza/theme.yml
 vivaldi/theme.css
 
 # Claude Code: keybindings, the ACID//HUD theme and the status line are stowed

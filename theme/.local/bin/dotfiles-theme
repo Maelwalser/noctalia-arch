@@ -13,7 +13,7 @@
 # zsh, fastfetch, Neovim and the Claude Code status line read it directly;
 # Claude Code's settings.json gets its theme keys rewritten. Apps without
 # conditionals get a `theme.*` link to the committed variant (Noctalia,
-# Ghostty, tmux, sioyek, Vivaldi). Obsidian gets the ACID HUD theme linked
+# Ghostty, tmux, sioyek, eza, Vivaldi). Obsidian gets the ACID HUD theme linked
 # into every vault and selected in appearance.json. Noctalia's GUI state
 # (palette, wallpapers, lockscreen layout) beats its config, so each theme
 # keeps its own copy of that state.
@@ -237,6 +237,13 @@ apply() {
   link "$CONFIG/ghostty/theme.conf" "$DOTFILES/ghostty/.config/ghostty/variants/$to.conf"
   link "$CONFIG/tmux/theme.conf" "$DOTFILES/tmux/.config/tmux/variants/$to.conf"
   link "$CONFIG/sioyek/prefs_user.config" "$DOTFILES/sioyek/.config/sioyek/variants/$to.config"
+  # eza reads its theme file on every run; classic is eza's own defaults. Only
+  # a link is removed, so a theme.yml the user wrote themselves is kept.
+  if [[ "$to" == acid ]]; then
+    link "$CONFIG/eza/theme.yml" "$DOTFILES/eza/.config/eza/variants/acid.yml"
+  elif [[ -L "$CONFIG/eza/theme.yml" ]]; then
+    rm -f "$CONFIG/eza/theme.yml"
+  fi
   # Vivaldi loads every *.css in its css-mods folder (the repo's vivaldi/).
   if [[ "$to" == acid ]]; then
     link "$DOTFILES/vivaldi/theme.css" "$DOTFILES/vivaldi/variants/acid.vcss"

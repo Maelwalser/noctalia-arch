@@ -1,0 +1,118 @@
+# ACID//HUD theme for eza. `dotfiles-theme acid` links it to
+# ~/.config/eza/theme.yml; classic removes the link and eza falls back to its
+# own defaults.
+#
+# Colours are the ACID//HUD palette (noctalia/.config/noctalia/palettes/acid-hud.json):
+#   magenta  #ef5fc6 / #ff8fdc   the accent: directories, you, branches, media
+#   bone     #efe7f4  lavender #b7a8c9  outline #6a5a84   text, metadata, chrome
+#   orange   #ffa35e / #ffc48f   executables, build and source files, dirty/modified
+#   teal     #4fd1b5 / #7fe8d4   sizes, execute bits, git new/clean
+#   cyan     #72c8d8 / #9ee0ec   symlinks and their targets
+#   red      #ff4d5e / #ff7a8a   root, deleted, broken links, archives
+#
+# oh-my-zsh exports LS_COLORS from dircolors, and eza lets that beat a theme
+# file for file kinds and extension globs, so .zshrc runs eza with LS_COLORS
+# emptied under the acid theme.
+colourful: true
+
+filekinds:
+  normal: {foreground: Default}
+  directory: {foreground: "#ef5fc6", is_bold: true}
+  symlink: {foreground: "#9ee0ec"}
+  pipe: {foreground: "#ffc48f"}
+  block_device: {foreground: "#ffa35e", is_bold: true}
+  char_device: {foreground: "#ffa35e", is_bold: true}
+  socket: {foreground: "#ff8fdc", is_bold: true}
+  special: {foreground: "#ffc48f"}
+  executable: {foreground: "#ffa35e", is_bold: true}
+  mount_point: {foreground: "#ef5fc6", is_bold: true, is_underline: true}
+
+perms:
+  user_read: {foreground: "#b7a8c9", is_bold: true}
+  user_write: {foreground: "#ef5fc6", is_bold: true}
+  user_execute_file: {foreground: "#4fd1b5", is_bold: true, is_underline: true}
+  user_execute_other: {foreground: "#4fd1b5", is_bold: true}
+  group_read: {foreground: "#b7a8c9"}
+  group_write: {foreground: "#ef5fc6"}
+  group_execute: {foreground: "#4fd1b5"}
+  other_read: {foreground: "#b7a8c9"}
+  other_write: {foreground: "#ef5fc6"}
+  other_execute: {foreground: "#4fd1b5"}
+  special_user_file: {foreground: "#ffa35e"}
+  special_other: {foreground: "#ffa35e"}
+  attribute: {foreground: "#6a5a84"}
+
+# Sizes heat up as they grow: teal for the usual, orange past a gigabyte.
+size:
+  major: {foreground: "#7fe8d4", is_bold: true}
+  minor: {foreground: "#4fd1b5"}
+  number_byte: {foreground: "#4fd1b5"}
+  number_kilo: {foreground: "#4fd1b5", is_bold: true}
+  number_mega: {foreground: "#7fe8d4", is_bold: true}
+  number_giga: {foreground: "#ffa35e", is_bold: true}
+  number_huge: {foreground: "#ff4d5e", is_bold: true}
+  unit_byte: {foreground: "#6a5a84"}
+  unit_kilo: {foreground: "#6a5a84"}
+  unit_mega: {foreground: "#6a5a84"}
+  unit_giga: {foreground: "#ffa35e"}
+  unit_huge: {foreground: "#ff4d5e"}
+
+users:
+  user_you: {foreground: "#ff8fdc", is_bold: true}
+  user_root: {foreground: "#ff4d5e", is_bold: true}
+  user_other: {foreground: "#b7a8c9"}
+  group_yours: {foreground: "#ff8fdc"}
+  group_other: {foreground: "#b7a8c9"}
+  group_root: {foreground: "#ff4d5e"}
+
+links:
+  normal: {foreground: "#6a5a84"}
+  multi_link_file: {foreground: "#ffa35e", is_bold: true}
+
+git:
+  new: {foreground: "#4fd1b5"}
+  modified: {foreground: "#ffa35e"}
+  deleted: {foreground: "#ff4d5e"}
+  renamed: {foreground: "#72c8d8"}
+  typechange: {foreground: "#ef5fc6"}
+  ignored: {foreground: "#4a3a62"}
+  conflicted: {foreground: "#ff4d5e", is_bold: true}
+
+git_repo:
+  branch_main: {foreground: "#ef5fc6"}
+  branch_other: {foreground: "#ff8fdc"}
+  git_clean: {foreground: "#4fd1b5"}
+  git_dirty: {foreground: "#ffa35e"}
+
+security_context:
+  colon: {foreground: "#4a3a62"}
+  user: {foreground: "#8f8cff"}
+  role: {foreground: "#4fd1b5"}
+  typ: {foreground: "#ffa35e"}
+  range: {foreground: "#72c8d8"}
+
+file_type:
+  image: {foreground: "#ff8fdc"}
+  video: {foreground: "#ff8fdc", is_bold: true}
+  music: {foreground: "#72c8d8"}
+  lossless: {foreground: "#9ee0ec", is_bold: true}
+  crypto: {foreground: "#4fd1b5", is_bold: true}
+  document: {foreground: "#cfc2da"}
+  compressed: {foreground: "#ff7a8a"}
+  temp: {foreground: "#6a5a84"}
+  compiled: {foreground: "#8f8cff"}
+  build: {foreground: "#ffa35e", is_bold: true, is_underline: true}
+  source: {foreground: "#ffc48f"}
+
+punctuation: {foreground: "#6a5a84"}
+date: {foreground: "#b7a8c9"}
+inode: {foreground: "#8f8cff"}
+blocks: {foreground: "#72c8d8"}
+header: {foreground: "#b7a8c9", is_underline: true}
+octal: {foreground: "#8f8cff"}
+flags: {foreground: "#b7a8c9"}
+
+symlink_path: {foreground: "#72c8d8"}
+control_char: {foreground: "#ff4d5e"}
+broken_symlink: {foreground: "#ff4d5e"}
+broken_path_overlay: {foreground: "#ff7a8a", is_underline: true}

@@ -14,6 +14,10 @@ alias ka='killall'
 alias c='claude'
 alias cr='claude --resume'
 alias cl='claude --dangerously-skip-permissions'
+# Under ACID//HUD eza is themed by ~/.config/eza/theme.yml (linked by
+# dotfiles-theme). oh-my-zsh's LS_COLORS would override that file's file kinds
+# and extension colours, so eza runs without it; ls and completion keep it.
+[[ "$_dotfiles_theme" == classic ]] || alias eza='LS_COLORS= eza'
 
 export EDITOR='nvim'
 export VISUAL='nvim'
