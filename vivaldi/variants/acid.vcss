@@ -189,6 +189,13 @@
     0 6px 16px rgba(0, 0, 0, 0.4) !important;
 }
 
+/* A tab widened by hover (main.css) covers its neighbours, so it becomes a
+   deep pane instead of see-through glass. */
+#browser:is(.tabs-top, .tabs-bottom) #tabs-container .tab-position:not(.is-pinned):hover .tab {
+  background: var(--hud-pane-deep) !important;
+  backdrop-filter: var(--hud-pane-blur);
+}
+
 /* Vivaldi's little curves joining the active tab to the toolbar would hang
    off a capsule. */
 #browser .tab.active::before,
@@ -307,6 +314,37 @@
 #browser .SearchField input {
   background: transparent !important;
   color: var(--colorFg) !important;
+}
+
+/* Chip inputs (settings keyboard shortcuts, search engine lists): Vivaldi
+   fills the chips with the highlight colour but never sets their text
+   colour, so acid chips came out with white text. Glass keycaps instead; the
+   chip being edited takes the acid fill with dark text. */
+#browser .multiinput {
+  background: var(--hud-glass) !important;
+  border: 1px solid var(--hud-rim) !important;
+  border-radius: 12px !important;
+}
+
+#browser .multiinput .multiinput-item {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: var(--colorFg) !important;
+  fill: var(--colorFg) !important;
+  border-radius: 8px !important;
+  box-shadow: inset 0 0 0 1px var(--hud-rim), inset 0 1px 0 var(--hud-sheen), inset 0 -1px 0 rgba(0, 0, 0, 0.35) !important;
+}
+
+#browser .multiinput .multiinput-item:focus {
+  background: var(--hud-acid) !important;
+  color: var(--colorAccentFg) !important;
+  fill: var(--colorAccentFg) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 14px var(--hud-acid-glow) !important;
+}
+
+#browser .multiinput .multiinput-item[disabled] {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: var(--colorFgFadedMore) !important;
+  box-shadow: inset 0 0 0 1px var(--hud-hairline) !important;
 }
 
 /* URL suggestions: a pane hanging off the field. */
