@@ -7,3 +7,5 @@ install\.sh
 # folder (Vivaldi's css-mods folder), not into $HOME.
 variants
 theme\.css
+# Unpacked browser extensions, loaded via vivaldi://extensions, not stowed.
+extensions

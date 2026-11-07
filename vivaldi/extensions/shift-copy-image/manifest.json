@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Shift-Click Copy Image",
+  "version": "0.1.0",
+  "description": "Shift+click any image on a page to copy it to the clipboard as PNG.",
+  "permissions": ["clipboardWrite"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ]
+}
