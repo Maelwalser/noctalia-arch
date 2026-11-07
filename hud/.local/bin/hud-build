@@ -629,9 +629,12 @@ def build_wallpapers(colors: dict[str, str]) -> None:
         cmd += scanlines(w, h, max(2, px(3)), 0.22)
         cmd += ["(", "-size", f"{w}x{h}", "-define", "gradient:extent=farthest",
                 "radial-gradient:rgba(0,0,0,0)-rgba(0,0,0,0.55)", ")", "-geometry", "+0+0", "-composite"]
-        # Thin inset frame with acid corner ticks.
+        # Thin inset frame with acid corner ticks: only the sides are drawn, the
+        # top and bottom hairlines read as stray lines under the bar and along
+        # the screen edge.
         cmd += ["-fill", "none", "-stroke", colors["outline"], "-strokewidth", str(t),
-                "-draw", f"rectangle {m},{mt} {w - m},{h - m}", "-stroke", "none"]
+                "-draw", f"line {m},{mt} {m},{h - m} line {w - m},{mt} {w - m},{h - m}",
+                "-stroke", "none"]
         tick = px(36)
         for cx, cy, dx, dy in ((m, mt, 1, 1), (w - m, mt, -1, 1), (m, h - m, 1, -1), (w - m, h - m, -1, -1)):
             cmd += ["-fill", colors["primary"],
@@ -958,6 +961,42 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
             out += rect(qx, qy, qx + dx * t, qy + dy * arm, color)
         return out
 
+    def glass(x0: float, y0: float, x1: float, y1: float) -> list[str]:
+        """A liquid-glass pane over the canvas drawn so far, matching the
+        hyprglass toasts and bar (which cannot reach the session lock): the
+        scene behind it softly blurred and slightly lifted, 18 px corners, a
+        thin rim all round that is brightest along the top and bottom, a soft
+        light along the top edge."""
+        px0, py0 = round(cx(x0)), round(cy(y0))
+        gw, gh = round(cx(x1)) - px0, round(cy(y1)) - py0
+        r = round(18 * scale)
+        rim = max(1.0, 1.5 * scale)
+        box = f"roundrectangle 0,0 {gw - 1},{gh - 1} {r},{r}"
+        edge = (f"roundrectangle {rim / 2:.1f},{rim / 2:.1f} {gw - 1 - rim / 2:.1f},{gh - 1 - rim / 2:.1f} "
+                f"{r},{r}")
+        size = ["-size", f"{gw}x{gh}"]
+        # Rim weight: full at the top and bottom rows, settling to 45% down the sides.
+        ends = ["(", "-size", f"{gw}x{max(1, gh // 2)}", "gradient:white-black", "-evaluate", "Pow", "2.5",
+                "(", "+clone", "-flip", ")", "-append", "-resize", f"{gw}x{gh}!",
+                "-evaluate", "multiply", "0.55", "-evaluate", "add", "45%", "-alpha", "copy", ")"]
+        top = ["(", *size, "gradient:white-black", "-evaluate", "Pow", "6", "-alpha", "copy", ")"]
+        return [
+            "-gravity", "NorthWest",
+            "(", "+clone", "-crop", f"{gw}x{gh}+{px0}+{py0}", "+repage",
+            "-blur", f"0x{4 * scale:.1f}", "-fill", "#dce6f0", "-colorize", "6",
+            "(", *size, "xc:none", "-fill", "white", "-stroke", "none", "-draw", box, ")",
+            "-compose", "DstIn", "-composite",
+            "(", *size, "xc:none", "-fill", "none", "-stroke", "white", "-strokewidth", f"{rim:.1f}",
+            "-draw", edge, *ends, "-compose", "DstIn", "-composite",
+            "-channel", "A", "-evaluate", "multiply", "0.3", "+channel", ")",
+            "-compose", "Over", "-composite",
+            "(", *size, "xc:none", "-fill", "white", "-stroke", "none", "-draw", box, *top,
+            "-compose", "DstIn", "-composite", "-blur", f"0x{2 * scale:.1f}",
+            "-channel", "A", "-evaluate", "multiply", "0.1", "+channel", ")",
+            "-compose", "Over", "-composite",
+            ")", "-geometry", f"+{px0}+{py0}", "-compose", "Over", "-composite",
+        ]
+
     acid = colors["primary"]
     cmd = lock_scene(colors, pw, ph)
 
@@ -1000,15 +1039,9 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
     cmd += text("NODE 0x2100", MONO_FONT, 8, "outline", -185, LOCK_DATE_Y, 1.5)
     cmd += text("GRID 21-00", MONO_FONT, 8, "outline", 185, LOCK_DATE_Y, 1.5)
 
-    # Telemetry banks: chamfered cards, each holding one live graph.
-    fill = colors["surface"] + "d9"  # ~85 %: the scene still shows at the edges
+    # Telemetry banks: glass cards, each holding one live graph.
     for idx, side, caption, _stat, _stat2, x0, y0, x1, y1 in lock_cards():
-        c = 14  # chamfer: outer top corner and inner bottom corner
-        if side < 0:
-            pts = [(x0 + c, y0), (x1, y0), (x1, y1 - 8), (x1 - 8, y1), (x0, y1), (x0, y0 + c)]
-        else:
-            pts = [(x0, y0), (x1 - c, y0), (x1, y0 + c), (x1, y1), (x0 + 8, y1), (x0, y1 - 8)]
-        cmd += poly(pts, fill, "outline")
+        cmd += glass(x0, y0, x1, y1)
         tx = x0 + 12
         cmd += poly([(tx + 4, y0 + 8), (tx + 30, y0 + 8), (tx + 26, y0 + 21), (tx, y0 + 21)], acid)
         cmd += text(f"{idx:02d}", MONO_FONT, 8, "on_primary", tx + 15, y0 + 14.5)
@@ -1025,8 +1058,10 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
         cmd += line([(near, my), (side * 290, my), (side * 290, ry), (side * (rx + 8), ry)], "outline")
         cmd += rect(near - 3, my - 3, near + 3, my + 3, acid)
 
-    # Auth strip: caption with chevron gauges, acid brackets around the login box.
+    # Auth strip: glass pane under noctalia's (transparent) login box, caption
+    # with chevron gauges, acid brackets around it.
     lx, ly, lw, lh = LOCK_LOGIN
+    cmd += glass(lx - lw / 2, ly - lh / 2, lx + lw / 2, ly + lh / 2)
     cmd += text("AUTHENTICATION REQUIRED", MONO_FONT, 10, "on_surface_variant", 0, ly - lh / 2 - 22, 3)
     cmd += put("chevron-progress", "primary", 70, -210, ly - lh / 2 - 22, 0.9)
     cmd += put("chevron-progress", "primary", 70, 210, ly - lh / 2 - 22, 0.9, flop=True)
@@ -1098,11 +1133,12 @@ def lock_layout_toml() -> str:
             # Below the header rule (y0 + 28) down to an 8 u margin.
             widget(stat, "sysmon", (x0 + x1) / 2, (y0 + 32 + y1 - 8) / 2, x1 - x0 - 20, y1 - y0 - 40, s)
         lx, ly, lw, lh = LOCK_LOGIN
+        # The box itself is clear: the static art carries a glass pane under it.
         widget(f"lockscreen-login-box@{name}", "login_box", lx, ly, lw, lh,
                {"layout": "regular", "show_media": False, "show_weather": False,
                 "show_session_buttons": True, "background_color": "surface",
-                "background_opacity": 0.92, "background_radius": 0.0, "input_opacity": 1.0,
-                "input_radius": 0.0, "show_login_button": False, "center_password_text": True,
+                "background_opacity": 0.0, "background_radius": 18.0, "input_opacity": 1.0,
+                "input_radius": 12.0, "show_login_button": False, "center_password_text": True,
                 "show_unlock_hint": False})
 
     out.append("widget_order = [\n" + "".join(f'  "{k}",\n' for k in order) + "]")

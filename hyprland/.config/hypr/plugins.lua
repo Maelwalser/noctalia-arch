@@ -70,5 +70,26 @@ if hl.plugin.hyprglass ~= nil then
         -- The bar rail is the same glass: its layer is taller than the rail
         -- (room Noctalia keeps for a shadow), so the contour traces the rail.
         hg.layer("noctalia-bar-default", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- Panels attached to the bar (control centre, session, wallpaper): in
+        -- Noctalia's "glass" transparency mode the panel box is a faint rounded
+        -- fill (alpha ~0.08) the size of its layer, so the toast settings fit.
+        hg.layer("noctalia-attached-panel", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- The terminal is the same glass, a shade darker: a dark tint and a
+        -- dim on bright windows behind it keep the text readable, the rim is
+        -- an even fresnel glow plus the top bevel light, and the focused
+        -- terminal gets a soft light all round its edge. Ghostty's own fill
+        -- is lowered in ghostty/variants/acid.conf so the glass shows.
+        hg.preset("acid_term", {
+            inherits = "acid_clear",
+            fresnel_strength = 0.22,
+            focus_light = 0.35,
+            dark = {
+                tint_color = 0x0b0d0a40,
+                brightness = 0.9,
+                adaptive_dim = 0.3,
+            },
+        })
+        hl.window_rule({ match = { class = "^com\\.mitchellh\\.ghostty$" }, tag = "+hyprglass_enabled" })
+        hl.window_rule({ match = { class = "^com\\.mitchellh\\.ghostty$" }, tag = "+hyprglass_preset_acid_term" })
     end
 end

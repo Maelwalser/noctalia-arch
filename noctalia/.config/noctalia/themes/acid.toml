@@ -10,6 +10,12 @@ corner_radius_scale = 2.25              # ACID//HUD: 18 px liquid-glass corners 
 # Terminal and editor fonts are configured elsewhere and stay JetBrainsMono.
 font_family = "Departure Mono"
 
+# Panels (control centre, session, wallpaper) are liquid glass too (hyprglass):
+# translucent cards, no shadow, the rim comes from the plugin.
+[shell.panel]
+transparency_mode = "glass"
+shadow = false
+
 [shell.animation]
 enabled = true # ACID//HUD: ambient motion on panels/OSD; speed keeps it snappy
 speed = 1.6
@@ -521,10 +527,10 @@ show_media = false
 show_weather = false
 show_session_buttons = true
 background_color = "surface"
-background_opacity = 0.92
-background_radius = 0.0
+background_opacity = 0.0
+background_radius = 18.0
 input_opacity = 1.0
-input_radius = 0.0
+input_radius = 12.0
 show_login_button = false
 center_password_text = true
 show_unlock_hint = false
@@ -712,10 +718,10 @@ show_media = false
 show_weather = false
 show_session_buttons = true
 background_color = "surface"
-background_opacity = 0.92
-background_radius = 0.0
+background_opacity = 0.0
+background_radius = 18.0
 input_opacity = 1.0
-input_radius = 0.0
+input_radius = 12.0
 show_login_button = false
 center_password_text = true
 show_unlock_hint = false
@@ -903,10 +909,10 @@ show_media = false
 show_weather = false
 show_session_buttons = true
 background_color = "surface"
-background_opacity = 0.92
-background_radius = 0.0
+background_opacity = 0.0
+background_radius = 18.0
 input_opacity = 1.0
-input_radius = 0.0
+input_radius = 12.0
 show_login_button = false
 center_password_text = true
 show_unlock_hint = false
