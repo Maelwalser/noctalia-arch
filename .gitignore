@@ -73,4 +73,5 @@ hud/.local/bin/*.*
 quickshell/**
 !quickshell/**/
 !quickshell/**/*.qml
+!quickshell/**/*.frag
 !quickshell/**/qmldir

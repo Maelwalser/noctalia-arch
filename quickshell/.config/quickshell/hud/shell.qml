@@ -13,8 +13,8 @@ import Quickshell.Hyprland
 ShellRoot {
     id: shell
 
-    function eachFold(fn) {
-        screens.instances.forEach(o => fn(o.fold));
+    function eachFold(fn, output) {
+        screens.instances.forEach(o => { if (!output || o.fold.screen.name === output) fn(o.fold); });
     }
 
     IpcHandler {
@@ -23,10 +23,15 @@ ShellRoot {
         function unlocked(): void { shell.eachFold(f => f.release()); }
         // Tuning without locking: play it over the static lock art, or freeze
         // it at a point of the fold (0..1) for a screenshot; `clear` ends that.
-        function preview(): void { shell.eachFold(f => f.preview()); }
-        function hold(progress: real): void { shell.eachFold(f => f.hold(progress)); }
-        function clear(): void { shell.eachFold(f => f.clear()); }
-        function dump(path: string): void { shell.eachFold(f => f.dump(path + "-" + f.screen.name + ".png")); }
+        // `output` is a connector name (e.g. the claude-shot monitor), "" = all.
+        function preview(output: string): void { shell.eachFold(f => f.preview(), output); }
+        function hold(output: string, progress: real): void { shell.eachFold(f => f.hold(progress), output); }
+        function clear(output: string): void { shell.eachFold(f => f.clear(), output); }
+        // The real path on one output without a session lock (the capture
+        // then carries the desktop): arm, wait, release.
+        function arm(output: string): void { shell.eachFold(f => f.arm(), output); }
+        function release(output: string): void { shell.eachFold(f => f.release(), output); }
+        function dump(output: string, path: string): void { shell.eachFold(f => f.dump(path + "-" + f.screen.name + ".png"), output); }
     }
 
     // Safety net for the armed window (it is opaque): if the session shows as
@@ -119,7 +124,6 @@ ShellRoot {
                     id: scene
                     anchors.fill: parent
                     monitor: Hyprland.monitorFor(output.modelData)
-                    suspended: unlock.armed
                 }
             }
 
@@ -131,7 +135,7 @@ ShellRoot {
                 exclusionMode: ExclusionMode.Ignore
                 color: "transparent"
                 mask: Region {}
-                visible: unlock.active
+                visible: unlock.showing
 
                 WlrLayershell.layer: WlrLayer.Overlay
                 WlrLayershell.namespace: "hud-unlock"

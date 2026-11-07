@@ -8,6 +8,7 @@ derived from them is committed: this script regenerates everything locally.
   hud-build --tint-only  re-tint / re-render from the current palette (palette hook)
   hud-build --force      re-crop every element even if it is up to date
   hud-build --lock-layout  print the lockscreen widget TOML for noctalia's themes/acid.toml
+  hud-build --shaders    compile the overlay's shaders only (quickshell/hud/shaders)
 
 Outputs (all under ~/.local/share/hud unless noted):
   elements/<name>.png        white-on-transparent masks, tinted at runtime by the overlay
@@ -41,6 +42,8 @@ HOME = Path.home()
 SRC = HOME / ".local/share/hud-src"
 OUT = HOME / ".local/share/hud"
 CACHE = HOME / ".cache/hud"
+SHADERS = HOME / ".config/quickshell/hud/shaders"
+QSB = shutil.which("qsb") or "/usr/lib/qt6/bin/qsb"  # qt6-shadertools, not on PATH
 PACKS = HOME / "Pictures/ricing"
 WALLPAPERS = HOME / "Pictures/Wallpapers/hud"
 COLORS_JSON = HOME / ".config/hud/colors.json"
@@ -758,6 +761,12 @@ LOCK_CLOCK = (0, 226, 560, 280)  # hero clock box: x, y, w, h (the box scales th
 LOCK_SECONDS = (224, 266, 64, 34)
 LOCK_RULER_Y = 336               # tick rail under the clock
 LOCK_DATE_Y = 358
+# The date row is two clock widgets flanking a static acid separator at x=0,
+# right under the ruler's arrow, so the pivot of the row always sits on the
+# centre line (one centred "date · week" string put the dot 20 u off it, the
+# date being longer than the week). A 16 u clock box sets Departure Mono at
+# 8 u per glyph: 8-char date, 3-char week, two blanks on each side of the dot.
+LOCK_DATE_X = (-52, 32)          # centres of the date and the week text
 LOCK_RETICLE = 26                # rotating acid reticle beside the plate
 LOCK_RETICLE_X = -134
 LOCK_BANK_X = 455                # telemetry card columns at ±x
@@ -873,6 +882,20 @@ def bake_reticle(ring: Path, scene: Path, left: int, top: int, size: int, dst: P
         run("magick", "(", str(scene), "-crop", f"{size}x{size}+{left}+{top}", "+repage",
             "-write", "mpr:scene", "+delete", ")",
             "-delay", "40", *frame_args, "+dither", "-colors", "256", "-loop", "0", tmp)
+
+
+def build_shaders() -> None:
+    """Qt shader packs of the overlay's GLSL (UnlockFold.qml loads overlay/<name>.qsb)."""
+    d = OUT / "overlay"
+    d.mkdir(parents=True, exist_ok=True)
+    if not Path(QSB).exists():
+        print("shaders: qsb not found (pacman -S qt6-shadertools), skipped")
+        return
+    sources = sorted(SHADERS.glob("*.frag")) + sorted(SHADERS.glob("*.vert"))
+    for src in sources:
+        with staged(d / f"{src.name}.qsb") as tmp:
+            run(QSB, "--glsl", "300es,100es,150,120,330", "-o", tmp, src)
+    print(f"shaders: {len(sources)} compiled")
 
 
 def build_lock(colors: dict[str, str]) -> None:
@@ -1076,7 +1099,9 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
             "+repage", "(", str(maps), "-bordercolor", "gray50", "-border", f"{round(amp)}", ")",
             "-set", "option:compose:args", f"{amp:.1f}x{amp:.1f}", "-compose", "Displace", "-composite",
             "-shave", f"{round(amp)}x{round(amp)}", "+repage",
-            "-blur", f"0x{1.4 * scale:.1f}", "-fill", "#dce6f0", "-colorize", "6",
+            # The lift takes the palette's white, so the pane carries the
+            # theme's hue instead of a cool grey.
+            "-blur", f"0x{1.4 * scale:.1f}", "-fill", colors["on_surface"], "-colorize", "6",
             "(", *size, "xc:none", "-fill", "white", "-stroke", "none", "-draw", box, ")",
             "-compose", "DstIn", "-composite",
             # Rim light from the map's blue channel, clipped to the pane.
@@ -1128,6 +1153,8 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
                                 "-draw", " ".join(rule)]
     cmd += rect(-40, ry - 1, 40, ry + 1, acid)
     cmd += poly([(-5, ry + 4), (5, ry + 4), (0, ry + 10)], acid)
+    # Separator between the live date and week widgets (LOCK_DATE_X).
+    cmd += rect(-2, LOCK_DATE_Y - 2, 2, LOCK_DATE_Y + 2, acid)
     cmd += text("NODE 0x2100", MONO_FONT, 8, "outline", -185, LOCK_DATE_Y, 1.5)
     cmd += text("GRID 21-00", MONO_FONT, 8, "outline", 185, LOCK_DATE_Y, 1.5)
 
@@ -1219,8 +1246,12 @@ def lock_layout_toml() -> str:
                 "font_family": "Departure Mono", **text})
         # Numeric date and ISO week: the clock format cannot upper-case a day
         # name, and a mixed-case "Thu" clashes with the all-caps HUD.
-        widget("date", "clock", 0, LOCK_DATE_Y, 200, 16,
-               {"format": "{:%d.%m.%y  ·  W%V}", "center_text": True, "color": "on_surface_variant",
+        dx, wx = LOCK_DATE_X
+        widget("date", "clock", dx, LOCK_DATE_Y, 120, 16,
+               {"format": "{:%d.%m.%y}", "center_text": True, "color": "on_surface_variant",
+                "font_family": "Departure Mono", **text})
+        widget("week", "clock", wx, LOCK_DATE_Y, 80, 16,
+               {"format": "W{:%V}", "center_text": True, "color": "on_surface_variant",
                 "font_family": "Departure Mono", **text})
         graph = {"display": "graph", "color": "primary", "color2": "on_surface_variant",
                  "show_label": True, "font_family": "Departure Mono", **text}
@@ -1535,9 +1566,13 @@ def main() -> None:
                          "(for Noctalia's palette hook, which also fires on every start)")
     ap.add_argument("--lock-layout", action="store_true",
                     help="print the [lockscreen_widgets] TOML for noctalia's themes/acid.toml and exit")
+    ap.add_argument("--shaders", action="store_true", help="compile the overlay shaders and exit")
     args = ap.parse_args()
     if args.lock_layout:
         print(lock_layout_toml(), end="")
+        return
+    if args.shaders:
+        build_shaders()
         return
 
     require_tools()
@@ -1565,6 +1600,7 @@ def main() -> None:
         build_elements(load_manifest(), args.force)
     build_tinted(colors)
     build_overlay(colors)
+    build_shaders()
     build_lock(colors)
     build_bar(colors)
     build_wallpapers(colors)

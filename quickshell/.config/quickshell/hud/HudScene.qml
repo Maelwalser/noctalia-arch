@@ -8,14 +8,11 @@ Item {
     id: scene
 
     property var monitor: null
-    // Set while the session is locked: the desktop is still drawn under the
-    // lock (misc.session_lock_xray), and there is nobody to animate for.
-    property bool suspended: false
     readonly property real u: height / 1200
     // Nothing to animate behind tiled windows: pause while the workspace is occupied.
     readonly property bool active: {
         const ws = monitor ? monitor.activeWorkspace : null;
-        return !suspended && (!ws || ws.toplevels.values.length === 0);
+        return !ws || ws.toplevels.values.length === 0;
     }
     readonly property rect heroCard: Layout.heroCard(width, height)
     readonly property rect telemetryCard: Layout.telemetryCard(width, height)
