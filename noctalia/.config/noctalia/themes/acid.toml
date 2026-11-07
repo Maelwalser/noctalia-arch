@@ -178,7 +178,7 @@ capsule = false
 type = "mael/hud:hazard"
 capsule = false
 
-# LED equalizer on the PipeWire spectrum (rests as a dim baseline when silent).
+# Oscilloscope traces on the PipeWire spectrum (a calm ripple when silent).
 [widget.hud_eq]
 type = "mael/hud:eq"
 capsule = false
