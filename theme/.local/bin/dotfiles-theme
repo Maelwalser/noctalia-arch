@@ -13,9 +13,10 @@
 # zsh, fastfetch, Neovim and the Claude Code status line read it directly;
 # Claude Code's settings.json gets its theme keys rewritten. Apps without
 # conditionals get a `theme.*` link to the committed variant (Noctalia,
-# Ghostty, tmux, sioyek, Vivaldi). Noctalia's GUI state (palette, wallpapers,
-# lockscreen layout) beats its config, so each theme keeps its own copy of
-# that state.
+# Ghostty, tmux, sioyek, Vivaldi). Obsidian gets the ACID HUD theme linked
+# into every vault and selected in appearance.json. Noctalia's GUI state
+# (palette, wallpapers, lockscreen layout) beats its config, so each theme
+# keeps its own copy of that state.
 set -euo pipefail
 
 readonly THEMES=(acid classic)
@@ -134,6 +135,59 @@ tmp.replace(path)
 PY
 }
 
+# obsidian_settings <theme>: link the ACID HUD theme into every vault listed
+# in Obsidian's vault registry and select it in the vault's appearance.json
+# (theme + the acid accent; a user-set accent beats the theme's). The look the
+# vault had before is saved once per vault in $STATE_DIR/obsidian/ and put back
+# by `classic`. A running Obsidian reloads so the change shows at once.
+obsidian_settings() {
+  local theme="$1" registry="$CONFIG/obsidian/obsidian.json" vault
+  [[ -f "$registry" ]] || { echo "  ⚠ no $registry; skipping Obsidian"; return 0; }
+  mkdir -p "$STATE_DIR/obsidian"
+  while IFS= read -r vault; do
+    [[ -d "$vault/.obsidian" ]] || continue
+    # Obsidian skips a symlinked theme folder when it lists themes, so the
+    # folder is real and only the two files inside it are links.
+    mkdir -p "$vault/.obsidian/themes/ACID HUD"
+    link "$vault/.obsidian/themes/ACID HUD/theme.css" "$DOTFILES/obsidian/themes/ACID HUD/theme.css"
+    link "$vault/.obsidian/themes/ACID HUD/manifest.json" "$DOTFILES/obsidian/themes/ACID HUD/manifest.json"
+    python3 -I - "$theme" "$vault/.obsidian/appearance.json" "$STATE_DIR/obsidian" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+
+theme, path, state = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
+snap = state / (hashlib.sha1(str(path.parent.parent).encode()).hexdigest()[:16] + ".json")
+KEYS = ("cssTheme", "accentColor")
+s = json.loads(path.read_text()) if path.exists() else {}
+
+if theme == "acid":
+    # Whatever the vault had before ACID HUD is its classic look.
+    if s.get("cssTheme") != "ACID HUD" and not snap.exists():
+        snap.write_text(json.dumps({k: s[k] for k in KEYS if k in s}) + "\n")
+    s["cssTheme"] = "ACID HUD"
+    s["accentColor"] = "#ef5fc6"
+else:
+    saved = json.loads(snap.read_text()) if snap.exists() else {}
+    for k in KEYS:
+        s.pop(k, None)
+    s.update(saved)
+    if s.get("cssTheme") == "ACID HUD":
+        s.pop("cssTheme")
+
+tmp = path.with_suffix(".json.tmp")
+tmp.write_text(json.dumps(s, indent=2, ensure_ascii=False) + "\n")
+tmp.replace(path)
+PY
+  done < <(python3 -I -c '
+import json, sys
+for v in json.load(open(sys.argv[1])).get("vaults", {}).values():
+    print(v["path"])' "$registry")
+  # The CLI talks to the running app; it fails fast when Obsidian is closed.
+  if pgrep -x obsidian &>/dev/null; then
+    obsidian reload &>/dev/null || echo "  ⚠ obsidian reload failed; restart Obsidian"
+  fi
+}
+
 wait_noctalia() {
   local i
   for i in $(seq 50); do
@@ -191,6 +245,7 @@ apply() {
   fi
 
   claude_settings "$to" || echo "  ⚠ could not update Claude Code settings"
+  obsidian_settings "$to" || echo "  ⚠ could not update Obsidian"
 
   switch_noctalia "$from" "$to"
 

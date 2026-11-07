@@ -1,0 +1,3 @@
+# Theme variants: `dotfiles-theme` links the active one into every vault's
+# .obsidian/themes/ (found via ~/.config/obsidian/obsidian.json), not into $HOME.
+themes
