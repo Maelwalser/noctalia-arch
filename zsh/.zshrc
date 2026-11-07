@@ -14,6 +14,13 @@ alias ka='killall'
 alias c='claude'
 alias cr='claude --resume'
 alias cl='claude --dangerously-skip-permissions'
+# Claude Code draws the ACID//HUD logo instead of its mascot (claude-logo in
+# claude/.local/bin). The installer swaps the binary on every update, so the
+# patch is applied again, when missing, before each launch.
+claude() {
+  claude-logo --quiet
+  command claude "$@"
+}
 # Under ACID//HUD eza is themed by ~/.config/eza/theme.yml (linked by
 # dotfiles-theme). oh-my-zsh's LS_COLORS would override that file's file kinds
 # and extension colours, so eza runs without it; ls and completion keep it.

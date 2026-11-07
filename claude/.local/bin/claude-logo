@@ -1,0 +1,406 @@
+#!/usr/bin/env -S python3 -I
+"""Draw the ACID//HUD logo where Claude Code draws its mascot.
+
+Claude Code paints the welcome-screen mascot ("Clawd") from a small sprite
+table in the JavaScript bundled inside its binary. This patches that table in
+place: the mascot's turn-animation frames, dead weight once the picture no
+longer turns, are overwritten with a component that draws the logo from octant
+block characters, and the mascot component is made to call it. Every edit
+keeps its byte length, so nothing else in the binary moves.
+
+The binary also carries precompiled bytecode for every chunk and runs that
+instead of the source, so the chunk's bytecode pointer in Bun's module table
+(the `.bun` ELF section) is zeroed as well; Bun then compiles the patched
+source of that one chunk at startup.
+
+The native installer swaps the binary on every update, so the patch has to be
+applied again afterwards; the `claude` function in .zshrc runs `claude-logo
+--quiet` before each launch. Only terminals that draw Symbols for Legacy
+Computing (Unicode 16 octants, e.g. Ghostty) show the logo; others show
+missing-glyph boxes.
+
+  claude-logo             patch the binary `claude` resolves to (no-op if done)
+  claude-logo --check     exit 0 when every edit is in place, 1 when not
+  claude-logo --restore   put the original bytes back
+  claude-logo FILE        act on FILE instead of the binary on PATH
+
+A sidecar `<binary>.acid-logo.json` records each edit's offset, original and
+patched bytes; `--check` and `--restore` work from it.
+"""
+
+import argparse
+import base64
+import contextlib
+import fcntl
+import json
+import mmap
+import os
+import re
+import shutil
+import struct
+import sys
+import tempfile
+from dataclasses import dataclass
+from typing import Any
+
+# The logo on a 16x12 pixel grid, 2x4 pixels per terminal cell:
+#
+#   .......#........
+#   .......#........
+#   .......##.......
+#   .......##.......
+#   ......###.......
+#   ......##........      the bite on the right of the spike
+#   ......###.......
+#   ......####......
+#   ....#.#####.....      the lobe where the left blade starts, wedge beside it
+#   ...######.##....      the V between the blades, right of centre
+#   ..####....###...
+#   .##..........##.
+#
+# rendered as block characters (quadrants plus Unicode 16 octants).
+LOGO = (
+    "   ▐▖   ",
+    "   █\U0001CDBC   ",
+    "\U0001CEA0\U0001CD69\U0001CD34▀\U0001CD02\U0001CD34\U0001CD80\U0001CEA3",
+)
+
+MARK = b"/*acid-logo*/"
+SIDECAR = ".acid-logo.json"
+LOCK = ".acid-logo.lock"
+
+# The sprite code as the minifier and the React compiler emit it. The
+# compiler's local names (o, a, t, l, c, m, p, d, g, v, q, R, F, J) have been
+# stable; module-level names change per release and are captured here.
+# Minified identifiers may contain `$`.
+NAME = rb"[\w$]+"
+FACING_ANCHOR = b'={"right-12":[{glyphs:'
+FACING_DECL = re.compile(rb"(?:var |let |const |[,;])(" + NAME + rb")$")
+MASCOT = re.compile(
+    rb"function (?P<name>" + NAME + rb")\(o\)\{"
+    rb"(?P<prologue>let a=" + NAME + rb"\(\d+\),t;if\(a\[0\]!==o\)t=o===void 0\?\{\}:o,"
+    rb"a\[0\]=o,a\[1\]=t;else t=a\[1\];)"
+    rb'let\{pose:l,color:c,paint:m\}=t,p=l===void 0\?"default":l,'
+    rb'd=c===void 0\?"clawd_body":c;if\((?P<reader>' + NAME + rb")\(\)\)\{return null\}"
+)
+FEET = re.compile(
+    rb"F=(?P<jsx>" + NAME + rb")\((?P<text>" + NAME + rb"),\{children:(?P=jsx)\("
+    rb"(?P<painter>" + NAME + rb"),\{glyphs:v,column:0,row:2,paint:g\}\)\}\)"
+)
+COLUMN = re.compile(
+    rb"J=(?P<jsxs>" + NAME + rb")\((?P<box>" + NAME + rb"),"
+    rb'\{flexDirection:"column",flexShrink:0,children:\[q,R,F\]\}\)'
+)
+
+# Bun's standalone module graph, as of Bun 1.3: the `.bun` section is a u64
+# length followed by the graph; the graph ends with an offsets struct and a
+# trailer, and the module table is an array of 52-byte entries of
+# (offset, length) pairs: name, contents, sourcemap, bytecode, ...
+BUN_TRAILER = b"\n---- Bun! ----\n"
+BUN_OFFSETS = struct.Struct("<QIIIIII")  # byte_count, modules off/len, entry id, argv off/len, flags
+BUN_ENTRY = struct.Struct("<13I")
+BUN_ENTRY_BYTECODE_LEN = 7 * 4
+
+
+class Unpatchable(Exception):
+    """The binary or its sidecar is not laid out as expected."""
+
+
+@dataclass(frozen=True)
+class Edit:
+    """A same-length replacement at a file offset."""
+
+    offset: int
+    orig: bytes
+    new: bytes
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "offset": self.offset,
+            "orig": base64.b64encode(self.orig).decode(),
+            "new": base64.b64encode(self.new).decode(),
+        }
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> "Edit":
+        edit = cls(int(raw["offset"]), base64.b64decode(raw["orig"]), base64.b64decode(raw["new"]))
+        if edit.offset < 0 or len(edit.orig) != len(edit.new):
+            raise ValueError("inconsistent edit")
+        return edit
+
+    def reversed(self) -> "Edit":
+        return Edit(self.offset, self.new, self.orig)
+
+
+def js_string(text: str) -> str:
+    """`text` as a JavaScript string literal, ASCII only."""
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if code > 0xFFFF:
+            out.append(f"\\u{{{code:X}}}")
+        elif code > 0x7E or ch in '"\\':
+            out.append(f"\\u{code:04X}")
+        else:
+            out.append(ch)
+    return '"' + "".join(out) + '"'
+
+
+def component(*, jsx: str, jsxs: str, box: str, text: str, painter: str, reader_mode: str) -> str:
+    """The React component drawing LOGO, in terms of the chunk's own helpers."""
+    rows = ",".join(js_string(row) for row in LOGO)
+    return (
+        'function(o){let{color:c,paint:m}=o??{},d=c===void 0?"clawd_body":c;'
+        f"if({reader_mode}())return null;let g=m??(()=>d);"
+        f'return {jsxs}({box},{{flexDirection:"column",flexShrink:0,'
+        f"children:[{rows}].map((t,l)=>{jsx}({text},{{children:{jsx}({painter},"
+        "{glyphs:t,column:0,row:l,paint:g})},l))})}"
+    )
+
+
+def find_once(data: mmap.mmap, needle: bytes, what: str) -> int:
+    first = data.find(needle)
+    if first < 0:
+        raise Unpatchable(f"{what} not found")
+    if data.find(needle, first + 1) >= 0:
+        raise Unpatchable(f"{what} found more than once")
+    return first
+
+
+def sprite_edits(data: mmap.mmap) -> list[Edit]:
+    """The two same-length source edits: the logo component, and the call to it."""
+    if data.find(MARK) >= 0:
+        raise Unpatchable("already patched but the sidecar is missing")
+    anchor = find_once(data, FACING_ANCHOR, "mascot turn frames")
+    decl = FACING_DECL.search(data[max(0, anchor - 64) : anchor])
+    if decl is None:
+        raise Unpatchable("mascot turn frames variable not found")
+    name = decl.group(1)
+    table_start = anchor + 1
+    table_end = data.find(b"};function ", table_start, table_start + 20000)
+    if table_end < 0:
+        raise Unpatchable("mascot turn frames end not found")
+    # The whole `{...}` object literal, closing brace included, becomes a
+    # function expression; the `;function` after it is left alone.
+    table_end += 1
+
+    mascot = MASCOT.search(data, table_end, table_end + 200000)
+    if mascot is None:
+        raise Unpatchable("mascot component not found")
+    body = data[mascot.end() : mascot.end() + 6000]
+    feet, column = FEET.search(body), COLUMN.search(body)
+    if feet is None or column is None:
+        raise Unpatchable("mascot component body not recognised")
+
+    code = component(
+        jsx=feet["jsx"].decode(),
+        jsxs=column["jsxs"].decode(),
+        box=column["box"].decode(),
+        text=feet["text"].decode(),
+        painter=feet["painter"].decode(),
+        reader_mode=mascot["reader"].decode(),
+    ).encode() + MARK
+    table_orig = bytes(data[table_start:table_end])
+    if len(code) > len(table_orig):
+        raise Unpatchable("turn frames too small to hold the logo component")
+
+    prologue_start, prologue_end = mascot.span("prologue")
+    prologue_orig = bytes(data[prologue_start:prologue_end])
+    call = b"return " + name + b"(o);"
+    if len(call) > len(prologue_orig):
+        raise Unpatchable("mascot component prologue too short for the call")
+    return [
+        Edit(table_start, table_orig, code.ljust(len(table_orig))),
+        Edit(prologue_start, prologue_orig, call.ljust(len(prologue_orig))),
+    ]
+
+
+def elf_section(data: mmap.mmap, wanted: bytes) -> tuple[int, int]:
+    """File offset and size of the ELF64 section called `wanted`."""
+    if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+        raise Unpatchable("not a little-endian ELF64 binary")
+    (shoff,) = struct.unpack_from("<Q", data, 0x28)
+    shentsize, shnum, shstrndx = struct.unpack_from("<HHH", data, 0x3A)
+    if shentsize != 64 or shstrndx >= shnum:
+        raise Unpatchable("unexpected ELF section header table")
+    headers = [struct.unpack_from("<IIQQQQIIQQ", data, shoff + i * 64) for i in range(shnum)]
+    names_at = headers[shstrndx][4]
+    for sh_name, _, _, _, offset, size, *_ in headers:
+        end = data.find(b"\0", names_at + sh_name)
+        if data[names_at + sh_name : end] == wanted:
+            if offset + size > len(data):
+                raise Unpatchable(f"{wanted.decode()} section runs past the end of the file")
+            return offset, size
+    raise Unpatchable(f"no {wanted.decode()} section")
+
+
+def bytecode_edit(data: mmap.mmap, sprite_offset: int) -> Edit:
+    """Zero the bytecode length of the module whose source holds the sprite."""
+    section, size = elf_section(data, b".bun")
+    graph = section + 8  # the section opens with the graph's u64 length
+    if data[section + size - len(BUN_TRAILER) : section + size] != BUN_TRAILER:
+        raise Unpatchable("module graph trailer not found")
+    offsets_at = section + size - len(BUN_TRAILER) - BUN_OFFSETS.size
+    _, modules_off, modules_len, *_ = BUN_OFFSETS.unpack_from(data, offsets_at)
+    table = graph + modules_off
+    if modules_len % BUN_ENTRY.size or table + modules_len > section + size:
+        raise Unpatchable("module table not recognised")
+    wanted = sprite_offset - graph
+    for entry_at in range(table, table + modules_len, BUN_ENTRY.size):
+        name_off, name_len, contents_off, contents_len, *_ = BUN_ENTRY.unpack_from(data, entry_at)
+        if not contents_off <= wanted < contents_off + contents_len:
+            continue
+        if data[graph + name_off : graph + name_off + name_len][:8] != b"/$bunfs/":
+            raise Unpatchable("module table entry layout not recognised")
+        field = entry_at + BUN_ENTRY_BYTECODE_LEN
+        return Edit(field, bytes(data[field : field + 4]), struct.pack("<I", 0))
+    raise Unpatchable("sprite chunk not found in the module table")
+
+
+def plan_edits(data: mmap.mmap) -> list[Edit]:
+    try:
+        edits = sprite_edits(data)
+        return edits + [bytecode_edit(data, edits[0].offset)]
+    except (struct.error, IndexError, ValueError) as err:
+        raise Unpatchable(f"malformed binary: {err}") from err
+
+
+def rewrite(path: str, edits: list[Edit]) -> None:
+    """Write a copy with the edits applied and rename it over `path`.
+
+    The binary is usually running (every open Claude Code session), and Linux
+    refuses to open a running executable for writing; a rename keeps the old
+    inode alive for those processes. Each edit's original bytes are checked in
+    the copy first, so a binary that changed since the edits were planned (an
+    update, a stale sidecar) is left alone.
+    """
+    fd, tmp = tempfile.mkstemp(prefix=".claude-logo.", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "r+b") as out, open(path, "rb") as src:
+            shutil.copyfileobj(src, out, 1 << 20)
+            for edit in edits:
+                out.seek(edit.offset)
+                if out.read(len(edit.orig)) != edit.orig:
+                    raise Unpatchable(f"bytes at offset {edit.offset} are not the expected ones")
+                out.seek(edit.offset)
+                out.write(edit.new)
+            out.flush()
+            os.fsync(out.fileno())
+        shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
+
+
+def read_sidecar(path: str) -> list[Edit] | None:
+    try:
+        with open(path + SIDECAR, encoding="utf-8") as fh:
+            return [Edit.from_json(raw) for raw in json.load(fh)["edits"]]
+    except FileNotFoundError:
+        return None
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as err:
+        raise Unpatchable(f"unreadable sidecar {path + SIDECAR}: {err}") from err
+
+
+def write_sidecar(path: str, edits: list[Edit]) -> None:
+    fd, tmp = tempfile.mkstemp(prefix=".claude-logo.", suffix=".json", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"edits": [edit.to_json() for edit in edits]}, fh)
+        os.replace(tmp, path + SIDECAR)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
+
+
+def is_patched(path: str) -> bool:
+    """Every edit recorded in the sidecar is present in the binary."""
+    edits = read_sidecar(path)
+    if not edits:
+        return False
+    with open(path, "rb") as fh:
+        for edit in edits:
+            fh.seek(edit.offset)
+            if fh.read(len(edit.new)) != edit.new:
+                return False
+    return True
+
+
+def patch(path: str) -> None:
+    with open(path, "rb") as fh, mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as data:
+        edits = plan_edits(data)
+    # The sidecar goes first: a patched binary without a record of its
+    # original bytes could not be restored.
+    write_sidecar(path, edits)
+    try:
+        rewrite(path, edits)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path + SIDECAR)
+        raise
+
+
+def restore(path: str) -> bool:
+    edits = read_sidecar(path)
+    if not edits:
+        return False
+    rewrite(path, [edit.reversed() for edit in edits])
+    os.unlink(path + SIDECAR)
+    return True
+
+
+@contextlib.contextmanager
+def locked(path: str):
+    """One claude-logo at a time per binary: shells launch claude concurrently."""
+    with open(path + LOCK, "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        yield
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Draw the ACID//HUD logo where Claude Code draws its mascot.")
+    parser.add_argument("file", nargs="?", help="binary to act on (default: what `claude` resolves to)")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="exit 0 when every edit is in place, 1 when not")
+    mode.add_argument("--restore", action="store_true", help="put the original bytes back")
+    parser.add_argument("-q", "--quiet", action="store_true", help="only report failures")
+    args = parser.parse_args()
+
+    path = args.file or shutil.which("claude")
+    if path is None:
+        print("claude-logo: no `claude` on PATH", file=sys.stderr)
+        return 1
+    path = os.path.realpath(path)
+
+    def say(message: str) -> None:
+        if not args.quiet:
+            print(f"{path}: {message}")
+
+    try:
+        if args.check:
+            patched = is_patched(path)
+            say("patched" if patched else "not patched")
+            return 0 if patched else 1
+        with locked(path):
+            if args.restore:
+                say("original mascot restored" if restore(path) else "was not patched")
+                return 0
+            if is_patched(path):
+                say("already patched")
+                return 0
+            patch(path)
+            say("mascot replaced by the logo")
+            return 0
+    except Unpatchable as err:
+        print(f"claude-logo: {path}: {err}; left as is", file=sys.stderr)
+        return 1
+    except (OSError, ValueError) as err:
+        print(f"claude-logo: {err}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
