@@ -1,14 +1,15 @@
 import QtQuick
 
-// Right-column instrument: an oscilloscope whose trace swells with live network
-// traffic, on its glass pane, over a wire hand raising a spinning orb. Mirrors
-// Telemetry's header and type so the two columns read as one system.
+// Bottom-right instrument block, on its glass pane: tick strip, header, an
+// oscilloscope whose trace swells with live network traffic, the RX / TX
+// readout and a spectrum of the link. Mirrors Telemetry's strip, header and
+// type, so the two bottom panes read as a pair.
 Column {
     id: root
 
     property real u: 1
     property bool active: true
-    readonly property real span: 270 * u
+    readonly property real span: 352 * u
     // 0..1 activity from the receive rate; 512 KB/s and above is a full swing.
     readonly property real carrier: Math.min(1, Math.sqrt(SysStats.rxKbs / 512))
 
@@ -16,6 +17,13 @@ Column {
 
     function fmtRate(k) {
         return k >= 1024 ? (k / 1024).toFixed(1) + "M" : Math.round(k) + "K";
+    }
+
+    HudImage {
+        name: "tick-strip"
+        width: 300 * root.u
+        height: 34 * root.u
+        opacity: 0.8
     }
 
     // ── header ──────────────────────────────────────────────────────────
@@ -172,92 +180,49 @@ Column {
         Field { u: root.u; label: "GAIN"; value: Math.round(root.carrier * 100) + "%" }
     }
 
-    // ── hand and orb ────────────────────────────────────────────────────
-    Item {
-        id: relic
+    // ── spectrum ────────────────────────────────────────────────────────
+    // Thin bars that breathe with the link: a smoothed random walk under a
+    // bell envelope, scaled by the carrier; the top quarter clips to amber
+    // (the pane's one highlight, so a quiet link shows none). Painted five
+    // times a second while the desktop shows, so it stays cheap.
+    Canvas {
+        id: spectrum
         width: root.span
-        height: 540 * root.u
-
-        // One slow float shared by hand and orb, so the orb stays cradled.
-        property real drift: 0
-        SequentialAnimation on drift {
-            loops: Animation.Infinite
-            running: true
-            paused: !root.active
-            NumberAnimation { from: 0; to: 1; duration: 4200; easing.type: Easing.InOutSine }
-            NumberAnimation { from: 1; to: 0; duration: 4200; easing.type: Easing.InOutSine }
-        }
-
-        Item {
-            id: orb
-            width: 168 * root.u
-            height: width
-            anchors.horizontalCenter: parent.horizontalCenter
-            // Low enough for the halo to clear the glass pane's bottom rim.
-            y: 30 * root.u - relic.drift * 10 * root.u
-
-            HudImage {
-                name: "orb-halo"
-                anchors.centerIn: parent
-                width: parent.width * 1.18
-                height: width
-                opacity: 0.28
-                Spin on rotation { active: root.active; duration: 90000; reverse: true }
-            }
-            HudImage {
-                name: "orb"
-                anchors.centerIn: parent
-                width: parent.width * 0.86
-                height: width
-                scale: 0.97 + 0.05 * relic.drift
-                Spin on rotation { active: root.active; duration: 22000 }
-            }
-            Rectangle {
-                anchors.centerIn: parent
-                width: 6 * root.u
-                height: width
-                rotation: 45
-                color: Theme.primary
+        height: 48 * root.u
+        readonly property int bars: 32
+        property var levels: Array(32).fill(0.15)
+        readonly property real clip: 0.75
+        Timer {
+            interval: 200
+            repeat: true
+            running: root.active
+            onTriggered: {
+                const n = spectrum.bars, lv = spectrum.levels;
+                const gain = 0.3 + 0.7 * root.carrier;
+                for (let i = 0; i < n; i++) {
+                    const env = 0.3 + 0.7 * Math.exp(-Math.pow((i - n * 0.45) / (n * 0.3), 2));
+                    const target = gain * env * (0.6 + 0.4 * Math.random());
+                    lv[i] += (target - lv[i]) * 0.4;
+                }
+                spectrum.requestPaint();
             }
         }
-
-        // Twinkling sparks around the orb.
-        Repeater {
-            model: [
-                { x: 0.20, y: 0.04, s: 22, d: 0 },
-                { x: 0.80, y: 0.26, s: 14, d: 900 },
-                { x: 0.26, y: 0.36, s: 10, d: 1700 }
-            ]
-            HudImage {
-                required property var modelData
-                name: "spark"
-                width: modelData.s * root.u
-                height: width
-                x: relic.width * modelData.x - width / 2
-                y: relic.height * modelData.y - height / 2
-                opacity: 0.2
-                SequentialAnimation on opacity {
-                    loops: Animation.Infinite
-                    running: true
-                    paused: !root.active
-                    PauseAnimation { duration: modelData.d }
-                    NumberAnimation { from: 0.15; to: 1; duration: 700; easing.type: Easing.OutQuad }
-                    NumberAnimation { from: 1; to: 0.15; duration: 1500; easing.type: Easing.InQuad }
-                    PauseAnimation { duration: 2600 - modelData.d }
+        onPaint: {
+            const c = getContext("2d");
+            c.clearRect(0, 0, width, height);
+            const n = bars, gap = 3 * root.u, bw = (width - gap * (n - 1)) / n;
+            for (let i = 0; i < n; i++) {
+                const x = i * (bw + gap);
+                c.fillStyle = Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.25);
+                c.fillRect(x, 0, bw, height);
+                const h = Math.max(2 * root.u, levels[i] * height), base = Math.min(h, clip * height);
+                c.fillStyle = Theme.primary;
+                c.fillRect(x, height - base, bw, base);
+                if (h > base) {
+                    c.fillStyle = Theme.accent;
+                    c.fillRect(x, height - h, bw, h - base);
                 }
             }
-        }
-
-        HudImage {
-            name: "hand"
-            // hand-cup's aspect: 126 x 311.
-            height: 380 * root.u
-            width: height * 126 / 311
-            // The index fingertip sits at 40 % of the image width: put it
-            // under the orb's centre so the orb rests on the raised fingers.
-            x: orb.x + orb.width / 2 - width * 0.40
-            y: orb.y + orb.height - 34 * root.u
-            opacity: 0.8
         }
     }
 }

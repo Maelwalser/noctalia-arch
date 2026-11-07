@@ -1,10 +1,10 @@
 # ACID//HUD: two-line HUD prompt. Uses ANSI slots only, so it follows the
-# Noctalia terminal palette (green = acid accent, bright black = outline grey).
+# Noctalia terminal palette (magenta = the primary accent, bright black = outline grey).
 #
 #   ┌─▲ mael ── ~/dotfiles ── ⎇ main ⚠ ── ✖ 1
 #   └─▶
 
-local acid="%{$fg[green]%}"
+local acid="%{$fg[magenta]%}"
 local bone="%{$fg_bold[white]%}"
 local dim="%F{8}"
 local alert="%{$fg_bold[red]%}"

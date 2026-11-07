@@ -31,46 +31,46 @@
 
 #browser {
   /* Vivaldi theme variables (the GUI theme underneath is the stock Dark). */
-  --colorAccentBg: #d4ff1e !important;
-  --colorAccentBgDark: #a8cc12 !important;
-  --colorAccentBgDarker: #7fa00e !important;
-  --colorAccentBgFaded: #b6db1a !important;
-  --colorAccentBgAlpha: rgba(212, 255, 30, 0.9) !important;
-  --colorAccentBgAlphaHeavy: rgba(212, 255, 30, 0.65) !important;
-  --colorAccentBgAlphaBlur: rgba(212, 255, 30, 0.75) !important;
-  --colorAccentBorder: #a8cc12 !important;
-  --colorAccentFg: #0a0a0c !important;
+  --colorAccentBg: #ef5fc6 !important;
+  --colorAccentBgDark: #c247a0 !important;
+  --colorAccentBgDarker: #a03a84 !important;
+  --colorAccentBgFaded: #d953b2 !important;
+  --colorAccentBgAlpha: rgba(239, 95, 198, 0.9) !important;
+  --colorAccentBgAlphaHeavy: rgba(239, 95, 198, 0.65) !important;
+  --colorAccentBgAlphaBlur: rgba(239, 95, 198, 0.75) !important;
+  --colorAccentBorder: #c247a0 !important;
+  --colorAccentFg: #0b0712 !important;
   --colorAccentFgAlpha: rgba(10, 10, 12, 0.9) !important;
-  --colorAccentFgFaded: #2a2a2e !important;
-  --colorHighlightBg: #d4ff1e !important;
-  --colorHighlightBgAlpha: rgba(212, 255, 30, 0.9) !important;
-  --colorHighlightBgDark: #a8cc12 !important;
-  --colorHighlightBgFaded: #e4ff6b !important;
-  --colorHighlightFg: #0a0a0c !important;
+  --colorAccentFgFaded: #2e2340 !important;
+  --colorHighlightBg: #ef5fc6 !important;
+  --colorHighlightBgAlpha: rgba(239, 95, 198, 0.9) !important;
+  --colorHighlightBgDark: #c247a0 !important;
+  --colorHighlightBgFaded: #ff8fdc !important;
+  --colorHighlightFg: #0b0712 !important;
   --colorHighlightFgAlpha: rgba(10, 10, 12, 0.9) !important;
-  --colorFocusBg: #d4ff1e !important;
-  --colorBg: #0a0a0c !important;
-  --colorBgDark: #050506 !important;
-  --colorBgDarker: #040405 !important;
-  --colorBgLight: #16161b !important;
-  --colorBgLighter: #1f1f25 !important;
-  --colorBgLightIntense: #1a1a20 !important;
-  --colorBgIntense: #101014 !important;
-  --colorBgIntenser: #0d0d10 !important;
-  --colorBgFaded: #1b1b20 !important;
+  --colorFocusBg: #ef5fc6 !important;
+  --colorBg: #0b0712 !important;
+  --colorBgDark: #060309 !important;
+  --colorBgDarker: #050207 !important;
+  --colorBgLight: #1a1226 !important;
+  --colorBgLighter: #241a33 !important;
+  --colorBgLightIntense: #1f1629 !important;
+  --colorBgIntense: #120c1a !important;
+  --colorBgIntenser: #0e0915 !important;
+  --colorBgFaded: #1f1629 !important;
   --colorBgAlpha: rgba(10, 10, 12, 0.9) !important;
   --colorBgAlphaHeavy: rgba(10, 10, 12, 0.65) !important;
   --colorBgAlphaHeavier: rgba(10, 10, 12, 0.5) !important;
   --colorBgAlphaBlur: rgba(10, 10, 12, 0.75) !important;
   --colorTabBar: transparent !important;
-  --colorFg: #e8e6e1 !important;
+  --colorFg: #efe7f4 !important;
   --colorFgIntense: #ffffff !important;
-  --colorFgFaded: #c9c7c0 !important;
-  --colorFgFadedMore: #a3a39c !important;
-  --colorFgFadedMost: #8a8f98 !important;
-  --colorBorder: #3a3a42 !important;
-  --colorBorderSubtle: #26262c !important;
-  --colorBorderIntense: #4a4a54 !important;
+  --colorFgFaded: #cfc2da !important;
+  --colorFgFadedMore: #b7a8c9 !important;
+  --colorFgFadedMost: #8f86a0 !important;
+  --colorBorder: #4a3a62 !important;
+  --colorBorderSubtle: #2a1f3b !important;
+  --colorBorderIntense: #5a4a74 !important;
   --radius: 12px !important;
   --radiusHalf: 6px !important;
   --radiusCap: 18px !important;
@@ -80,10 +80,10 @@
   /* Glass recipe. The capsule fill and rim are the bar's (capsule_fill 0.07,
      capsule_border #ffffff26); the pane body is the toast fill with enough
      depth to keep text readable over a bright page. */
-  --hud-acid: #d4ff1e;
-  --hud-acid-dim: rgba(212, 255, 30, 0.18);
-  --hud-acid-ring: rgba(212, 255, 30, 0.55);
-  --hud-acid-glow: rgba(212, 255, 30, 0.18);
+  --hud-acid: #ef5fc6;
+  --hud-acid-dim: rgba(239, 95, 198, 0.18);
+  --hud-acid-ring: rgba(239, 95, 198, 0.55);
+  --hud-acid-glow: rgba(239, 95, 198, 0.18);
   --hud-glass: rgba(255, 255, 255, 0.07);
   --hud-glass-hover: rgba(255, 255, 255, 0.11);
   --hud-glass-lit: rgba(255, 255, 255, 0.14);
@@ -106,11 +106,11 @@
    frame width) lets it show round the page pane; Hyprland rounds the outer
    corners at 18 px, the page pane rounds at 12 px, concentric at this inset. */
 #browser {
-  background-color: #0a0a0c !important;
+  background-color: #0b0712 !important;
   background-image:
-    radial-gradient(60% 70px at 50% -10px, rgba(212, 255, 30, 0.12), transparent 70%),
+    radial-gradient(60% 70px at 50% -10px, rgba(239, 95, 198, 0.12), transparent 70%),
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 3px),
-    linear-gradient(180deg, #121216, #0a0a0c 55%) !important;
+    linear-gradient(180deg, #15101d, #0b0712 55%) !important;
   background-origin: border-box !important;
   background-position: 0 0 !important;
   background-size: auto !important;
@@ -127,7 +127,7 @@
 /* The page stack is clipped to the pane; the link preview is its sibling, so
    it stays outside the clip. */
 #browser:not(.fullscreen) #webview-container {
-  background-color: #0a0a0c !important;
+  background-color: #0b0712 !important;
 }
 
 #browser:not(.fullscreen) #webpage-stack {
@@ -246,7 +246,7 @@
 #browser .ToolbarButton-Button[aria-pressed="true"] {
   background-color: var(--hud-acid-dim) !important;
   color: var(--hud-acid) !important;
-  box-shadow: inset 0 0 0 1px rgba(212, 255, 30, 0.4), inset 0 1px 0 var(--hud-sheen) !important;
+  box-shadow: inset 0 0 0 1px rgba(239, 95, 198, 0.4), inset 0 1px 0 var(--hud-sheen) !important;
 }
 
 #browser .toolbar-divider .ToolbarButton-Button {

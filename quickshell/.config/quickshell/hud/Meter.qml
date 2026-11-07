@@ -8,6 +8,7 @@ Row {
     property int segments: 20
     property real u: 1
     property real critical: 0.85
+    property color color: Theme.primary
 
     spacing: 3 * u
 
@@ -22,7 +23,7 @@ Row {
             readonly property bool lit: index < Math.round(root.value * root.segments)
             width: 9 * root.u
             height: 7 * root.u
-            color: !lit ? Theme.outline : (root.value >= root.critical ? Theme.error : Theme.primary)
+            color: !lit ? Theme.outline : (root.value >= root.critical ? Theme.error : root.color)
             opacity: lit ? 1 : 0.3
             // Skewed blocks echo the hazard-stripe language.
             transform: Matrix4x4 {

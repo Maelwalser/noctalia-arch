@@ -16,7 +16,7 @@
     "display": {
         "separator": "  ▸ ",
         "color": {
-            "keys": "green",
+            "keys": "magenta",
             "title": "white",
             "output": "white"
         },
@@ -28,7 +28,7 @@
         {
             "type": "title",
             "color": {
-                "user": "green",
+                "user": "magenta",
                 "at": "90",
                 "host": "white"
             },

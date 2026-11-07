@@ -109,7 +109,7 @@ Item {
         Rectangle {
             height: parent.height
             width: parent.width * clock.seconds / 59
-            color: Theme.primary
+            color: Theme.accent
             Behavior on width {
                 enabled: root.active && clock.seconds > 0
                 NumberAnimation { duration: 350; easing.type: Easing.OutCubic }

@@ -47,14 +47,16 @@ COLORS_JSON = HOME / ".config/hud/colors.json"
 
 # Used until Noctalia has rendered ~/.config/hud/colors.json once.
 DEFAULT_COLORS = {
-    "primary": "#d4ff1e",
-    "on_primary": "#0a0a0c",
-    "surface": "#0a0a0c",
-    "surface_variant": "#16161b",
-    "on_surface": "#e8e6e1",
-    "on_surface_variant": "#a3a39c",
-    "outline": "#3a3a42",
-    "error": "#ff3b30",
+    "primary": "#ef5fc6",
+    "on_primary": "#140a1c",
+    "secondary": "#8f8cff",
+    "tertiary": "#ffa35e",  # the amber highlight: used sparingly
+    "surface": "#0b0712",
+    "surface_variant": "#1a1226",
+    "on_surface": "#efe7f4",
+    "on_surface_variant": "#b7a8c9",
+    "outline": "#4a3a62",
+    "error": "#ff4d5e",
 }
 
 # Elements other programs need as pre-coloured PNGs: name -> (roles, longest edge).
@@ -78,16 +80,10 @@ OVERLAY = {
     "ring-acid": ("ring-07", "primary", 1024),
     "ring-ticks": ("ring-ticks", "outline", 1024),
     "tick-strip": ("tick-strip", "outline", 768),
-    # Right column: a wire hand raising a spinning orb under an oscilloscope.
-    "hand": ("hand-cup", "on_surface", 1024),
-    "orb": ("orb-swirl", "primary", 768),
-    "orb-halo": ("orb-burst", "on_surface_variant", 768),
-    "spark": ("star-4", "on_surface", 128),
     "claw": ("y2k-claw", "primary", 128),
 }
-# Overlay layers whose bottom fraction fades to transparent (the hand rises
-# out of the floor grid instead of ending in a cut).
-OVERLAY_FADE = {"hand": 0.45}
+# Overlay layers whose bottom fraction fades to transparent.
+OVERLAY_FADE: dict[str, float] = {}
 
 # Physical resolutions the wallpaper is rendered at (eDP-1 and the ultrawides).
 WALLPAPER_SIZES = ((1920, 1200), (5120, 2160), (3840, 2160))
@@ -885,7 +881,7 @@ def build_lock(colors: dict[str, str]) -> None:
     with tempfile.TemporaryDirectory(prefix="hud-lock-") as td:
         for name, (w, h, scale) in LOCK_OUTPUTS.items():
             static = d / f"static-{name}.png"
-            render_lock_static(colors, w, h, scale, static)
+            render_lock_static(colors, w, h, scale, static, lock_backdrop_image(name))
             # The reticle rides on this output's scene, at 4x for the rotation.
             left, top, size = reticle_box(w, h, scale)
             ring = Path(td) / f"ring-{name}.png"
@@ -898,12 +894,37 @@ def build_lock(colors: dict[str, str]) -> None:
     print(f"lock: {len(LOCK_OUTPUTS)} reticle gifs, scenes, backdrop")
 
 
-def lock_scene(colors: dict[str, str], w: int, h: int) -> list[str]:
-    """The wallpaper's world, horizon centred, pushed back under the lock UI,
-    with scanlines and vignette (w, h in physical px)."""
-    hy = round(h * LOCK_HORIZON / 800)
-    cmd = scene_cmd(colors, w, h, hy, round(w / 2), CACHE / f"lock-floor-{w}x{h}.png")
-    cmd += ["-fill", colors["surface"] + "4d", "-draw", f"rectangle 0,0 {w},{h}"]  # ~30 % darker
+def lock_backdrop_image(output: str) -> Path | None:
+    """The picture Noctalia shows on `output` (from its state file), when it is
+    the user's own rather than a HUD render: the lock scene is then built on
+    it, so the lock matches the desktop. None means the HUD world."""
+    state = Path(os.environ.get("XDG_STATE_HOME") or HOME / ".local/state") / "noctalia/settings.toml"
+    try:
+        wallpaper = tomllib.loads(state.read_text()).get("wallpaper", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    chosen = wallpaper.get("monitors", {}).get(output) or wallpaper.get("last") or {}
+    path = Path(chosen.get("path", "")).expanduser()
+    if not path.is_file() or path.is_relative_to(WALLPAPERS):
+        return None
+    return path
+
+
+def lock_scene(colors: dict[str, str], w: int, h: int, image: Path | None = None) -> list[str]:
+    """The backdrop under the lock UI, with scanlines and vignette (w, h in
+    physical px): the user's wallpaper, cover-cropped and darkened, or the
+    HUD world, horizon centred."""
+    if image is not None:
+        cmd = ["magick", str(image), "-resize", f"{w}x{h}^", "-gravity", "center",
+               "-extent", f"{w}x{h}", "+repage", "-gravity", "NorthWest",
+               # ~40 % darker, then a soft dark pool behind the clock and date
+               # rows (LOCK_CLOCK..LOCK_DATE_Y): they must read over neon signs.
+               "-fill", colors["surface"] + "66", "-draw", f"rectangle 0,0 {w},{h}"]
+        cmd += glow(w, h, colors["surface"], w / 2, h * 300 / 800, w * 0.30, h * 0.17, 0.55)
+    else:
+        hy = round(h * LOCK_HORIZON / 800)
+        cmd = scene_cmd(colors, w, h, hy, round(w / 2), CACHE / f"lock-floor-{w}x{h}.png")
+        cmd += ["-fill", colors["surface"] + "4d", "-draw", f"rectangle 0,0 {w},{h}"]  # ~30 % darker
     cmd += scanlines(w, h, max(2, round(h / 400)), 0.22)
     cmd += ["(", "-size", f"{w}x{h}", "-define", "gradient:extent=farthest",
             "radial-gradient:rgba(0,0,0,0)-rgba(0,0,0,0.6)", ")", "-geometry", "+0+0", "-composite",
@@ -917,7 +938,7 @@ def render_lock_backdrop(colors: dict[str, str], dst: Path) -> None:
     """The scene alone at 16:9: shown during the lock transition and on outputs
     missing from LOCK_OUTPUTS (Noctalia cover-crops it)."""
     with staged(dst) as tmp:
-        run(*lock_scene(colors, 3840, 2160), "-depth", "8", tmp)
+        run(*lock_scene(colors, 3840, 2160, lock_backdrop_image("")), "-depth", "8", tmp)
 
 
 def glass_map(w: int, h: int, r: float, band: float, scale: float) -> Path:
@@ -962,7 +983,8 @@ def glass_map(w: int, h: int, r: float, band: float, scale: float) -> Path:
     return dst
 
 
-def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst: Path) -> None:
+def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst: Path,
+                       image: Path | None = None) -> None:
     """One output's opaque lock layer: scene plus every static part of the UI,
     at physical size so it lines up pixel for pixel with the live widgets."""
     pw, ph = round(w * scale), round(h * scale)
@@ -1068,7 +1090,7 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
         ]
 
     acid = colors["primary"]
-    cmd = lock_scene(colors, pw, ph)
+    cmd = lock_scene(colors, pw, ph, image)
 
     # Frame: hairline inset with acid corner ticks, as on the wallpaper.
     cmd += stroke("outline") + ["-draw", f"rectangle {cx(xl):.1f},{cy(yt):.1f} {cx(xr):.1f},{cy(yb):.1f}"]

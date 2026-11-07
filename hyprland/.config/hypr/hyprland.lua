@@ -43,11 +43,11 @@ require("plugins")
 local ok, theme = pcall(function() return require("noctalia") end)
 if ok and require("dotfiles_theme") == "acid" then
     theme.apply_theme()
-    -- ACID//HUD: acid -> bone -> acid gradient on the active border (the
+    -- ACID//HUD: primary -> secondary -> primary gradient on the active border (the
     -- borderangle loop in looknfeel.lua spins it), a dim hairline on inactive
-    -- windows, and an acid-tinted shadow as a glow. Re-read on every reload, so
+    -- windows, and a primary-tinted shadow as a glow. Re-read on every reload, so
     -- the colors_changed hook in noctalia config.toml keeps it in step.
-    local primary_hex = theme.colors.primary:match("%x%x%x%x%x%x") or "d4ff1e"
+    local primary_hex = theme.colors.primary:match("%x%x%x%x%x%x") or "ef5fc6"
     hl.config({
         general = {
             border_size = 2,
@@ -56,7 +56,7 @@ if ok and require("dotfiles_theme") == "acid" then
                     colors = { theme.colors.primary, theme.colors.secondary, theme.colors.primary },
                     angle = 45,
                 },
-                inactive_border = "rgba(3a3a42aa)",
+                inactive_border = "rgba(4a3a62aa)",
             },
         },
         decoration = {

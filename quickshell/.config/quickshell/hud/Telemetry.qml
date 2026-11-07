@@ -104,6 +104,7 @@ Column {
         property string value
         property real level: -1
         property real critical: 0.85
+        property color color: Theme.primary
         width: root.width
         height: 16 * root.u
         Text {
@@ -119,6 +120,7 @@ Column {
             visible: parent.level >= 0
             value: Math.max(0, parent.level)
             critical: parent.critical
+            color: parent.color
             segments: 14
             u: root.u
             anchors.verticalCenter: parent.verticalCenter
@@ -135,7 +137,8 @@ Column {
 
     Readout { label: "CPU";  level: SysStats.cpu; value: Math.round(SysStats.cpu * 100) + "%" }
     Readout { label: "MEM";  level: SysStats.mem; value: SysStats.memUsedGb.toFixed(1) + "G" }
-    Readout { label: "TEMP"; level: Math.min(1, SysStats.tempC / 100); critical: 0.9; value: Math.round(SysStats.tempC) + "°C" }
+    // Heat in amber: the telemetry's one highlight.
+    Readout { label: "TEMP"; level: Math.min(1, SysStats.tempC / 100); critical: 0.9; color: Theme.accent; value: Math.round(SysStats.tempC) + "°C" }
     Readout { label: "GPU";  level: Math.max(0, SysStats.gpu); value: root.fmtGpu() }
     Readout { label: "DGPU"; visible: SysStats.dgpuState !== ""; value: SysStats.dgpuState === "active" ? "ACTIVE" : "SLEEP" }
     Readout { label: "UP";   value: fmtUptime(SysStats.uptimeSec) + "  ·  " + SysStats.kernel }

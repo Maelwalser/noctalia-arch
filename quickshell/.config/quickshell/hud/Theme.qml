@@ -13,12 +13,14 @@ Singleton {
     readonly property string home: Quickshell.env("HOME")
     readonly property string assetDir: home + "/.local/share/hud/overlay/"
 
-    property color primary: "#d4ff1e"
-    property color surface: "#0a0a0c"
-    property color fg: "#e8e6e1"
-    property color fgDim: "#a3a39c"
-    property color outline: "#5c5d65"
-    property color error: "#ff3b30"
+    property color primary: "#ef5fc6"
+    property color surface: "#0b0712"
+    property color fg: "#efe7f4"
+    property color fgDim: "#b7a8c9"
+    property color outline: "#6a5a84"
+    // The amber highlight (palette tertiary): a few accents only, the rest is primary.
+    property color accent: "#ffa35e"
+    property color error: "#ff4d5e"
     property string version: "0"
 
     readonly property string displayFont: "Chakra Petch"
@@ -36,6 +38,7 @@ Singleton {
             fg = c.on_surface ?? fg;
             fgDim = c.on_surface_variant ?? fgDim;
             outline = c.outline ?? outline;
+            accent = c.tertiary ?? accent;
             error = c.error ?? error;
         } catch (e) {
             console.warn("hud: ignoring malformed colors.json:", e);

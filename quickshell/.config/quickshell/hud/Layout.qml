@@ -10,11 +10,15 @@ import Quickshell
 Singleton {
     readonly property real pad: 24       // u: a pane's inset around its content
     readonly property int radiusPx: 18   // logical px: the toasts' corner radius
-    // The side panes' inset from the screen edge: clears the wallpaper's
-    // frame line, altimeter ticks and the spine label down the right edge.
+    // The bottom panes' inset from the screen edges: clears the HUD
+    // wallpaper's frame line, altimeter ticks and spine label, and keeps
+    // them off the edges of a photo wallpaper.
     readonly property real inset: 71     // u
-    // The hero and signal panes hang from this line, above the horizon (655 u).
+    // The hero's top line, in the upper third above the HUD horizon (655 u).
     readonly property real topLine: 395  // u
+    // The two bottom panes share one size, so they read as a pair.
+    readonly property real paneW: 400    // u
+    readonly property real paneH: 300    // u
 
     function u(h) { return h / 1200; }
 
@@ -23,15 +27,16 @@ Singleton {
         const k = u(h);
         return Qt.rect(w / 2 - 270 * k, topLine * k, 540 * k, 236 * k);
     }
-    // Bottom-left telemetry pane, at the side inset, 100 u off the bottom.
+    // The bottom corners, mirrored: telemetry left, signal right, the same
+    // box at the same inset from the sides and the bottom. On a photo
+    // wallpaper the corners are its quietest ground; on the HUD wallpaper
+    // they sit on the floor grid.
     function telemetryCard(w, h) {
         const k = u(h);
-        return Qt.rect(inset * k, h - 400 * k, 400 * k, 300 * k);
+        return Qt.rect(inset * k, h - (inset + paneH) * k, paneW * k, paneH * k);
     }
-    // Right-hand signal pane around the oscilloscope, top-aligned with the
-    // hero at the same inset as the telemetry; the relic floats below it.
     function signalCard(w, h) {
         const k = u(h);
-        return Qt.rect(w - (inset + 318) * k, topLine * k, 318 * k, 183 * k);
+        return Qt.rect(w - (inset + paneW) * k, h - (inset + paneH) * k, paneW * k, paneH * k);
     }
 }
