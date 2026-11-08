@@ -50,7 +50,7 @@ entry = "spinner.luau"
   default = true
 
   [widget.actions]
-  left = "exec hud-overlay toggle"
+  left = "exec $HOME/.local/bin/hud-overlay toggle"
   middle = "none"
 
 [[widget]]

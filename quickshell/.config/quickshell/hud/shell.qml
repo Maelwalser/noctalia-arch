@@ -11,9 +11,22 @@ import Quickshell.Hyprland
 // hud-unlock, plays the unlock reveal (UnlockFold.qml) on Noctalia's session
 // hooks: `qs -c hud ipc call lock locked|unlocked` (themes/acid.toml), and
 // its reverse on `lock close` (hud-lock), locking the session once the doors
-// are shut on every output.
+// are shut on every output. The desktop scene alone is switched off and on
+// with `qs -c hud ipc call overlay off|on|toggle` (hud-overlay toggle, the
+// bar's spinner): the process, and with it the lock's doors and readouts,
+// stays. Not persisted: every start shows the desktop scene. (Not `show`:
+// `qs ipc` takes that for its own subcommand and lists the targets instead.)
 ShellRoot {
     id: shell
+
+    property bool overlayOn: true
+    IpcHandler {
+        target: "overlay"
+        function on(): void { shell.overlayOn = true; }
+        function off(): void { shell.overlayOn = false; }
+        function toggle(): void { shell.overlayOn = !shell.overlayOn; }
+        function status(): string { return shell.overlayOn ? "on" : "off"; }
+    }
 
     function eachFold(fn, output) {
         screens.instances.forEach(o => { if (!output || o.fold.screen.name === output) fn(o.fold); });
@@ -139,6 +152,7 @@ ShellRoot {
                     id: scene
                     anchors.fill: parent
                     monitor: Hyprland.monitorFor(output.modelData)
+                    shown: shell.overlayOn
                 }
             }
 

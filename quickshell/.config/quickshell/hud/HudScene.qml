@@ -8,9 +8,14 @@ Item {
     id: scene
 
     property var monitor: null
+    // Switched off from the bar (shell.qml, `overlay off`): the desktop
+    // scene goes, the lock's doors and readouts are not part of it.
+    property bool shown: true
     readonly property real u: height / 1200
     // Nothing to animate behind tiled windows: pause while the workspace is occupied.
     readonly property bool active: {
+        if (!shown)
+            return false;
         const ws = monitor ? monitor.activeWorkspace : null;
         return !ws || ws.toplevels.values.length === 0;
     }

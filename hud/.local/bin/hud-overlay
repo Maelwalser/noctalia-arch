@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # Start, stop or toggle the ACID//HUD Quickshell desktop overlay (~/.config/quickshell/hud).
+#
+# `toggle`, `show` and `hide` switch the desktop scene (the glass panes and
+# the clock, telemetry and signal blocks) in the running instance over IPC;
+# the process stays up, since it also draws the lock's readouts and plays
+# the lock's doors. `start` (autostart) makes sure it runs and shows the
+# scene; `stop`/`restart` act on the process (for development).
 set -euo pipefail
 
 # The live instances of this config, by pid. Asked of quickshell rather than
@@ -15,9 +21,16 @@ pids() {
 
 running() { [[ -n "$(pids)" ]]; }
 
-start() {
+overlay() { qs -c hud ipc call overlay "$1"; }
+
+launch() {
   command -v qs >/dev/null || { echo "hud-overlay: quickshell not installed (pacman -S quickshell)" >&2; exit 1; }
-  running || setsid -f qs -c hud >/dev/null 2>&1
+  setsid -f qs -c hud >/dev/null 2>&1
+}
+
+# Running with the desktop scene on (a fresh instance starts that way).
+start() {
+  if running; then overlay on; else launch; fi
 }
 
 stop() {
@@ -25,10 +38,16 @@ stop() {
   for p in $(pids); do kill "$p" 2>/dev/null || true; done
 }
 
+status() {
+  if running; then overlay status; else echo stopped; fi
+}
+
 case "${1:-toggle}" in
-  start) start ;;
+  start|show) start ;;
+  hide) if running; then overlay off; fi ;;
+  toggle) if running; then overlay toggle; status; else launch; fi ;;
+  status) status ;;
   stop) stop ;;
-  restart) stop; sleep 0.3; start ;;
-  toggle) if running; then stop; else start; fi ;;
-  *) echo "usage: hud-overlay [start|stop|restart|toggle]" >&2; exit 2 ;;
+  restart) stop; sleep 0.3; launch ;;
+  *) echo "usage: hud-overlay [start|stop|restart|toggle|show|hide|status]" >&2; exit 2 ;;
 esac
