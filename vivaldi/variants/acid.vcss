@@ -189,13 +189,6 @@
     0 6px 16px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* A tab widened by hover (main.css) covers its neighbours, so it becomes a
-   deep pane instead of see-through glass. */
-#browser:is(.tabs-top, .tabs-bottom) #tabs-container .tab-position:not(.is-pinned):hover .tab {
-  background: var(--hud-pane-deep) !important;
-  backdrop-filter: var(--hud-pane-blur);
-}
-
 /* Vivaldi's little curves joining the active tab to the toolbar would hang
    off a capsule. */
 #browser .tab.active::before,
