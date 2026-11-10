@@ -4,6 +4,7 @@ omarchy/.config/omarchy/themes/happy-time/backgrounds
 # Claude Code: per-directory instructions and local settings
 CLAUDE.md
 .claude/
+!seed/.claude/
 
 # Editor swap/backup files
 *.swp
@@ -50,7 +51,7 @@ sioyek/.config/sioyek/prefs_user.config
 eza/.config/eza/theme.yml
 vivaldi/theme.css
 
-# Claude Code: keybindings, the ACID//HUD theme and the status line are stowed
+# Claude Code: keybindings, the ACID//HUD theme, the status line and bin/ are stowed
 # from the claude package. Only those are tracked: everything else in ~/.claude
 # is runtime state or secrets.
 !claude/.claude/
@@ -58,6 +59,7 @@ claude/.claude/*
 !claude/.claude/keybindings.json
 !claude/.claude/statusline-command.sh
 !claude/.claude/themes/
+!claude/.claude/bin/
 
 # ACID//HUD: everything `hud-build` renders is derived from licensed stock art
 # (~/Pictures/ricing) and must stay out of this public repo. Allowlist only the

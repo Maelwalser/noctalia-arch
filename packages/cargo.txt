@@ -1,0 +1,4 @@
+# cargo install (bootstrap.sh --dev)
+bpf-linker
+cargo-audit
+cargo-deny

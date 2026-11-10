@@ -5,9 +5,11 @@
 # hyprpm is not shipped by Arch's hyprland package, so this stands in for it.
 #
 # Plugins are compiled against Hyprland's internal headers: rerun this after
-# every Hyprland update. Hyprland refuses to load a plugin built for another
-# version (it logs "Failed to load plugin"), so a stale build is skipped, not
-# a crash.
+# every Hyprland update. plugins.lua only loads them while .built-for (the
+# version.h they were compiled against) matches the installed Hyprland, so a
+# stale build is skipped quietly instead of failing with a red notification.
+# A plugin that failed to load stays mapped in the running compositor, so after
+# such a failure the rebuilt one takes effect only once Hyprland restarts.
 #
 # Usage: hypr-plugins            build and install all, then reload Hyprland
 set -euo pipefail
@@ -45,7 +47,9 @@ for entry in "${PLUGINS[@]}"; do
     echo "   patched: ${patch##*/}"
   done
   if [[ -f "$dir/CMakeLists.txt" ]]; then
-    cmake -S "$dir" -B "$dir/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
+    # --fresh: pkg_check_modules caches the dependency versions that go into
+    # the plugin's ABI hash, so a reused cache bakes in the old ones.
+    cmake --fresh -S "$dir" -B "$dir/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
     cmake --build "$dir/build" -j"$(nproc)"
   else
     # Plain Makefile; clean first, objects do not track Hyprland header changes.
@@ -58,6 +62,8 @@ for entry in "${PLUGINS[@]}"; do
   mv -f "$OUT/.$lib.new" "$OUT/$lib"
   echo "   installed $OUT/$lib"
 done
+# The same path plugins.lua compares against.
+cp /usr/include/hyprland/src/version.h "$OUT/.built-for"
 
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
   hyprctl reload >/dev/null && echo "Hyprland reloaded"

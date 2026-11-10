@@ -8,7 +8,6 @@
 # every command lookup. -U keeps the first occurrence, so precedence is stable.
 typeset -U path PATH
 
-export VOLTA_HOME="$HOME/.volta"
 export CARGO_HOME="$HOME/.cargo"
 export ZSH="$HOME/.oh-my-zsh"
 
@@ -22,7 +21,6 @@ path=(
   "$HOME/.npm-global/bin"
   "$HOME/.flutter-sdk/bin"
   "$CARGO_HOME/bin"
-  "$VOLTA_HOME/bin"
   $path
   "$GOPATH/bin"
 )

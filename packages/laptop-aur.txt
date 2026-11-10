@@ -1,0 +1,1 @@
+# AUR hardware packages (bootstrap.sh --profile laptop).

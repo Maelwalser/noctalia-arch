@@ -1,0 +1,11 @@
+# Hardware packages for the Intel + NVIDIA hybrid laptop (bootstrap.sh --profile laptop).
+efibootmgr
+egl-wayland
+grub
+intel-ucode
+linux-headers
+nvidia-container-toolkit
+nvidia-open-dkms
+nvidia-utils
+thermald
+vulkan-intel

@@ -1,0 +1,4 @@
+# Enable runtime PM for Nvidia dGPU
+ACTION=="bind|add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
+# Enable runtime PM for Nvidia audio device
+ACTION=="bind|add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x040300", TEST=="power/control", ATTR{power/control}="auto"

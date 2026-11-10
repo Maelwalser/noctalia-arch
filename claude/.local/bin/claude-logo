@@ -69,27 +69,30 @@ MARK = b"/*acid-logo*/"
 SIDECAR = ".acid-logo.json"
 LOCK = ".acid-logo.lock"
 
-# The sprite code as the minifier and the React compiler emit it. The
-# compiler's local names (o, a, t, l, c, m, p, d, g, v, q, R, F, J) have been
-# stable; module-level names change per release and are captured here.
-# Minified identifiers may contain `$`.
+# The sprite code as the minifier and the React compiler emit it. Every
+# identifier, the compiler's locals included, can change between releases
+# (2.1.321 renamed them all), so names are captured and matched by
+# backreference rather than spelled out. Minified identifiers may contain `$`.
 NAME = rb"[\w$]+"
 FACING_ANCHOR = b'={"right-12":[{glyphs:'
 FACING_DECL = re.compile(rb"(?:var |let |const |[,;])(" + NAME + rb")$")
 MASCOT = re.compile(
-    rb"function (?P<name>" + NAME + rb")\(o\)\{"
-    rb"(?P<prologue>let a=" + NAME + rb"\(\d+\),t;if\(a\[0\]!==o\)t=o===void 0\?\{\}:o,"
-    rb"a\[0\]=o,a\[1\]=t;else t=a\[1\];)"
-    rb'let\{pose:l,color:c,paint:m\}=t,p=l===void 0\?"default":l,'
-    rb'd=c===void 0\?"clawd_body":c;if\((?P<reader>' + NAME + rb")\(\)\)\{return null\}"
+    rb"function (?P<name>" + NAME + rb")\((?P<arg>" + NAME + rb")\)\{"
+    rb"(?P<prologue>let (?P<cache>" + NAME + rb")=" + NAME + rb"\(\d+\),(?P<props>" + NAME + rb");"
+    rb"if\((?P=cache)\[0\]!==(?P=arg)\)(?P=props)=(?P=arg)===void 0\?\{\}:(?P=arg),"
+    rb"(?P=cache)\[0\]=(?P=arg),(?P=cache)\[1\]=(?P=props);else (?P=props)=(?P=cache)\[1\];)"
+    rb"let\{pose:(?P<pose>" + NAME + rb"),color:(?P<color>" + NAME + rb"),paint:" + NAME + rb"\}=(?P=props),"
+    + NAME + rb'=(?P=pose)===void 0\?"default":(?P=pose),'
+    + NAME + rb'=(?P=color)===void 0\?"clawd_body":(?P=color);'
+    rb"if\((?P<reader>" + NAME + rb")\(\)\)\{return null\}"
 )
 FEET = re.compile(
-    rb"F=(?P<jsx>" + NAME + rb")\((?P<text>" + NAME + rb"),\{children:(?P=jsx)\("
-    rb"(?P<painter>" + NAME + rb"),\{glyphs:v,column:0,row:2,paint:g\}\)\}\)"
+    rb"=(?P<jsx>" + NAME + rb")\((?P<text>" + NAME + rb"),\{children:(?P=jsx)\("
+    rb"(?P<painter>" + NAME + rb"),\{glyphs:" + NAME + rb",column:0,row:2,paint:" + NAME + rb"\}\)\}\)"
 )
 COLUMN = re.compile(
-    rb"J=(?P<jsxs>" + NAME + rb")\((?P<box>" + NAME + rb"),"
-    rb'\{flexDirection:"column",flexShrink:0,children:\[q,R,F\]\}\)'
+    rb"=(?P<jsxs>" + NAME + rb")\((?P<box>" + NAME + rb"),"
+    rb'\{flexDirection:"column",flexShrink:0,children:\[' + NAME + rb"," + NAME + rb"," + NAME + rb"\]\}\)"
 )
 
 # Bun's standalone module graph, as of Bun 1.3: the `.bun` section is a u64
@@ -149,12 +152,15 @@ def js_string(text: str) -> str:
 def component(*, jsx: str, jsxs: str, box: str, text: str, painter: str, reader_mode: str) -> str:
     """The React component drawing LOGO, in terms of the chunk's own helpers."""
     rows = ",".join(js_string(row) for row in LOGO)
+    # The component's own locals must not shadow the helpers it calls.
+    helpers = {jsx, jsxs, box, text, painter, reader_mode}
+    o, c, m, d, g, t, l = [n for n in "ocmdgtlabefhijknpqrsuvwxyz" if n not in helpers][:7]
     return (
-        'function(o){let{color:c,paint:m}=o??{},d=c===void 0?"clawd_body":c;'
-        f"if({reader_mode}())return null;let g=m??(()=>d);"
+        f'function({o}){{let{{color:{c},paint:{m}}}={o}??{{}},{d}={c}===void 0?"clawd_body":{c};'
+        f"if({reader_mode}())return null;let {g}={m}??(()=>{d});"
         f'return {jsxs}({box},{{flexDirection:"column",flexShrink:0,'
-        f"children:[{rows}].map((t,l)=>{jsx}({text},{{children:{jsx}({painter},"
-        "{glyphs:t,column:0,row:l,paint:g})},l))})}"
+        f"children:[{rows}].map(({t},{l})=>{jsx}({text},{{children:{jsx}({painter},"
+        f"{{glyphs:{t},column:0,row:{l},paint:{g}}})}},{l}))}})}}"
     )
 
 
@@ -206,7 +212,7 @@ def sprite_edits(data: mmap.mmap) -> list[Edit]:
 
     prologue_start, prologue_end = mascot.span("prologue")
     prologue_orig = bytes(data[prologue_start:prologue_end])
-    call = b"return " + name + b"(o);"
+    call = b"return " + name + b"(" + mascot["arg"] + b");"
     if len(call) > len(prologue_orig):
         raise Unpatchable("mascot component prologue too short for the call")
     return [

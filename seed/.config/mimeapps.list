@@ -1,0 +1,7 @@
+[Default Applications]
+x-scheme-handler/claude-cli=claude-code-url-handler.desktop
+application/pdf=vivaldi-stable.desktop
+
+[Added Associations]
+video/mp4=vivaldi-stable.desktop;
+application/pdf=vivaldi-stable.desktop;

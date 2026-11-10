@@ -1,0 +1,5 @@
+# uv tool install (bootstrap.sh --dev)
+awscli
+b2
+rust-just
+semgrep

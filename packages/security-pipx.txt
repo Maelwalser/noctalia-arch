@@ -1,0 +1,15 @@
+# pipx install (bootstrap.sh --security)
+certipy-ad
+dirsearch
+droopescan
+frida-tools
+holehe
+impacket
+objection
+pwncat-cs
+routersploit
+sherlock-project
+theharvester
+trufflehog3
+volatility3
+xsstrike

@@ -1,0 +1,6 @@
+[user]
+	email = maelwalser04@gmail.com
+	name = mael
+[safe]
+	directory = /usr/share/exploitdb
+	directory = /usr/share/exploitdb-papers

@@ -1,0 +1,82 @@
+{
+  "skillListingBudgetFraction": 0.02,
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "permissions": {
+    "defaultMode": "auto"
+  },
+  "model": "fable",
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$HOME/.claude/statusline-command.sh\""
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": false,
+    "gopls-lsp@claude-plugins-official": true,
+    "coderabbit@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "clangd-lsp@claude-plugins-official": true
+  },
+  "effortLevel": "high",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "autoCompactWindow": 400000
+    },
+    "claude-opus-4-8": {
+      "autoCompactWindow": 400000
+    },
+    "claude-fable-5-1": {
+      "autoCompactWindow": 400000
+    }
+  },
+  "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
+  "editorMode": "vim",
+  "switchModelsOnFlag": true,
+  "remoteControlAtStartup": false,
+  "agentPushNotifEnabled": true,
+  "skipAutoPermissionPrompt": true,
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Bash(stow:*)",
+      "Bash(systemctl --user status:*)",
+      "Bash(hyprctl:*)"
+    ],
+    "soft_deny": [
+      "$defaults",
+      "Bash(stow -D:*)",
+      "Bash(pass rm:*)",
+      "Bash(pass git push:*)"
+    ],
+    "environment": [
+      "### Org-wide",
+      "**Organization**: None configured",
+      "**Cloud provider(s)**: None configured",
+      "**Repository visibility**: PUBLIC — github.com:Maelwalser/noctalia-arch (confirmed via gh API); any push here is publishing",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: pass (password-store) with GPG agent, used locally in this project (gpg, gpgconf, pass seen in this project's transcripts)",
+      "**Default / protected branches**: default branch main; no rulesets and no classic protected branches listed for Maelwalser/noctalia-arch",
+      "**CI/CD deploy targets**: None configured",
+      "**Network posture**: None configured",
+      "**Source control**: The trusted repo and its remote(s) only (no additional orgs configured) — github.com:Maelwalser/noctalia-arch, a PUBLIC repo",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar. Note for this repo: it is a public dotfiles checkout at /home/mael/dotfiles, so GPG keys, pass store contents, tokens and machine-identifying config must never be committed or pushed there",
+      "**Data retention / declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment (hyphen/underscore/dot-delimited — e.g. matches `prod-db`, not `producer`)",
+      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: personal dotfiles and Arch/Hyprland desktop configuration (systemctl, stow, hyprctl, gpg/pass activity), plus general software development",
+      "**Trusted repo**: /home/mael/dotfiles with remote github.com:Maelwalser/noctalia-arch. This remote is PUBLIC, so only this repo's own dotfiles work belongs there; content ported, repointed, or first read from outside this session's repo is not its own work. Visibility never clears secrets or personal data (GPG material, pass entries, tokens) into the repo",
+      "**Org-specific CLIs**: None configured — locally routine non-standard tools observed here are stow, systemctl (user units), hyprctl, pass, gpg/gpgconf, and the personal qwc / qwc-tools commands seen in shell history"
+    ]
+  }
+}

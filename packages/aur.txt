@@ -1,0 +1,5 @@
+# AUR packages (pacman -Qqem); yay itself is built by bootstrap.sh.
+otf-departure-mono
+protoc-gen-go
+sioyek
+ttf-chakra-petch

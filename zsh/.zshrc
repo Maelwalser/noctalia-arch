@@ -89,7 +89,6 @@ compinit() {
   zsh-autosuggestions
   vi-mode
   zsh-syntax-highlighting
-  kollzsh
   )
 
 source $ZSH/oh-my-zsh.sh
@@ -102,10 +101,6 @@ ZSH_VI_MODE_SET_CURSOR=false
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#6b5d5a,standout"
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE="20"
 ZSH_AUTOSUGGEST_USE_ASYNC=1
-
-KOLLZSH_MODEL="qwen2.5-coder:3b"
-KOLLZSH_HOTKEY="^o"
-KOLLZSH_COMMAND_COUNT=5
 
 
 export _ZO_DOCTOR=0
@@ -278,9 +273,6 @@ export PATH="$HOME/.local/bin:$PATH"
 
 export PATH="$PATH":"$HOME/.pub-cache/bin"
 
-# opencode
-export PATH=/home/mael/.opencode/bin:$PATH
-
 # The android-sdk-cmdline-tools-latest package ships
 # /etc/profile.d/android-sdk-cmdline-tools-latest.sh, which points these at
 # /opt/android-sdk — that tree only holds cmdline-tools, so Flutter reports
@@ -289,51 +281,6 @@ export ANDROID_HOME="$HOME/Android/Sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 
-
-# --- AI AGENT TOOLKIT ---
-
-# (ai) - "AI Agent Launcher"
-ai() {
-  local VPS_IP="168.119.229.241"
-  local LLM_PORT=11434
-  local LOCAL_CLIENT_PORT=5005  # We pivot away from the blocked port 5000
-  local REMOTE_SERVER_PORT=5000
-  local KEY_PATH="$HOME/.ssh/id_ed25519"
-  local LOCAL_ENV="$HOME/llm_env"
-  local SOCKET="/tmp/ssh-ai-tunnel.sock"
-
-  # --- CLEANUP ---
-  rm -f "$SOCKET"
-  pkill -f "L ${LLM_PORT}:localhost" 2>/dev/null
-  pkill -f "L ${LOCAL_CLIENT_PORT}:localhost" 2>/dev/null
-  # Force kill anything currently sitting on 5005 just in case
-  fuser -k ${LOCAL_CLIENT_PORT}/tcp 2>/dev/null 
-
-  echo "📡 Tunnels: Local 5005 -> VPS 5000 | Local 11434 -> VPS 11434"
-
-  # --- START TUNNEL ---
-  # Mapping: -L [Local Port]:[Remote Host]:[Remote Port]
-  ssh -f -N -M -S "$SOCKET" \
-      -L ${LLM_PORT}:localhost:${LLM_PORT} \
-      -L ${LOCAL_CLIENT_PORT}:localhost:${REMOTE_SERVER_PORT} \
-      -i "${KEY_PATH}" \
-      -o ExitOnForwardFailure=yes \
-      llm_admin@${VPS_IP}
-
-  if [ $? -ne 0 ]; then
-    echo "❌ Tunnel failed. Try changing LOCAL_CLIENT_PORT to 5006."
-    return 1
-  fi
-
-  trap "ssh -S '$SOCKET' -O exit llm_admin@${VPS_IP} 2>/dev/null; rm -f '$SOCKET'; return" EXIT SIGINT
-
-  echo "🤖 Launching Local CLI..."
-  (
-    source "${LOCAL_ENV}/bin/activate"
-    # Ensure your local script points to http://localhost:5005
-    python3 "${LOCAL_ENV}/ai_client.py"
-  )
-}
 
 # (wt) - "Git Worktree Add"
 # Atomically creates a new branch and a sibling git worktree.

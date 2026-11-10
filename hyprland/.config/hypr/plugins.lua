@@ -3,8 +3,24 @@
 -- is skipped, so a fresh machine starts fine before the first build.
 local dir = os.getenv("HOME") .. "/.local/share/hyprland/plugins/"
 
+local function slurp(path)
+    local f = io.open(path, "r")
+    if not f then
+        return nil
+    end
+    local s = f:read("a")
+    f:close()
+    return s
+end
+
+-- A build for another Hyprland (e.g. right after a pacman upgrade) is skipped
+-- too: hypr-plugins records the version.h it compiled against, and a stale
+-- plugin would otherwise pop its red "version mismatch" notification over the
+-- lock screen at every start and reload. Rerun hypr-plugins to bring them back.
+local current = slurp(dir .. ".built-for") == slurp("/usr/include/hyprland/src/version.h")
+
 local function load(lib)
-    local f = io.open(dir .. lib, "r")
+    local f = current and io.open(dir .. lib, "r")
     if not f then
         return
     end

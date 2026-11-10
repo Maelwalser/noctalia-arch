@@ -1,0 +1,8 @@
+# Security tooling from the official repos (bootstrap.sh --security).
+binwalk
+gobuster
+hydra
+masscan
+nmap
+python-pipx
+wireshark-cli

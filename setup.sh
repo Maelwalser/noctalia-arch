@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly DOTFILES_ROOT="$(cd "$(dirname "$0")" && pwd)"
 readonly TARGET="$HOME"
-readonly PACKAGES=(btop claude eza fastfetch ghostty gnupg gtk hud hyprland neovim noctalia obsidian qt6ct quickshell sioyek theme tmux vivaldi zsh)
+readonly PACKAGES=(btop claude eza fastfetch ghostty git gnupg gtk hud hyprland neovim noctalia npm obsidian qt6ct quickshell sioyek theme tmux vivaldi zsh)
 
 # Desktop theme: acid (ACID//HUD) or classic. Defaults to the one already
 # chosen on this machine, else acid. Switch later with `dotfiles-theme <name>`.
@@ -21,12 +21,37 @@ command -v stow &>/dev/null || { echo "stow not found"; exit 1; }
 
 cd "$DOTFILES_ROOT"
 
+# These must be real directories before stowing. If one is missing, stow links
+# the whole directory into the repo, and whatever the owning program writes
+# there afterwards (Claude Code's credentials, every other ~/.local/bin tool)
+# would land inside this public checkout.
+mkdir -p "$TARGET/.claude" "$TARGET/.config/systemd/user" "$TARGET/.local/bin" \
+  "$TARGET/.local/share" "$TARGET/.local/state" \
+  "$TARGET/.config/git"
+if [[ ! -d "$TARGET/.oh-my-zsh/custom/themes" ]]; then
+  echo "$TARGET/.oh-my-zsh is missing: run ./bootstrap.sh --only shell first"
+  exit 1
+fi
+
 for pkg in "${PACKAGES[@]}"; do
   echo "Stowing $pkg..."
   if ! stow -R -t "$TARGET" "$pkg" 2>&1; then
     echo "  ⚠ $pkg failed — try: stow --adopt -t $TARGET $pkg"
   fi
 done
+
+# ── Seed files ──────────────────────────────────────────────────────
+# Files their owners rewrite in place (replacing a stow link with a plain
+# file), so they are copied once instead of linked: MIME defaults, XDG user
+# dirs and Claude Code's settings.json (MCC adds its hooks to that file and
+# dotfiles-theme its theme keys). An existing file is never touched.
+while IFS= read -r -d '' src; do
+  dest="$TARGET/${src#"$DOTFILES_ROOT/seed/"}"
+  if [[ ! -e "$dest" ]]; then
+    install -Dm644 "$src" "$dest"
+    echo "Seeded ${dest/#$TARGET/\~}"
+  fi
+done < <(find "$DOTFILES_ROOT/seed" -type f -print0)
 
 # ── Vivaldi VimFields UI mod ────────────────────────────────────────
 # Not stow-managed: it installs into Vivaldi's resources dir (/opt/...) and
@@ -43,8 +68,10 @@ fi
 # Stowed above; still needs enabling in the systemd user manager.
 if command -v systemctl &>/dev/null; then
   echo "Enabling gnupg-clear-stale-locks.service..."
-  systemctl --user daemon-reload
-  systemctl --user enable gnupg-clear-stale-locks.service
+  # No user manager (e.g. run through su) must not stop the rest of the setup.
+  systemctl --user daemon-reload \
+    && systemctl --user enable gnupg-clear-stale-locks.service \
+    || echo "  ⚠ no systemd user session — later: systemctl --user enable gnupg-clear-stale-locks.service"
 fi
 
 # ── GTK3 dark theme ─────────────────────────────────────────────────
@@ -63,6 +90,10 @@ if command -v gsettings &>/dev/null; then
     echo "  ⚠ adw-gtk-theme not installed — GTK apps won't follow the Noctalia palette"
     gsettings set org.gnome.desktop.interface gtk-theme Adwaita
   fi
+  if [[ -d /usr/share/icons/Papirus-Dark ]]; then
+    gsettings set org.gnome.desktop.interface icon-theme Papirus-Dark
+  fi
+  gsettings set org.gnome.nautilus.preferences default-folder-viewer list-view 2>/dev/null || true
 fi
 
 # ── Hyprland plugins ────────────────────────────────────────────────
