@@ -145,11 +145,10 @@ return {
       vim.api.nvim_set_hl(0, name, val)
     end
     if require("config.dotfiles_theme") == "acid" then
-      -- p.blue is the accent slot (acid under the ACID//HUD palette).
-      set("SnacksDashboardHeader", { fg = p.blue, bold = true })
+      set("SnacksDashboardHeader", { fg = p.accent, bold = true })
       set("SnacksDashboardTitle", { fg = p.fg, bold = true })
       set("SnacksDashboardIcon", { fg = p.blue })
-      set("SnacksDashboardKey", { fg = p.blue, bold = true })
+      set("SnacksDashboardKey", { fg = p.accent, bold = true })
     else
       set("SnacksDashboardHeader", { fg = p.purple, bold = true })
       set("SnacksDashboardTitle", { fg = p.magenta, bold = true })

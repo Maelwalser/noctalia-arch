@@ -38,7 +38,7 @@ return {
         c.bg_visual       = p.visual
         c.bg_highlight    = p.cursorline
         c.border          = p.border
-        c.border_highlight = p.cyan
+        c.border_highlight = p.accent
 
         -- Foregrounds
         c.fg              = p.fg
@@ -115,6 +115,9 @@ return {
         hl.DiagnosticVirtualTextWarn  = { fg = p.yellow, bg = "NONE" }
         hl.DiagnosticVirtualTextInfo  = { fg = p.blue, bg = "NONE" }
         hl.DiagnosticVirtualTextHint  = { fg = p.teal, bg = "NONE" }
+        -- Inlay hints sit in the code, so they take the palette's quiet tones
+        -- rather than tokyonight's own grey-blue chip.
+        hl.LspInlayHint = { fg = p.fg_dim, bg = p.cursorline, italic = true }
         hl.DiagnosticUnderlineError = { sp = p.red, undercurl = true }
         hl.DiagnosticUnderlineWarn  = { sp = p.yellow, undercurl = true }
         hl.DiagnosticUnderlineInfo  = { sp = p.blue, undercurl = true }
@@ -263,7 +266,7 @@ return {
         -- Indent-blankline
         hl.IblIndent     = { fg = p.indent, nocombine = true }
         hl.IblWhitespace = { fg = p.indent, nocombine = true }
-        hl.IblScope      = { fg = p.cyan, nocombine = true }
+        hl.IblScope      = { fg = p.accent, nocombine = true }
 
         -- Oil
         hl.OilDir     = { fg = p.cyan, bold = true }

@@ -69,7 +69,7 @@ return {
       function()
         return '▊'
       end,
-      color = { fg = p.cyan },
+      color = { fg = p.accent },
       padding = { left = 0, right = 1 },
     }
 
@@ -194,7 +194,7 @@ return {
       function()
         return '▊'
       end,
-      color = { fg = p.cyan },
+      color = { fg = p.accent },
       padding = { left = 1 },
     }
 

@@ -11,7 +11,7 @@ return {
     -- Dedicated highlight group for the smear trail. Using a non-shared
     -- group means we can recolor it without affecting diagnostics / NonText.
     local function apply_hl()
-      vim.api.nvim_set_hl(0, "SmearCursor", { fg = p.cyan, bg = "NONE" })
+      vim.api.nvim_set_hl(0, "SmearCursor", { fg = p.accent, bg = "NONE" })
     end
     apply_hl()
     vim.api.nvim_create_autocmd("ColorScheme", {
@@ -49,8 +49,8 @@ return {
       -- Draw safety
       never_draw_over_target = true,
 
-      -- Style: cyan cursor head + cyan smear trail
-      cursor_color = p.cyan,
+      -- Style: cursor head and smear trail in the UI accent
+      cursor_color = p.accent,
       hlgroup      = "SmearCursor",
 
       -- Disable in UI chrome, pickers, floating overlays, and lists where

@@ -30,7 +30,7 @@ return {
     local p = require("config.palette")
     vim.api.nvim_set_hl(0, "IblIndent", { fg = p.indent, nocombine = true })
     vim.api.nvim_set_hl(0, "IblWhitespace", { fg = p.indent, nocombine = true })
-    vim.api.nvim_set_hl(0, "IblScope", { fg = p.cyan, nocombine = true, bold = true })
+    vim.api.nvim_set_hl(0, "IblScope", { fg = p.accent, nocombine = true, bold = true })
 
     -- Re-apply on colorscheme changes so theme swaps don't wipe scope glow
     vim.api.nvim_create_autocmd("ColorScheme", {
@@ -38,7 +38,7 @@ return {
       callback = function()
         vim.api.nvim_set_hl(0, "IblIndent", { fg = p.indent, nocombine = true })
         vim.api.nvim_set_hl(0, "IblWhitespace", { fg = p.indent, nocombine = true })
-        vim.api.nvim_set_hl(0, "IblScope", { fg = p.cyan, nocombine = true, bold = true })
+        vim.api.nvim_set_hl(0, "IblScope", { fg = p.accent, nocombine = true, bold = true })
       end,
     })
   end,

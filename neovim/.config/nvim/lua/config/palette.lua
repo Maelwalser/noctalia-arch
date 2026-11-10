@@ -44,16 +44,23 @@ local M = {
   red        = "#bf616a", -- Nord aurora red — errors / delete
 }
 
--- ACID//HUD: Noctalia renders the shell palette into this file (template
--- noctalia/.config/noctalia/templates/nvim-palette.lua); its keys override the
--- Nordic defaults above. Without it (e.g. before Noctalia's first run), or under
--- the classic theme, the editor keeps the defaults.
-local ok, hud = false, nil
+-- The active dotfiles theme overrides the Nordic defaults above.
+--   acid:    Noctalia renders the shell palette into ~/.local/share/hud (template
+--            noctalia/.config/noctalia/templates/nvim-palette.lua). Without that
+--            file (e.g. before Noctalia's first run) the editor keeps the defaults.
+--   classic: the frozen neon palette in palette_neon.lua.
+local ok, themed
 if require("config.dotfiles_theme") == "acid" then
-  ok, hud = pcall(dofile, vim.fn.expand("~/.local/share/hud/nvim-palette.lua"))
+  ok, themed = pcall(dofile, vim.fn.expand("~/.local/share/hud/nvim-palette.lua"))
+else
+  ok, themed = pcall(require, "config.palette_neon")
 end
-if ok and type(hud) == "table" then
-  M = vim.tbl_extend("force", M, hud)
+if ok and type(themed) == "table" then
+  M = vim.tbl_extend("force", M, themed)
 end
+
+-- UI chrome (focused borders, scope guide, mode bar, cursor trail). Palettes
+-- that do not name one use their cyan.
+M.accent = M.accent or M.cyan
 
 return M
