@@ -93,6 +93,10 @@ compinit() {
 
 source $ZSH/oh-my-zsh.sh
 
+# ls is eza. This has to come after oh-my-zsh, which sets ls='ls --color=tty';
+# its l/la/ll/lsa aliases expand through this one. `command ls` is still GNU ls.
+(( $+commands[eza] )) && alias ls='eza --icons=auto'
+
 # Don't exit the shell on Ctrl+D (EOF). Use `exit` to close deliberately.
 setopt IGNORE_EOF
 
