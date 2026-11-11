@@ -1,11 +1,14 @@
 --!nonstrict
--- Oscilloscope-style equalizer driven by Noctalia's PipeWire spectrum: a few
--- overlaid sine traces whose amplitude follows the band levels along the width
--- (bass left, treble right), so the lines bulge where the music is and settle
--- into a calm ripple when nothing plays, framed by a bracket at each end.
+-- Neon light bars driven by Noctalia's PipeWire spectrum: two glowing bars in
+-- the accent colours that lie straight and parallel while nothing plays and
+-- bend to the music (bass left, treble right).
 --
--- Noctalia has no overlay node: the layers are ui.graph nodes (two series each)
--- in a column with a negative gap, so they draw on top of one another.
+-- A bar is the same curve stroked three times: a glow that hugs it, the
+-- coloured light and a white-hot core, closed by a round cap at each end.
+-- Nothing is drawn behind or between the bars, so the bar's glass shows
+-- through. Noctalia has no overlay node: the strokes are ui.graph nodes (one
+-- series per bar) in a column with a negative gap, so they draw on top of one
+-- another.
 --
 -- It sits first in the end lane and widens leftwards until it is `gap` px from
 -- the centred workspace row, mirroring the gap left of the row. Lanes size to
@@ -15,30 +18,51 @@
 -- it does not stretch across the ultrawide.
 local common = require("./common.luau")
 
-local H = 20 -- trace height (the rail is 32)
+local H = 28 -- drawing height (the rail is 32): room for the bars to bend
 local MIN_WIDTH = 60
-local FRAME_W = 5 -- bracket arm length
 
 -- The spectrum comes at 60 Hz; every bar redraw also costs the compositor a
 -- glass contour rebuild, so draw every other frame.
 local SKIP = 2
 local DECAY = 0.86 -- band level kept per drawn frame while falling
-local IDLE_AMP = 0.1 -- ripple with nothing playing
-local GAIN = 0.42 -- extra amplitude at full band level
-local IDLE_MS = 160 -- idle ripple rate (each redraw also costs a glass contour rebuild)
-
--- One sine trace per entry: `k` cycles across the width, `speed` cycles per
--- drawn frame, `amp` scales the envelope, `shift` offsets the band window so the
--- lines do not all bulge at the same place.
-local TRACES = {
-  { color = "primary", k = 3.0, speed = 0.011, amp = 1.0, shift = 0 },
-  { color = "secondary/0.8", k = 2.4, speed = -0.008, amp = 0.9, shift = 0.08 },
-  { color = "on_surface_variant/0.45", k = 3.7, speed = 0.014, amp = 0.55, shift = -0.06 },
-  { color = "primary/0.35", k = 1.8, speed = -0.006, amp = 0.8, shift = 0.14 },
-  { color = "secondary/0.3", k = 4.6, speed = 0.017, amp = 0.4, shift = -0.12 },
-  { color = "on_surface/0.18", k = 2.0, speed = 0.005, amp = 0.6, shift = 0.04 },
+local GAIN = 4.2 -- bend at full band level, px
+local SETTLE_MS = 50 -- redraw rate while the tubes swing back to rest
+local REST = 0.004 -- band level below which the sign counts as still
+-- One bar per entry: `rest` is its resting height in px above the centre line,
+-- `k` the bends across the width, `speed` cycles per drawn frame, `shift`
+-- offsets the band window so the two do not bulge at the same place.
+local TUBES = {
+  { color = "primary", rest = 3.2, k = 1.7, speed = 0.012, shift = 0 },
+  { color = "tertiary", rest = -3.2, k = 2.3, speed = -0.009, shift = 0.07 },
 }
-local LINE_W = { 1.5, 1.2, 1, 1, 1, 1 }
+
+-- How ui.graph places a line (measured on Noctalia 5.4.1): the stroke is drawn
+-- FEATHER px wider than lineWidth and kept whole inside the node less PLOT_PAD
+-- px top and bottom, so the same value lands at a different height for each
+-- line width. Heights are therefore computed in px and converted per stroke.
+local PLOT_PAD = 2.4
+local FEATHER = 1
+local function travel(w) -- px between value 0 and value 1 for a line of width w
+  return H - 2 * PLOT_PAD - w - FEATHER
+end
+
+local LIGHT_W = 3 -- thickness of the coloured light
+local GLOW_W = 4.8
+local REACH = travel(GLOW_W) / 2 -- furthest a bar may leave the centre line
+local CLEAR = "on_surface/0.00" -- spacer fill: a box without one is drawn black
+-- The graph node cuts its line off square, so the light stops `CAP_AT` px
+-- short of each end and a round dot of its thickness closes it there.
+local CAP_AT = 2.4
+
+-- Strokes of one bar, bottom first. `alpha` is the opacity at rest, `pulse`
+-- what the bass adds; `color` overrides the bar colour (the core). `inset` is
+-- the px left out at each end. The glow stays narrower than the gap between
+-- the resting bars: wider, the two glows merge into a slab behind them.
+local STROKES = {
+  { w = GLOW_W, alpha = 0.22, pulse = 0.2, inset = CAP_AT - 0.4 },
+  { w = LIGHT_W, alpha = 1, pulse = 0, inset = CAP_AT },
+  { w = 1, alpha = 0.8, pulse = 0.2, inset = CAP_AT, color = "on_surface" },
+}
 
 local myOutput = barWidget.outputName()
 local width = 200
@@ -47,8 +71,9 @@ local phase = {}
 local frames = 0
 local active = false -- spectrum frames carry sound
 local lastFrame = 0 -- frames counter at the last audible spectrum frame
+local still = false -- drawn at rest: nothing to redraw until sound or a resize
 
-for i, _ in TRACES do
+for i, _ in TUBES do
   phase[i] = i * 0.37
 end
 
@@ -106,59 +131,82 @@ local function envelope(x)
   return a * (1 - t) + b * t
 end
 
-local function trace(n, tr, ph)
+-- Heights of one bar in px above the centre line: its rest line plus a bend
+-- that follows the band levels. The second, faster term keeps the curve from
+-- reading as a plain sine. `inset` is the share of the width left out at each
+-- end.
+local function tube(n, tb, ph, inset)
   local out = table.create(n)
   for i = 0, n - 1 do
-    local x = i / (n - 1)
-    local amp = (IDLE_AMP + GAIN * envelope(x + tr.shift)) * tr.amp
-    out[i + 1] = 0.5 + amp * math.sin(2 * math.pi * (tr.k * x + ph))
+    local x = inset + (1 - 2 * inset) * i / math.max(1, n - 1)
+    local a = 2 * math.pi * (tb.k * x + ph)
+    local bend = math.sin(a) + 0.3 * math.sin(2.3 * a + 1.1)
+    out[i + 1] = math.clamp(tb.rest + GAIN * envelope(x + tb.shift) * bend, -REACH, REACH)
   end
   return out
 end
 
--- Matching brackets at both ends, in the accent.
-local function frame()
-  local function arm()
-    return ui.box({ width = FRAME_W, height = 1, fill = "primary" })
+-- Graph values for a line of width w.
+local function plot(px, w)
+  local t = travel(w)
+  for i, v in px do
+    px[i] = 0.5 + v / t
   end
-  local function arms()
-    return ui.column({ width = FRAME_W, height = H, justify = "space_between" }, { arm(), arm() })
-  end
-  local function bar()
-    return ui.box({ width = 1, height = H, fill = "primary" })
-  end
-  return ui.row({ width = width, height = H, justify = "space_between" }, {
-    ui.row({ height = H, align = "stretch" }, { bar(), arms() }),
-    ui.row({ height = H, align = "stretch" }, { arms(), bar() }),
-  })
+  return px
 end
 
 local function render()
-  local energy = 0
-  for _, v in level do
+  local energy, bass = 0, 0
+  for i, v in level do
     energy = math.max(energy, v)
-  end
-  local n = math.floor(width / 2) + 1
-  local layers = {}
-  for g = 1, #TRACES, 2 do
-    local a, b = TRACES[g], TRACES[g + 1]
-    phase[g] += a.speed * (1 + 2 * energy)
-    local props = {
-      width = width,
-      height = H,
-      values = trace(n, a, phase[g]),
-      color = a.color,
-      lineWidth = LINE_W[g],
-      fillOpacity = 0,
-    }
-    if b then
-      phase[g + 1] += b.speed * (1 + 2 * energy)
-      props.values2 = trace(n, b, phase[g + 1])
-      props.color2 = b.color
+    if i <= 3 then
+      bass = math.max(bass, v)
     end
-    table.insert(layers, ui.graph(props))
   end
-  table.insert(layers, frame())
+  still = energy < REST
+  for i, tb in TUBES do
+    if not still then
+      phase[i] += tb.speed * (1 + 2 * energy)
+    end
+  end
+  local layers = {}
+  for _, st in STROKES do
+    local w = width - 2 * st.inset
+    local n = math.floor(w / 2) + 1
+    local alpha = math.min(1, st.alpha + st.pulse * bass)
+    local function paint(tb)
+      return string.format("%s/%.2f", st.color or tb.color, alpha)
+    end
+    local graph = ui.graph({
+      width = w,
+      height = H,
+      values = plot(tube(n, TUBES[1], phase[1], st.inset / width), st.w),
+      color = paint(TUBES[1]),
+      values2 = plot(tube(n, TUBES[2], phase[2], st.inset / width), st.w),
+      color2 = paint(TUBES[2]),
+      lineWidth = st.w,
+      fillOpacity = 0,
+    })
+    table.insert(layers, ui.row({ width = width, height = H, justify = "center" }, { graph }))
+  end
+  -- Round caps: one layer per bar, a dot at each end sitting on the curve.
+  for i, tb in TUBES do
+    local ends = tube(2, tb, phase[i], CAP_AT / width)
+    local d = LIGHT_W + FEATHER / 2
+    local function cap(px, left)
+      local dot = ui.column({ width = d, height = H }, {
+        ui.box({ width = d, height = H / 2 - px - d / 2, fill = CLEAR }),
+        ui.box({ width = d, height = d, radius = d / 2, fill = tb.color }),
+      })
+      local pad = ui.box({ width = CAP_AT - d / 2, height = H, fill = CLEAR })
+      return ui.row({ height = H }, if left then { pad, dot } else { dot, pad })
+    end
+    table.insert(
+      layers,
+      2 + i,
+      ui.row({ width = width, height = H, justify = "space_between" }, { cap(ends[1], true), cap(ends[2], false) })
+    )
+  end
   barWidget.render(ui.column({ gap = -H, width = width, height = H }, layers))
 end
 
@@ -202,17 +250,20 @@ function onAudioSpectrum(valuesCsv, stateCsv)
 end
 
 function update()
-  -- Idle: a slow ripple, plus a cheap poll (one small file) so the width
-  -- follows the workspace row.
+  -- A cheap poll (one small file) so the width follows the workspace row.
+  -- At rest the sign is a still image: nothing is redrawn until sound returns.
   local w = fitWidth()
-  if w ~= width then
-    width = w
-  end
+  local resized = w ~= width
+  width = w
   if active then
     noctalia.setUpdateInterval(1000)
     return
   end
-  noctalia.setUpdateInterval(IDLE_MS)
+  if still and not resized then
+    noctalia.setUpdateInterval(1000)
+    return
+  end
+  noctalia.setUpdateInterval(SETTLE_MS)
   decay()
   render()
 end
