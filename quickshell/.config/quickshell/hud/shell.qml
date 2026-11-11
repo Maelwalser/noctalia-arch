@@ -134,6 +134,22 @@ ShellRoot {
 
                 GlassScene { anchors.fill: parent }
             }
+            // The bottom panes, on a namespace of their own for a clearer
+            // glass (GlassScene.qml).
+            PanelWindow {
+                screen: output.modelData
+                anchors { top: true; bottom: true; left: true; right: true }
+                exclusionMode: ExclusionMode.Ignore
+                color: "transparent"
+                mask: Region {}
+                visible: output.sceneActive
+
+                WlrLayershell.layer: WlrLayer.Bottom
+                WlrLayershell.namespace: "hud-clearglass"
+                WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+                GlassScene { anchors.fill: parent; corners: true }
+            }
 
             PanelWindow {
                 id: win

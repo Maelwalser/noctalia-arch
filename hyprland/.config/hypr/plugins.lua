@@ -113,6 +113,18 @@ if hl.plugin.hyprglass ~= nil then
             dark = { tint_color = 0xdce6f00c },
         })
         hg.layer("hud-glass", { preset = "acid_pane", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- The two bottom panes lie over the wallpaper's near-black corners,
+        -- where the tint and the softened contrast of acid_pane are all there
+        -- is to see: a grey veil (body +17 over black, "milky"). About half
+        -- of it here (the user found none at all "too much": a little frost
+        -- has to stay); the pane draws its own edge light (quickshell hud,
+        -- shaders/pane.frag).
+        hg.preset("acid_pane_clear", {
+            inherits = "acid_pane",
+            blur_strength = 0.5,
+            dark = { tint_color = 0xdce6f007, contrast = 0.975 },
+        })
+        hg.layer("hud-clearglass", { preset = "acid_pane_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
         -- The unlock reveal (quickshell hud, UnlockFold.qml): the lock scene
         -- parts as two frosted glass doors. The layer's alpha is the door's
         -- presence, and the feather turns it into the blur's strength. Plain

@@ -85,7 +85,7 @@ hl.layer_rule({
 -- it below hud-overlay's default 0; -1 left it on top.)
 hl.layer_rule({
     name = "hud-glass",
-    match = { namespace = "^hud-glass$" },
+    match = { namespace = "^hud-(clear)?glass$" },
     no_anim = true,
     blur = false,
     order = 1,
