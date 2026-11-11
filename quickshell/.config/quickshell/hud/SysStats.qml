@@ -17,6 +17,9 @@ Singleton {
     property real tempC: 0
     property real rxKbs: 0
     property real txKbs: 0
+    property real swap: 0       // 0..1 (0 without swap)
+    property real cpuMhz: 0     // mean clock of the cores
+    property real cpuMaxMhz: 0
     // Integrated GPU: busy share from RC6 (idle) residency, and its clock.
     property real gpu: -1       // 0..1, -1 until known / no Intel GPU
     property int gpuMhz: 0
@@ -30,12 +33,28 @@ Singleton {
     // Fires after every poll, even when no value changed (a pegged CPU still samples).
     signal sampled()
 
+    // The last two minutes of each stat the lock's graphs draw (LockWidgets.qml),
+    // one value per sample, oldest first. Kept here, not in the graphs, so a
+    // graph is whole the moment it is shown and every copy of it draws the same.
+    readonly property int historyLength: 60
+    readonly property var history: ({ cpu: [], mhz: [], mem: [], temp: [], rx: [], tx: [], swap: [] })
+    function record() {
+        const now = { cpu: cpu, mhz: cpuMhz, mem: mem, temp: tempC, rx: rxKbs, tx: txKbs, swap: swap };
+        for (const k in now) {
+            history[k].push(now[k]);
+            if (history[k].length > historyLength)
+                history[k].shift();
+        }
+    }
+
     property var _prevCpu: null
     property var _prevNet: null
     property var _prevRc6: null
     property real _prevT: 0
 
-    readonly property string _script: "head -1 /proc/stat; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; cat /proc/uptime; "
+    readonly property string _script: "head -1 /proc/stat; grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo; cat /proc/uptime; "
+        + "awk '{ s += $1; n++ } END { if (n) print \"MHZ\", s / n / 1000 }' /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null; "
+        + "[ -r /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq ] && echo MAXMHZ $(( $(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq) / 1000 )); "
         + "for z in /sys/class/thermal/thermal_zone*; do [ \"$(cat $z/type)\" = x86_pkg_temp ] && { echo TEMP $(cat $z/temp); break; }; done; "
         + "awk 'NR>2 && $1 !~ /^(lo|docker|veth|br-|tailscale|virbr)/ {rx+=$2; tx+=$10} END {print \"NET\", rx, tx}' /proc/net/dev; "
         + "for g in /sys/class/drm/card*/gt/gt0; do [ -r $g/rc6_residency_ms ] && { echo IGPU $(cat $g/rc6_residency_ms $g/rps_act_freq_mhz); break; }; done; "
@@ -58,6 +77,14 @@ Singleton {
                 const used = _memTotal - Number(f[1]);
                 mem = _memTotal > 0 ? used / _memTotal : 0;
                 memUsedGb = used / 1048576;
+            } else if (f[0] === "SwapTotal:") {
+                _swapTotal = Number(f[1]);
+            } else if (f[0] === "SwapFree:") {
+                swap = _swapTotal > 0 ? (_swapTotal - Number(f[1])) / _swapTotal : 0;
+            } else if (f[0] === "MHZ") {
+                cpuMhz = Number(f[1]) || 0;
+            } else if (f[0] === "MAXMHZ") {
+                cpuMaxMhz = Number(f[1]) || 0;
             } else if (f[0] === "TEMP") {
                 tempC = Number(f[1]) / 1000;
             } else if (f[0] === "NET") {
@@ -80,9 +107,11 @@ Singleton {
             }
         }
         _prevT = now;
+        record();
         sampled();
     }
     property real _memTotal: 0
+    property real _swapTotal: 0
 
     Process {
         id: sampler

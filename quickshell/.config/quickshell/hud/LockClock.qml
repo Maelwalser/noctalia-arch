@@ -11,6 +11,10 @@ Singleton {
 
     property bool active: false
 
+    // A password was refused (shell.qml hears of it): every output's field
+    // answers at once.
+    signal denied()
+
     readonly property SystemClock clock: SystemClock {
         enabled: root.active
         precision: SystemClock.Seconds

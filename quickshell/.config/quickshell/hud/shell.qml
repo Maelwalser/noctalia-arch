@@ -1,3 +1,8 @@
+// Animations are stepped by the clock, not by a count of frames at the
+// primary screen's refresh rate: the lock's doors are animated per window on
+// its render thread (UnlockFold.qml), and counted in 60 Hz steps they ran at
+// twice the speed on a 120 Hz monitor.
+//@ pragma Env QSG_USE_SIMPLE_ANIMATION_DRIVER=1
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -7,7 +12,8 @@ import Quickshell.Hyprland
 // ACID//HUD desktop overlay: two click-through layers per output, above
 // Noctalia's wallpaper and below every window. hud-glass carries the liquid-
 // glass panes (hyprglass renders them, see hyprland/plugins.lua), hud-overlay
-// the content on top of them. Start with `hud-overlay start`. A third window,
+// the content on top of them. hud-barlight lays the panes' edge light over
+// Noctalia's bar. Start with `hud-overlay start`. Another window,
 // hud-unlock, plays the unlock reveal (UnlockFold.qml) on Noctalia's session
 // hooks: `qs -c hud ipc call lock locked|unlocked` (themes/acid.toml), and
 // its reverse on `lock close` (hud-lock), locking the session once the doors
@@ -49,6 +55,8 @@ ShellRoot {
         // then carries the desktop): arm, wait, release.
         function arm(output: string): void { shell.eachFold(f => f.arm(), output); }
         function release(output: string): void { shell.eachFold(f => f.release(), output); }
+        // The wrong-password blink of the field, without a wrong password.
+        function deny(): void { LockClock.denied(); }
         function dump(output: string, path: string): void { shell.eachFold(f => f.dump(path + "-" + f.screen.name + ".png"), output); }
     }
 
@@ -98,12 +106,24 @@ ShellRoot {
         }
     }
 
-    // Stats are sampled only while at least one output shows the desktop.
-    // Derived from the live instances rather than counted, so it cannot drift.
+    // A wrong password: Noctalia has no hook for it, but its PAM check logs
+    // the failure to the journal the moment it happens, so follow that
+    // while locked and have the field blink red (LockWidgets.qml).
+    Process {
+        running: shell.anyArmed
+        command: ["journalctl", "--follow", "--lines=0", "--output=cat", "--identifier=noctalia"]
+        stdout: SplitParser {
+            onRead: line => { if (line.includes("authentication failure")) LockClock.denied(); }
+        }
+    }
+
+    // Stats are sampled only while at least one output shows the desktop or
+    // the lock (its graphs, LockWidgets.qml). Derived from the live instances
+    // rather than counted, so it cannot drift.
     Binding {
         target: SysStats
         property: "active"
-        value: screens.instances.some(o => o.sceneActive)
+        value: screens.instances.some(o => o.sceneActive || o.fold.active)
     }
 
     Variants {
@@ -134,21 +154,27 @@ ShellRoot {
 
                 GlassScene { anchors.fill: parent }
             }
-            // The bottom panes, on a namespace of their own for a clearer
-            // glass (GlassScene.qml).
+
+            // The bar's rail is the same glass as the panes (hyprglass, on
+            // Noctalia's own layer), but Noctalia cannot draw their edge
+            // light: this window lies exactly over the rail and draws only
+            // that (the `order` layer rule in hyprland/looknfeel.lua keeps
+            // it above the bar). On the top layer like the bar, so it goes
+            // with it under a fullscreen window.
             PanelWindow {
                 screen: output.modelData
-                anchors { top: true; bottom: true; left: true; right: true }
+                anchors { top: true; left: true; right: true }
+                margins { top: Layout.barTop; left: Layout.barSide; right: Layout.barSide }
+                implicitHeight: Layout.barHeight
                 exclusionMode: ExclusionMode.Ignore
                 color: "transparent"
                 mask: Region {}
-                visible: output.sceneActive
 
-                WlrLayershell.layer: WlrLayer.Bottom
-                WlrLayershell.namespace: "hud-clearglass"
+                WlrLayershell.layer: WlrLayer.Top
+                WlrLayershell.namespace: "hud-barlight"
                 WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-                GlassScene { anchors.fill: parent; corners: true }
+                PaneLight { anchors.fill: parent }
             }
 
             PanelWindow {

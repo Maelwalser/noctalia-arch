@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Media keys: change the level, then show it as a short toast.
+# Noctalia's built-in volume/brightness OSD kinds are off (noctalia config.toml
+# [osd.kinds]) because they fire on every change, including dragging the
+# sliders in the control center; only the keys should raise a popup. It is sent
+# as a notification so it is the same glass card as every other toast and
+# stacks with them. The "hud_osd" filter in config.toml keeps it silent and out
+# of the history.
+#
+#   hud-osd vol up|down|mute
+#   hud-osd mic mute
+#   hud-osd lum up|down
+set -u
+
+readonly SINK=@DEFAULT_AUDIO_SINK@ SOURCE=@DEFAULT_AUDIO_SOURCE@
+readonly STEP=5
+
+die() {
+  printf 'hud-osd: %s\n' "$*" >&2
+  exit 1
+}
+
+readonly STATE="${XDG_RUNTIME_DIR:-/tmp}/hud-osd.state"
+readonly ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/hud/bar/icons/2"
+readonly CELLS=20 HIDE_AFTER=2
+
+# The bar's own pixel icon when hud-build has rendered it, else a theme icon.
+icon() {
+  if [[ -f "$ICONS/$1.png" ]]; then
+    printf '%s' "$ICONS/$1.png"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+notify_call() {
+  gdbus call --session --dest org.freedesktop.Notifications \
+    --object-path /org/freedesktop/Notifications \
+    --method "org.freedesktop.Notifications.$1" "${@:2}"
+}
+
+# osd <icon> <label> <percent> [state]
+# Replaces the previous toast, so holding a key moves one bar instead of
+# stacking a column of them. Noctalia does not restart a toast's countdown when
+# it is replaced, so the toast is sent without one and closed from here,
+# HIDE_AFTER seconds after the last press.
+osd() {
+  local pct=$3 bar="" i id reply stamp
+  local filled=$(((pct * CELLS + 50) / 100))
+  for ((i = 0; i < CELLS; i++)); do
+    ((i < filled)) && bar+="■" || bar+="□"
+  done
+  id=0
+  [[ -r $STATE ]] && read -r id _ <"$STATE"
+  [[ $id =~ ^[0-9]+$ ]] || id=0
+  reply=$(notify_call Notify hud-osd "$id" "$1" \
+    "$(printf '%s  %s' "$2" "${4:-$pct%}")" "$bar" '[]' '{}' 0) ||
+    die "the notification daemon did not answer"
+  [[ $reply =~ uint32\ ([0-9]+) ]] || die "unexpected reply: $reply"
+  id=${BASH_REMATCH[1]}
+  stamp=$EPOCHREALTIME
+  printf '%s %s\n' "$id" "$stamp" >"$STATE"
+  # Detached, and without the lock: only the newest press's timer finds its
+  # stamp still in place.
+  (
+    exec 9>&-
+    sleep "$HIDE_AFTER"
+    [[ $(<"$STATE") == "$id $stamp" ]] && notify_call CloseNotification "$id" >/dev/null
+  ) >/dev/null 2>&1 &
+  disown
+}
+
+# Prints "<percent> <muted 0|1>" for a wpctl node.
+level() {
+  wpctl get-volume "$1" | awk '{ printf "%d %d\n", $2 * 100 + 0.5, ($3 == "[MUTED]") }'
+}
+
+vol() {
+  case $1 in
+    up) wpctl set-mute "$SINK" 0 && wpctl set-volume -l 1.0 "$SINK" "$STEP%+" ;;
+    down) wpctl set-volume "$SINK" "$STEP%-" ;;
+    mute) wpctl set-mute "$SINK" toggle ;;
+    *) die "vol: unknown action '$1'" ;;
+  esac || die "wpctl failed"
+  local pct muted
+  read -r pct muted < <(level "$SINK") || die "cannot read the sink volume"
+  if ((muted)); then
+    osd "$(icon mute audio-volume-muted-symbolic)" VOL "$pct" MUTED
+  elif ((pct == 0)); then
+    osd "$(icon silent audio-volume-low-symbolic)" VOL "$pct"
+  else
+    osd "$(icon vol audio-volume-high-symbolic)" VOL "$pct"
+  fi
+}
+
+mic() {
+  [[ $1 == mute ]] || die "mic: unknown action '$1'"
+  wpctl set-mute "$SOURCE" toggle || die "wpctl failed"
+  local pct muted
+  read -r pct muted < <(level "$SOURCE") || die "cannot read the source volume"
+  if ((muted)); then
+    osd microphone-sensitivity-muted-symbolic MIC "$pct" MUTED
+  else
+    osd microphone-sensitivity-high-symbolic MIC "$pct"
+  fi
+}
+
+lum() {
+  local dev cur max
+  dev=$(find /sys/class/backlight -mindepth 1 -maxdepth 1 | sort | head -n 1)
+  [[ -n $dev ]] || die "no backlight device"
+  case $1 in
+    # Noctalia has written the backlight by the time it answers.
+    up | down) noctalia msg "brightness-$1" >/dev/null || die "noctalia brightness-$1 failed" ;;
+    *) die "lum: unknown action '$1'" ;;
+  esac
+  cur=$(<"$dev/brightness")
+  max=$(<"$dev/max_brightness")
+  local pct=$(((cur * 100 + max / 2) / max))
+  osd "$(icon lum display-brightness-symbolic)" LUM "$pct"
+}
+
+(($# == 2)) || die "usage: hud-osd vol up|down|mute | mic mute | lum up|down"
+# A held key starts a run per repeat: one at a time, or they race for the toast id.
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/hud-osd.lock" && flock 9 || die "cannot take the lock"
+case $1 in
+  vol | mic | lum) "$1" "$2" ;;
+  *) die "unknown target '$1'" ;;
+esac

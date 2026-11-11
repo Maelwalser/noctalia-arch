@@ -66,9 +66,12 @@ Item {
     // the lock scene never blinks while the lock surface is on its way.
     readonly property bool showing: active && (sealed || !fromCapture || capture.hasContent)
     property bool sealed: false
-    property real progress: 0
+    // 0 = shut, 1 = open. The shader's uniform itself: while the doors move
+    // it is driven on the window's render thread (the animators below) and
+    // this side only sees the end value.
+    property alias progress: glass.progress
 
-    readonly property int durationMs: 1150  // ~125 ms for the seam to stretch out, then the doors
+    readonly property int durationMs: 1100  // the line and the doors overlap (shaders/fold.frag)
 
     // Shut: the doors met and the seam closed. The shell locks the session then.
     signal shut()
@@ -94,6 +97,8 @@ Item {
         anim.stop();
         shutAnim.stop();
         settle.stop();
+        grant.stop();
+        granted.opacity = 0;
         progress = 0;
         fromCapture = true;
         lockSettled = false;
@@ -109,7 +114,10 @@ Item {
         console.info("hud: unlock fold on", screen.name, capture.hasContent ? "from the capture" : "WITHOUT a capture");
         // Frames already asked of the capture still land after it stops; they
         // show this window's own (unfolded) copy, so let them drain before
-        // the doors move, or one would fold the fold.
+        // the doors move, or one would fold the fold. The wait is the
+        // password's answer: the field's ring blinks green, and stays
+        // green on the doors.
+        grant.restart();
         settle.restart();
     }
     function preview() {
@@ -128,6 +136,8 @@ Item {
             return;
         anim.stop();
         settle.stop();
+        grant.stop();
+        granted.opacity = 0;
         fromCapture = false;
         sealed = false;
         lockSettled = false;
@@ -152,6 +162,8 @@ Item {
         phase = "held";
     }
     function clear() {
+        grant.stop();
+        granted.opacity = 0;
         anim.stop();
         shutAnim.stop();
         settle.stop();
@@ -162,9 +174,15 @@ Item {
         settleLock.stop();
         progress = 0;
     }
+    // Frames this window drew during the run, for the log line at its end:
+    // about the output's refresh rate times the duration when it ran smooth.
     property int frames: 0
     property real startedAt: 0
-    onProgressChanged: if (playing || closing) frames += 1
+    Connections {
+        target: fold.Window.window
+        enabled: fold.playing || fold.closing
+        function onFrameSwapped() { fold.frames += 1; }
+    }
     function play() {
         frames = 0;
         startedAt = Date.now();
@@ -181,8 +199,16 @@ Item {
 
     Timer {
         id: settle
-        interval: 90
+        interval: 280
         onTriggered: fold.play()
+    }
+    SequentialAnimation {
+        id: grant
+        NumberAnimation { target: granted; property: "opacity"; to: 1; duration: 40 }
+        PauseAnimation { duration: 100 }
+        NumberAnimation { target: granted; property: "opacity"; to: 0; duration: 60 }
+        PauseAnimation { duration: 30 }
+        NumberAnimation { target: granted; property: "opacity"; to: 1; duration: 40 }
     }
     // Shut doors with no lock behind them would leave the screen covered by
     // the lock art, so give the lock a few seconds and then let go.
@@ -195,10 +221,15 @@ Item {
         }
     }
 
-    NumberAnimation {
+    // The run is animated on the scene graph's render thread, one per
+    // window: each output's doors move at that output's own refresh rate
+    // and keep moving through a busy moment on this side. (A NumberAnimation
+    // ticks for all windows at once, at the pace of one of them: the doors
+    // ran at 60 Hz on a 120 Hz monitor next to the laptop panel.)
+    UniformAnimator {
         id: anim
-        target: fold
-        property: "progress"
+        target: glass
+        uniform: "progress"
         from: 0
         to: 1
         duration: fold.durationMs
@@ -210,10 +241,10 @@ Item {
             console.info("hud: fold on", fold.screen.name, "drew", fold.frames, "frames in", Date.now() - fold.startedAt, "ms");
         }
     }
-    NumberAnimation {
+    UniformAnimator {
         id: shutAnim
-        target: fold
-        property: "progress"
+        target: glass
+        uniform: "progress"
         from: 1
         to: 0
         duration: fold.durationMs
@@ -285,6 +316,19 @@ Item {
                 visible: hasContent
             }
         }
+        // The password was right: the field's ring, green, over the frozen
+        // capture of the lock (LockField.qml).
+        LockField {
+            id: granted
+            anchors.fill: parent
+            dpr: fold.screen ? fold.screen.devicePixelRatio : 1
+            body: false
+            ring: Theme.good
+            opacity: 0
+            // Only on the capture: the doors that close for the next lock
+            // carry the field as it is before a password.
+            visible: opacity > 0 && fold.fromCapture
+        }
         // 30 frames a second is plenty for a clock and a password field, and
         // costs the compositor a third of what a live capture does.
         Timer {
@@ -309,13 +353,15 @@ Item {
     }
 
     ShaderEffect {
+        id: glass
         anchors.fill: parent
         fragmentShader: "file://" + Theme.assetDir + "fold.frag.qsb"
 
         property var src: source
-        property real progress: fold.progress
+        property real progress: 0
         property real aspect: width / Math.max(height, 1)
-        property real pxPerUnit: width * (fold.screen ? fold.screen.devicePixelRatio : 1)
+        property real unit: fold.screen ? fold.screen.devicePixelRatio : 1
+        property real pxPerUnit: width * unit
         // The lock scene keeps its own brightness on the glass: it gives this
         // share of itself to the blurred desktop behind, which is let through
         // at this fraction of its light (the lock backdrop is about four

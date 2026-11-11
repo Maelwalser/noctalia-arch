@@ -14,6 +14,7 @@ Singleton {
     readonly property string assetDir: home + "/.local/share/hud/overlay/"
 
     property color primary: "#ef5fc6"
+    property color secondary: "#ff8fdc"
     property color surface: "#0b0712"
     property color fg: "#efe7f4"
     property color fgDim: "#b7a8c9"
@@ -21,6 +22,8 @@ Singleton {
     // The amber highlight (palette tertiary): a few accents only, the rest is primary.
     property color accent: "#ffa35e"
     property color error: "#ff4d5e"
+    // The palette's terminal green (noctalia palettes/acid-hud.json): the lock's "granted".
+    property color good: "#4fd1b5"
     property string version: "0"
 
     readonly property string displayFont: "Chakra Petch"
@@ -34,6 +37,7 @@ Singleton {
         try {
             const c = JSON.parse(raw);
             primary = c.primary ?? primary;
+            secondary = c.secondary ?? secondary;
             surface = c.surface ?? surface;
             fg = c.on_surface ?? fg;
             fgDim = c.on_surface_variant ?? fgDim;

@@ -115,6 +115,41 @@ entry = "sep.luau"
   middle = "none"
 
 [[widget]]
+id = "title"
+entry = "title.luau"
+
+  # Logical px left of the title: bar margin, the widgets before it and the
+  # lane spacing, without the media readout.
+  [[widget.setting]]
+  key = "reserve"
+  type = "int"
+  label_key = "settings.title_reserve.label"
+  default = 510
+  min = 0
+  max = 4000
+
+  # Logical px the media readout takes at its max_length, spacing included.
+  [[widget.setting]]
+  key = "media_reserve"
+  type = "int"
+  label_key = "settings.media_reserve.label"
+  default = 180
+  min = 0
+  max = 1000
+
+  # Gap to the workspace row, as for the equalizer on its other side.
+  [[widget.setting]]
+  key = "gap"
+  type = "int"
+  label_key = "settings.gap.label"
+  default = 13
+  min = 0
+  max = 200
+
+  [widget.actions]
+  middle = "none"
+
+[[widget]]
 id = "eq"
 entry = "eq.luau"
 

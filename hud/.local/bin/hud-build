@@ -1232,23 +1232,49 @@ def render_lock_backdrop(colors: dict[str, str], dst: Path) -> None:
         run(*lock_scene(colors, 3840, 2160, lock_backdrop_image("")), "-depth", "8", tmp)
 
 
-def glass_map(w: int, h: int, r: float, band: float, scale: float) -> Path:
-    """Per-pixel maps (PPM) for a w x h rounded rectangle of radius r, as
-    hyprglass lights its contour glass. R, G: displacement (50% grey = none):
-    inside a `band` px wide ring at the edge the sample point moves outward
-    along the normal, most at the edge, so the backdrop bends like a lens
-    edge. B: rim light, a bevel line that fades over 1.5 px and lights the
-    edges facing up or down (the bevel light comes from the top, so the
-    sides stay dark), a wider specular sheen along the top edge, and a faint
-    fresnel glow all round. Cached by geometry."""
+# The light on a glass pane: the cool white of the desktop panes
+# (quickshell/hud/GlassScene.qml) and of the hyprglass tints.
+GLASS_LIGHT = "#dce6f0"
+
+
+def glass_map(w: int, h: int, r: float, scale: float) -> tuple[Path, Path, float]:
+    """Per-pixel maps for a w x h px rounded rectangle of radius r: the glass
+    of the desktop's bottom panes, which hyprglass and shaders/pane.frag
+    render live and the lock has to carry baked (hyprglass never touches a
+    session lock surface). Cached by geometry.
+
+    The first (PPM) is the lens, in R and G (50 % grey = none, full scale =
+    the rim's width, which is returned with the two paths), as hyprglass
+    bends the backdrop with preset acid_pane (hyprland/plugins.lua): the rim
+    is a convex glass wall, a quarter ellipse 22 px wide and 14 px tall,
+    upright at the edge and flat from its inner side on. An eye ray straight
+    down refracts where it enters the wall (Snell's law, index 1.5) and runs
+    on through the glass, so the rim shows what lies further in, squeezed
+    towards the edge; past the rim nothing is bent.
+
+    The second (PAM, with alpha) is the pane's light, laid over the body:
+    pane.frag's formulas, in logical px (`scale` physical px each). The pane
+    shows by its edge alone: a crisp line with a short tail, lit from the
+    upper left (the top edge brightest towards the left corner, the bottom
+    edge about half of it and towards the right one, the sides a fraction),
+    and a faintly darker band just inside it that gives the edge thickness.
+    Hyprglass adds a soft specular tail along the top edge (measured on the
+    desktop: about a tenth of the light, fading over 5 px) and a trace of
+    it all round."""
     CACHE.mkdir(parents=True, exist_ok=True)
-    dst = CACHE / f"glass-{w}x{h}-{r:g}-{band:g}-{scale:g}.ppm"
-    if dst.exists():
-        return dst
+    wall, tall, ior = 22 * scale, 14 * scale, 1.5
+    gain = 2.6 / 0.6  # refraction_strength over the plugin's reference
+    stem = f"pane-{w}x{h}-{r:g}-{scale:g}"
+    lens, light = CACHE / f"{stem}-lens.ppm", CACHE / f"{stem}-light.pam"
+    if lens.exists() and light.exists():
+        return lens, light, wall
+    rim, shade, sheen, fresnel = 0.55, 0.10, 0.08, 0.02
+    lr, lg, lb = (int(GLASS_LIGHT[i:i + 2], 16) for i in (1, 3, 5))
     hw, hh = w / 2 - r, h / 2 - r
     cxp, cyp = w / 2 - 0.5, h / 2 - 0.5
-    bevel_px, sheen_px, fresnel_px = 1.5 * scale, 12 * scale, 5 * scale
-    data = bytearray(f"P6\n{w} {h}\n255\n".encode())
+    lens_data = bytearray(f"P6\n{w} {h}\n255\n".encode())
+    light_data = bytearray(f"P7\nWIDTH {w}\nHEIGHT {h}\nDEPTH 4\nMAXVAL 255\n"
+                           "TUPLTYPE RGB_ALPHA\nENDHDR\n".encode())
     for y in range(h):
         qy = abs(y - cyp) - hh
         for x in range(w):
@@ -1262,16 +1288,67 @@ def glass_map(w: int, h: int, r: float, band: float, scale: float) -> Path:
             else:  # top or bottom
                 d, nx, ny = qy - r, 0.0, 1.0
             inside = max(0.0, -d)  # px from the edge, inward
-            f = (1 - inside / band) ** 2 if inside < band else 0.0
-            sx = math.copysign(nx * f, x - cxp)
-            sy = math.copysign(ny * f, y - cyp)
-            up = ny if y < cyp else 0.0  # the normal's upward share
-            light = (math.exp(-inside / bevel_px) * ny
-                     + 0.35 * math.exp(-inside / sheen_px) * up
-                     + 0.12 * math.exp(-inside / fresnel_px))
-            data += bytes((round(128 + 127 * sx), round(128 + 127 * sy), round(255 * min(1.0, light))))
-    dst.write_bytes(data)
-    return dst
+            f = 0.0
+            if inside < wall:
+                e = 1 - inside / wall  # 1 at the edge, 0 at the wall's inner side
+                rise = math.sqrt(1 - e * e)
+                # The wall's surface normal as (inward, up), and the ray
+                # (0, -1) refracted into the glass there.
+                ni, nu = -e / wall, rise / tall
+                norm = math.hypot(ni, nu)
+                ni, nu = ni / norm, nu / norm
+                eta = 1 / ior
+                refr = eta * nu - math.sqrt(1 - eta * eta * (1 - nu * nu))
+                ray_in, ray_down = refr * ni, eta - refr * nu
+                run = tall * rise * ray_in / max(ray_down, 1e-3)
+                f = math.tanh(gain * run / wall)  # of the wall's width, inwards
+            sx = -math.copysign(nx * f, x - cxp)
+            sy = -math.copysign(ny * f, y - cyp)
+            lens_data += bytes((round(128 + 127 * sx), round(128 + 127 * sy), 0))
+
+            t = inside / scale
+            up, down = (ny, 0.0) if y < cyp else (0.0, ny)
+            across = (x + 0.5) / w
+            caught = (0.20 + 0.80 * up ** 1.5 * (1 - 0.45 * across)
+                      + 0.50 * down ** 1.5 * (0.45 + 0.55 * across))
+            wide = math.exp(-t / 5)
+            a = min(1.0, rim * caught * (math.exp(-t / 1.1) + 0.16 * wide)
+                    + (sheen * up + fresnel) * wide)
+            s = shade * math.exp(-((t - 6) / 3.5) ** 2)
+            cover = min(1.0, max(0.0, 0.5 - d))
+            alpha = a + s * (1 - a)  # the light over the (black) shade
+            lit = a / alpha if alpha > 0 else 0.0
+            light_data += bytes((round(lr * lit), round(lg * lit), round(lb * lit),
+                                 round(255 * alpha * cover)))
+    lens.write_bytes(lens_data)
+    light.write_bytes(light_data)
+    return lens, light, wall
+
+
+def glass_pane(px0: int, py0: int, gw: int, gh: int, scale: float) -> list[str]:
+    """ImageMagick arguments that turn the gw x gh px box at (px0, py0) of
+    the canvas drawn so far into a liquid-glass pane, the same glass as the
+    desktop's bottom panes (measured on them, over the same picture): what
+    is behind is bent at the rim like a lens edge and softly blurred, the
+    body keeps its brightness but for a breath of frost (nine tenths of the
+    backdrop plus 5 % of the light: any more reads as milk), the corners
+    are the toasts' 18 px, and the edge carries the light (glass_map)."""
+    r = round(18 * scale)
+    lens, light, reach = glass_map(gw, gh, r, scale)
+    return [
+        "-gravity", "NorthWest",
+        "(", "+clone", "-crop", f"{gw}x{gh}+{px0}+{py0}", "+repage",
+        "(", str(lens), ")",
+        "-set", "option:compose:args", f"{reach:.1f}x{reach:.1f}", "-compose", "Displace", "-composite",
+        "-blur", f"0x{2 * scale:.1f}",
+        "-channel", "RGB", "-evaluate", "multiply", "0.94", "+channel",
+        "-fill", GLASS_LIGHT, "-colorize", "5",
+        "(", "-size", f"{gw}x{gh}", "xc:none", "-fill", "white", "-stroke", "none",
+        "-draw", f"roundrectangle 0,0 {gw - 1},{gh - 1} {r},{r}", ")",
+        "-compose", "DstIn", "-composite",
+        "(", str(light), ")", "-compose", "Over", "-composite",
+        ")", "-geometry", f"+{px0}+{py0}", "-compose", "Over", "-composite",
+    ]
 
 
 def fold_glass(colors: dict[str, str], pw: int, ph: int) -> list[str]:
@@ -1389,41 +1466,8 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
         return out
 
     def glass(x0: float, y0: float, x1: float, y1: float) -> list[str]:
-        """A liquid-glass pane over the canvas drawn so far, matching the
-        hyprglass toasts and bar (which cannot reach the session lock): the
-        scene behind it bent at the rim like a lens edge, softly blurred and
-        slightly lifted, 18 px corners, and lit as hyprglass lights a contour
-        card: a soft bevel line on the edges facing up and down, a sheen
-        along the top edge and a faint glow all round (see glass_map)."""
         px0, py0 = round(cx(x0)), round(cy(y0))
-        gw, gh = round(cx(x1)) - px0, round(cy(y1)) - py0
-        r = round(18 * scale)
-        band, amp = 18 * scale, 9 * scale  # lens edge: width and pull in px
-        maps = glass_map(gw, gh, r, band, scale)
-        box = f"roundrectangle 0,0 {gw - 1},{gh - 1} {r},{r}"
-        size = ["-size", f"{gw}x{gh}"]
-        return [
-            "-gravity", "NorthWest",
-            # Lens edge: the band inside the rim samples the scene further out,
-            # so what lies beyond the pane is pulled in and bent along the edge.
-            "(", "+clone", "-crop", f"{gw + 2 * round(amp)}x{gh + 2 * round(amp)}+{px0 - round(amp)}+{py0 - round(amp)}",
-            "+repage", "(", str(maps), "-bordercolor", "gray50", "-border", f"{round(amp)}", ")",
-            "-set", "option:compose:args", f"{amp:.1f}x{amp:.1f}", "-compose", "Displace", "-composite",
-            "-shave", f"{round(amp)}x{round(amp)}", "+repage",
-            # The lift takes the palette's white, so the pane carries the
-            # theme's hue instead of a cool grey.
-            "-blur", f"0x{1.4 * scale:.1f}", "-fill", colors["on_surface"], "-colorize", "6",
-            "(", *size, "xc:none", "-fill", "white", "-stroke", "none", "-draw", box, ")",
-            "-compose", "DstIn", "-composite",
-            # Rim light from the map's blue channel, clipped to the pane.
-            "(", *size, "xc:white", "(", str(maps), "-channel", "B", "-separate", "+channel", ")",
-            "-alpha", "off", "-compose", "CopyOpacity", "-composite",
-            "(", *size, "xc:none", "-fill", "white", "-stroke", "none", "-draw", box, ")",
-            "-compose", "DstIn", "-composite",
-            "-channel", "A", "-evaluate", "multiply", "0.17", "+channel", ")",
-            "-compose", "Over", "-composite",
-            ")", "-geometry", f"+{px0}+{py0}", "-compose", "Over", "-composite",
-        ]
+        return glass_pane(px0, py0, round(cx(x1)) - px0, round(cy(y1)) - py0, scale)
 
     acid = colors["primary"]
     cmd = lock_scene(colors, pw, ph, image)
@@ -1476,13 +1520,13 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
         cmd += ltext(caption, 9, "on_surface", tx + 38, y0 + 18, spacing=1.5)
         cmd += put("slashes-3", "primary", 16, x1 - 22, y0 + 14.5, 0.9)
         cmd += line([(x0 + 10, y0 + 28), (x1 - 10, y0 + 28)], "outline")
-        outer = x0 if side < 0 else x1
-        cmd += rect(outer, y0 + 44, outer - side * 3, y1 - 22, acid)
-    # Connectors from the middle cards to the rail, with acid nodes at the cards.
+    # Connectors from the middle cards to the rail, with acid nodes by the
+    # cards: clear of the glass, whose edge is its light and carries nothing
+    # (a bar or a node on it reads as a sticker on the pane).
     cw, ch, gap = LOCK_CARD
     my = LOCK_BANK_Y + ch * 1.5 + gap
     for side in (-1, 1):
-        near = side * (LOCK_BANK_X - cw / 2)
+        near = side * (LOCK_BANK_X - cw / 2 - 8)
         cmd += line([(near, my), (side * 290, my), (side * 290, ry), (side * (rx + 8), ry)], "outline")
         cmd += rect(near - 3, my - 3, near + 3, my + 3, acid)
 
@@ -1540,19 +1584,13 @@ def lock_layout_toml(outputs: dict[str, tuple[int, int, float]] = LOCK_OUTPUTS) 
         widget("static", "sticker", w / 2, h / 2, w, h,
                {"image_path": str(lock / f"static-{name}.png"), "background": False}, absolute=True)
         # The reticle (reticle_box), the hero clock (LOCK_CLOCK), the seconds
-        # (LOCK_SECONDS), the date and the week (LOCK_DATE_*) are live readouts
-        # the HUD draws itself, above the lock surface and in its closing
-        # doors (quickshell/hud/LockWidgets.qml, which repeats this spec), so
-        # they are not Noctalia widgets.
-        text = {"background": False, "shadow": False}
-        graph = {"display": "graph", "color": "primary", "color2": "on_surface_variant",
-                 "show_label": True, "font_family": "Departure Mono", **text}
-        for _idx, _side, _caption, stat, stat2, x0, y0, x1, y1 in lock_cards():
-            s = {"stat": stat, **graph}
-            if stat2:
-                s["stat2"] = stat2
-            # Below the header rule (y0 + 28) down to an 8 u margin.
-            widget(stat, "sysmon", (x0 + x1) / 2, (y0 + 32 + y1 - 8) / 2, x1 - x0 - 20, y1 - y0 - 40, s)
+        # (LOCK_SECONDS), the date and the week (LOCK_DATE_*) and the graphs
+        # in the telemetry cards (lock_cards: below the header rule at
+        # y0 + 28 down to an 8 u margin, 10 u in from the sides) are live
+        # readouts the HUD draws itself, above the lock surface and in its
+        # closing doors (quickshell/hud/LockWidgets.qml, which repeats this
+        # spec), so they are not Noctalia widgets: those only appear once
+        # the lock surface is up, graphs empty.
         lx, ly, lw, lh = LOCK_LOGIN
         # The box itself is clear: the static art carries a glass pane under it,
         # and the password field is a faint tint on that glass. Noctalia's

@@ -20,6 +20,13 @@ Singleton {
     readonly property real paneW: 400    // u
     readonly property real paneH: 300    // u
 
+    // Noctalia's bar rail, in logical px (noctalia/themes/acid.toml,
+    // [bar.default]: thickness, margin_edge, margin_ends, radius). The HUD
+    // lays the panes' edge light over it (shell.qml, hud-barlight).
+    readonly property int barHeight: 32
+    readonly property int barTop: 6
+    readonly property int barSide: 8
+
     function u(h) { return h / 1200; }
 
     // The hero clock pane, centred over the horizon bloom (hud-build's ax).

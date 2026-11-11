@@ -83,13 +83,24 @@ if hl.plugin.hyprglass ~= nil then
         -- tiny because a scaled toast ends on a half-covered row whose alpha
         -- (~0.05) must still get the full glass, or the bottom rim fades out.
         hg.layer("noctalia-notification", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- The OSD pill takes the toast settings as it is.
+        hg.layer("noctalia-osd", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
         -- The bar rail is the same glass: its layer is taller than the rail
         -- (room Noctalia keeps for a shadow), so the contour traces the rail.
         -- The capsules inside it (themes/acid.toml, a translucent fill over the
         -- rail's) are nested shapes (patch 0003): each gets its own rim, bend
         -- and top light, a lens laid on the rail like iOS 26's selected tab.
         -- mask_nested sits between the rail's alpha (0.1) and the capsules'.
-        hg.layer("noctalia-bar-default", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15 })
+        -- The rail is the clear glass of the desktop panes (acid_pane_clear
+        -- below) with the toasts' narrow rim: no grey veil over the dark top
+        -- of the wallpaper, and the HUD draws the panes' edge light over it
+        -- (quickshell hud, hud-barlight).
+        hg.preset("acid_rail", {
+            inherits = "acid_clear",
+            blur_strength = 0.5,
+            dark = { tint_color = 0xdce6f007, contrast = 0.975 },
+        })
+        hg.layer("noctalia-bar-default", { preset = "acid_rail", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15 })
         -- Panels attached to the bar (control centre, session, wallpaper): in
         -- Noctalia's "glass" transparency mode the panel box is a faint rounded
         -- fill (alpha ~0.08) the size of its layer, so the toast settings fit.
@@ -112,19 +123,17 @@ if hl.plugin.hyprglass ~= nil then
             fresnel_strength = 0.12,
             dark = { tint_color = 0xdce6f00c },
         })
-        hg.layer("hud-glass", { preset = "acid_pane", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
-        -- The two bottom panes lie over the wallpaper's near-black corners,
-        -- where the tint and the softened contrast of acid_pane are all there
-        -- is to see: a grey veil (body +17 over black, "milky"). About half
-        -- of it here (the user found none at all "too much": a little frost
-        -- has to stay); the pane draws its own edge light (quickshell hud,
-        -- shaders/pane.frag).
+        -- Over the wallpaper's near-black corners the tint and the softened
+        -- contrast of acid_pane are all there is to see: a grey veil (body
+        -- +17 over black, "milky"). About half of it here (the user found
+        -- none at all "too much": a little frost has to stay); the panes draw
+        -- their own edge light (quickshell hud, shaders/pane.frag).
         hg.preset("acid_pane_clear", {
             inherits = "acid_pane",
             blur_strength = 0.5,
             dark = { tint_color = 0xdce6f007, contrast = 0.975 },
         })
-        hg.layer("hud-clearglass", { preset = "acid_pane_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        hg.layer("hud-glass", { preset = "acid_pane_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
         -- The unlock reveal (quickshell hud, UnlockFold.qml): the lock scene
         -- parts as two frosted glass doors. The layer's alpha is the door's
         -- presence, and the feather turns it into the blur's strength. Plain

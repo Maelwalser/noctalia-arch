@@ -201,3 +201,19 @@ hl.bind("SUPER + V", hl.dsp.exec_cmd("noctalia msg panel-toggle clipboard"), { d
 hl.bind("ALT + SPACE", hl.dsp.exec_cmd("noctalia msg panel-toggle launcher"), { description = "Launch apps" })
 
 hl.bind("SUPER + SHIFT + S", hl.dsp.exec_cmd('grim -g "$(slurp)" - | wl-copy'))
+
+-- --- Media keys ---
+-- hud-osd changes the level and shows a toast for it; Noctalia's own
+-- volume/brightness OSDs are off so the control-center sliders stay quiet.
+-- All of these also work on the lock screen.
+local osd = "$HOME/.local/bin/hud-osd " -- Hyprland's PATH has no ~/.local/bin
+local held = { repeating = true, locked = true }
+hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd(osd .. "vol up"), held)
+hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd(osd .. "vol down"), held)
+hl.bind("XF86AudioMute", hl.dsp.exec_cmd(osd .. "vol mute"), { locked = true })
+hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd(osd .. "mic mute"), { locked = true })
+hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd(osd .. "lum up"), held)
+hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd(osd .. "lum down"), held)
+hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("noctalia msg media toggle"), { locked = true })
+hl.bind("XF86AudioNext", hl.dsp.exec_cmd("noctalia msg media next"), { locked = true })
+hl.bind("XF86AudioPrev", hl.dsp.exec_cmd("noctalia msg media previous"), { locked = true })

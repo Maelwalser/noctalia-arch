@@ -204,7 +204,7 @@ keep_dismissed_in_history = false # v4 clearDismissed
 # First matching filter wins. override_duration also cuts critical toasts
 # short, and allowed_urgencies cannot scope a filter (it suppresses the other
 # levels outright), so the senders whose warnings must stay up come first.
-filter_order = ["keep_battery", "keep_calendar", "brief"]
+filter_order = ["keep_battery", "keep_calendar", "hud_osd", "brief"]
 
 [notification.filter.keep_battery] # Noctalia's low/critical battery warnings keep their own timing
 enabled = true
@@ -213,6 +213,14 @@ match = "battery"
 [notification.filter.keep_calendar] # calendar reminders too
 enabled = true
 match = "calendar"
+
+[notification.filter.hud_osd]      # media-key level toasts (hud-osd): silent, not kept; hud-osd closes them itself
+enabled = true
+match = "hud-osd"
+allow_permanent = true
+play_sound = false
+save_history = false
+bypass_dnd = true
 
 [notification.filter.brief]        # everyone else: 3.5 s, and never sticky
 enabled = true
@@ -227,12 +235,14 @@ enabled = true
 position = "top_right"
 hide_delay_ms = 2000
 
-# v4 enabledTypes [0, 1, 2]: output volume, input volume, brightness
+# volume and brightness are off: the built-in kinds fire on every change,
+# control-center sliders included. The media keys show a toast instead, sent
+# by hud-osd (hypr/bindings.lua; filter "hud_osd" above).
 [osd.kinds]
-volume = true
+volume = false
 volume_output = true
 volume_input = true
-brightness = true
+brightness = false
 wifi = false
 bluetooth = false
 power_profile = false

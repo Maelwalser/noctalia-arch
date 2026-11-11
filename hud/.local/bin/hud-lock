@@ -14,7 +14,7 @@ locked() {
 
 locked && exit 0
 if qs -c hud ipc call lock close "" >/dev/null 2>&1; then
-  # The doors take ~1.2 s, then Noctalia needs a moment to map its lock surface.
+  # The doors take ~1.1 s, then Noctalia needs a moment to map its lock surface.
   for _ in $(seq 1 30); do
     sleep 0.1
     locked && exit 0
