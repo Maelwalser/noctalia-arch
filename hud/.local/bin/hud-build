@@ -8,12 +8,14 @@ derived from them is committed: this script regenerates everything locally.
   hud-build --tint-only  re-tint / re-render from the current palette (palette hook)
   hud-build --force      re-crop every element even if it is up to date
   hud-build --lock-layout  print the lockscreen widget TOML for noctalia's themes/acid.toml
+  hud-build --lock-sync    give a connected monitor the theme has not seen its lock art and
+                           layout, and the bar its scale (monitor hotplug, Hyprland autostart)
   hud-build --shaders    compile the overlay's shaders only (quickshell/hud/shaders)
 
 Outputs (all under ~/.local/share/hud unless noted):
   elements/<name>.png        white-on-transparent masks, tinted at runtime by the overlay
   tinted/<name>-<role>.png   palette-coloured copies for consumers that cannot tint
-  lock/                      lockscreen art: static-<output>.png, reticle-<output>.gif, backdrop.png
+  lock/                      lockscreen art: static-<output>.png, reticle-<output>.png, backdrop.png
   overlay/, bar/             Quickshell overlay layers, Noctalia bar plugin frames
   fastfetch-logo.png, nvim-header.txt, nvim-header-large.txt
   ~/Pictures/Wallpapers/hud/hud-<w>x<h>.png
@@ -47,6 +49,8 @@ QSB = shutil.which("qsb") or "/usr/lib/qt6/bin/qsb"  # qt6-shadertools, not on P
 PACKS = HOME / "Pictures/ricing"
 WALLPAPERS = HOME / "Pictures/Wallpapers/hud"
 COLORS_JSON = HOME / ".config/hud/colors.json"
+STATE = Path(os.environ.get("XDG_STATE_HOME") or HOME / ".local/state")
+NOCTALIA_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config") / "noctalia"
 
 # Used until Noctalia has rendered ~/.config/hud/colors.json once.
 DEFAULT_COLORS = {
@@ -340,6 +344,12 @@ def build_tinted(colors: dict[str, str]) -> None:
     print(f"tinted: {sum(len(r) for r, _ in TINTED.values())} files")
 
 
+def bump_overlay_version(colors: dict[str, str]) -> None:
+    """Rewrite the stamp the Quickshell overlay watches: it reloads its images
+    (the overlay layers and the lock art) when this changes."""
+    (OUT / "overlay" / "version").write_text(f"{os.getpid()}-{len(OVERLAY)}-{colors['primary']}\n")
+
+
 def build_overlay(colors: dict[str, str]) -> None:
     d = OUT / "overlay"
     d.mkdir(parents=True, exist_ok=True)
@@ -363,7 +373,7 @@ def build_overlay(colors: dict[str, str]) -> None:
         scope_trace(colors["on_surface_variant"], braid=False, dst=tmp)
     # The overlay watches this stamp (not colors.json, which lands before the
     # re-tint finishes) and cache-busts its images when it changes.
-    (d / "version").write_text(f"{os.getpid()}-{len(OVERLAY)}-{colors['primary']}\n")
+    bump_overlay_version(colors)
     print(f"overlay: {len(OVERLAY)} layers")
 
 
@@ -794,6 +804,14 @@ LOCK_OUTPUTS = {  # logical width, height and scale of each output that locks
     "U4025QW": (2560, 1080, 2.0),    # Dell U4025QW ultrawide, on DP-2 or DP-4
     "ZOWIE": (1920, 1080, 1.0),      # BenQ ZOWIE XL, on DP-2
 }
+# Monitors missing from LOCK_OUTPUTS are added per machine by `--lock-sync`
+# when they are first connected: their geometry is recorded in LOCK_AUTO and
+# the whole layout (the outputs above plus those) is written to LOCK_LOCAL.
+# Noctalia merges its config files by name and the last one wins an array
+# (widget_order), hence the zz- prefix: it has to come after theme.toml.
+# Neither file belongs in the repo: they describe this machine's monitors.
+LOCK_AUTO = STATE / "hud/lock-outputs.json"
+LOCK_LOCAL = NOCTALIA_CONFIG / "zz-hud-lock.toml"
 # The core composition fits the narrowest output (16:10, ±640 u); wider ones
 # show more of the scene, and the edge chrome follows the frame.
 LOCK_FRAME = 19                  # frame inset
@@ -909,11 +927,13 @@ def reticle_box(w: int, h: int, scale: float) -> tuple[int, int, int]:
 
 
 def bake_reticle(ring: Path, scene: Path, left: int, top: int, size: int, dst: Path) -> None:
-    """The reticle GIF: the acid ring as a stepper (8° every 0.4 s, 18 s per
-    turn). GIF alpha is 1-bit, so each frame is composited over the static
-    scene's own pixels at the box instead: the ring keeps its anti-aliased
-    edge and the frame blends into the scene. `ring` is oversized, so the
-    rotation is smoothed when each frame is finished at `size`."""
+    """The reticle's frames, side by side in one PNG strip: the acid ring as
+    a stepper (8° every 0.4 s, 18 s per turn; the overlay's LockWidgets.qml
+    shows one frame at a time, RETICLE_FRAMES there). Each frame is composited
+    over the static scene's own pixels at the box, so the overlay can draw it
+    opaque. `ring` is oversized, so the rotation is smoothed when each frame
+    is finished at `size`. (A strip, not a GIF: Qt's GIF player crashed the
+    overlay with an endless recursion while stepping frames.)"""
     frames = 45
     frame_args: list[str] = []
     for i in range(frames):
@@ -922,8 +942,7 @@ def bake_reticle(ring: Path, scene: Path, left: int, top: int, size: int, dst: P
                        "-compose", "Over", "-composite", ")"]
     with staged(dst) as tmp:
         run("magick", "(", str(scene), "-crop", f"{size}x{size}+{left}+{top}", "+repage",
-            "-write", "mpr:scene", "+delete", ")",
-            "-delay", "40", *frame_args, "+dither", "-colors", "256", "-loop", "0", tmp)
+            "-write", "mpr:scene", "+delete", ")", *frame_args, "+append", "-depth", "8", tmp)
 
 
 def build_shaders() -> None:
@@ -940,23 +959,230 @@ def build_shaders() -> None:
     print(f"shaders: {len(sources)} compiled")
 
 
-def build_lock(colors: dict[str, str]) -> None:
+def is_virtual(name: str) -> bool:
+    """Headless outputs (claude-shot's CLAUDE*, `hyprctl output create`): they
+    are not monitors anyone locks (hyprland/.config/hypr/workspaces.lua)."""
+    return name.startswith(("CLAUDE", "HEADLESS-"))
+
+
+def connected_outputs() -> list[dict]:
+    """The connected monitors: connector, description, model and the logical
+    width, height and scale as LOCK_OUTPUTS states them."""
+    try:
+        monitors = json.loads(subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True,
+                                             text=True, check=True).stdout)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as e:
+        print(f"hud-build: cannot list outputs: {e}", file=sys.stderr)
+        return []
+    outputs = []
+    for mon in monitors:
+        if is_virtual(mon["name"]):
+            continue
+        scale = round(float(mon.get("scale", 1)), 3)
+        w, h = mon["width"], mon["height"]
+        if int(mon.get("transform", 0)) % 2:  # rotated by 90 or 270 degrees
+            w, h = h, w
+        outputs.append({"name": mon["name"], "description": mon.get("description", ""),
+                        "model": mon.get("model", ""), "geometry": (round(w / scale), round(h / scale), scale)})
+    return outputs
+
+
+def lock_key(mon: dict) -> str:
+    """The LOCK_OUTPUTS key that selects this monitor, as Noctalia matches an
+    output selector (the connector, or a whole word of the description). For a
+    monitor not listed there: the longest word of its model, which names the
+    same monitor on any connector, else the connector."""
+    words = mon["description"].split()
+    for key in LOCK_OUTPUTS:
+        if key == mon["name"] or key in words:
+            return key
+    # Only words that are safe in a file name and a TOML key.
+    words = [t for t in mon["model"].split() if re.fullmatch(r"[A-Za-z0-9_-]+", t)]
+    return max(words, key=len) if words else mon["name"]
+
+
+def load_lock_auto() -> dict[str, tuple[int, int, float]]:
+    try:
+        return {k: (int(w), int(h), float(sc)) for k, (w, h, sc) in json.loads(LOCK_AUTO.read_text()).items()
+                if k not in LOCK_OUTPUTS}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def lock_outputs() -> dict[str, tuple[int, int, float]]:
+    """Every output with a lock layout: LOCK_OUTPUTS and this machine's own."""
+    return {**LOCK_OUTPUTS, **load_lock_auto()}
+
+
+def render_lock_output(colors: dict[str, str], name: str, w: int, h: int, scale: float) -> None:
     d = OUT / "lock"
     d.mkdir(parents=True, exist_ok=True)
+    static = d / f"static-{name}.png"
+    render_lock_static(colors, w, h, scale, static, lock_backdrop_image(name))
+    # The reticle rides on this output's scene, at 4x for the rotation.
+    left, top, size = reticle_box(w, h, scale)
     with tempfile.TemporaryDirectory(prefix="hud-lock-") as td:
-        for name, (w, h, scale) in LOCK_OUTPUTS.items():
-            static = d / f"static-{name}.png"
-            render_lock_static(colors, w, h, scale, static, lock_backdrop_image(name))
-            # The reticle rides on this output's scene, at 4x for the rotation.
-            left, top, size = reticle_box(w, h, scale)
-            ring = Path(td) / f"ring-{name}.png"
-            tint(OUT / "elements" / "ring-07.png", colors["primary"], size * 4, ring)
-            bake_reticle(ring, static, left, top, size, d / f"reticle-{name}.gif")
+        ring = Path(td) / f"ring-{name}.png"
+        tint(OUT / "elements" / "ring-07.png", colors["primary"], size * 4, ring)
+        bake_reticle(ring, static, left, top, size, d / f"reticle-{name}.png")
+
+
+def build_lock(colors: dict[str, str]) -> None:
+    d = OUT / "lock"
+    for name, (w, h, scale) in lock_outputs().items():
+        render_lock_output(colors, name, w, h, scale)
     render_lock_backdrop(colors, d / "backdrop.png")
     # Layers of the previous ring-instrument layout.
     for stale in ("dial.gif", "ring-acid.gif", "reticle.gif", "reticle.webp"):
         (d / stale).unlink(missing_ok=True)
-    print(f"lock: {len(LOCK_OUTPUTS)} reticle gifs, scenes, backdrop")
+    for stale in d.glob("reticle-*.gif"):  # the GIF steppers the strips replaced
+        stale.unlink()
+    print(f"lock: {len(lock_outputs())} reticle strips, scenes, backdrop")
+
+
+def drop_lock_tables(path: Path) -> None:
+    """Remove the [lockscreen_widgets...] tables from a Noctalia state file.
+    Noctalia copies the lock layout into its state, which then beats the
+    config, so a new layout only applies once that copy is gone."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return
+    # A table header: bare or quoted key parts (a quoted one may hold spaces),
+    # nothing else on the line but a comment. Anything else belongs to the
+    # table above it.
+    part = r'(?:[A-Za-z0-9_-]+|"[^"]*")'
+    header = re.compile(rf'\s*\[\[?\s*({part}(?:\s*\.\s*{part})*)\s*\]\]?\s*(?:#.*)?$')
+    kept, dropping = [], False
+    for line in text.splitlines(keepends=True):
+        m = header.match(line)
+        if m:
+            dropping = m.group(1) == "lockscreen_widgets" or m.group(1).startswith("lockscreen_widgets.")
+        if not dropping:
+            kept.append(line)
+    result = "".join(kept)
+    try:
+        tomllib.loads(result)
+    except tomllib.TOMLDecodeError as e:
+        # Better the old layout than a state file Noctalia cannot read.
+        print(f"hud-build: {path} not rewritten, the result would not parse: {e}", file=sys.stderr)
+        return
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(result)
+    shutil.copymode(path, tmp)
+    tmp.replace(path)
+
+
+def noctalia_running() -> bool:
+    return subprocess.run(["pgrep", "-x", "noctalia"], capture_output=True).returncode == 0
+
+
+def session_locked() -> bool:
+    """Whether Noctalia holds the session lock. No answer from a running
+    Noctalia counts as locked: this guards a restart that would take the lock
+    surface down."""
+    if not noctalia_running():
+        return False
+    try:
+        status = subprocess.run(["noctalia", "msg", "status"], capture_output=True, text=True, timeout=5)
+        return json.loads(status.stdout)["locked"] is not False
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
+        return True
+
+
+def apply_lock_layout(layout: str | None) -> bool:
+    """Write the machine's lock layout (None: remove it) and make Noctalia
+    take the layout from its config again: stop it, drop the copy in its state
+    (and in the theme switcher's snapshot, which would bring the old one back
+    on the next switch), start it. False when nothing was changed."""
+    running = noctalia_running()
+    if running:
+        if session_locked():
+            return False
+        subprocess.run(["pkill", "-x", "noctalia"])
+        for _ in range(50):
+            if not noctalia_running():
+                break
+            time.sleep(0.1)
+        else:
+            print("hud-build: noctalia did not stop, lock layout not applied", file=sys.stderr)
+            return False
+    try:
+        # Written in place: a temp file beside it would be one more *.toml
+        # for Noctalia to merge, and Noctalia is down here anyway.
+        if layout is None:
+            LOCK_LOCAL.unlink(missing_ok=True)
+        else:
+            LOCK_LOCAL.parent.mkdir(parents=True, exist_ok=True)
+            LOCK_LOCAL.write_text(layout)
+        drop_lock_tables(STATE / "noctalia/settings.toml")
+        drop_lock_tables(STATE / "dotfiles/noctalia-acid.toml")
+    finally:
+        if running:
+            # Started by Hyprland, like the autostart one, so it does not die
+            # with whatever ran this.
+            started = subprocess.run(["hyprctl", "eval", 'hl.exec_cmd("noctalia")'], capture_output=True, text=True)
+            if started.returncode != 0 or "error" in started.stdout:
+                print(f"hud-build: could not restart noctalia, start it by hand: {started.stdout.strip()}",
+                      file=sys.stderr)
+    return True
+
+
+def lock_sync(colors: dict[str, str]) -> None:
+    """Bring the lock and the bar up to the monitors that are connected now:
+    render the lock art of one LOCK_OUTPUTS does not list, add its widgets to
+    the layout, and build the bar's device-resolution sets for a new scale."""
+    try:
+        acid = (STATE / "dotfiles/theme").read_text().strip() != "classic"
+    except OSError:
+        acid = True
+    if not acid:
+        return
+    auto = load_lock_auto()
+    new = {}
+    for mon in connected_outputs():
+        key = lock_key(mon)
+        if key in LOCK_OUTPUTS:
+            continue
+        if key in new and new[key] != mon["geometry"]:
+            # Two monitors of one model at different sizes share a key (and a
+            # Noctalia selector): the first one keeps the layout.
+            print(f"hud-build: {mon['name']} shares the lock key {key} with another monitor, left as is",
+                  file=sys.stderr)
+            continue
+        if auto.get(key) != mon["geometry"] or not (OUT / "lock" / f"static-{key}.png").exists():
+            new[key] = mon["geometry"]
+    auto.update(new)
+    layout = ("# GENERATED by `hud-build --lock-sync` for the monitors of this machine that\n"
+              "# themes/acid.toml does not list; it replaces that file's lock layout.\n\n"
+              + lock_layout_toml({**LOCK_OUTPUTS, **auto})) if auto else None
+    try:
+        current = LOCK_LOCAL.read_text()
+    except OSError:
+        current = None
+    scales = [sc for sc in output_scales() if not (OUT / "bar/ws" / f"{sc:g}").is_dir()]
+    if not new and layout == current and not scales:
+        return
+    if session_locked():
+        # Restarting Noctalia would take the lock surface down with it; the
+        # unlock hook runs this again.
+        print("hud-build: session locked, lock sync left for the unlock")
+        return
+    for key, (w, h, scale) in new.items():
+        render_lock_output(colors, key, w, h, scale)
+        print(f"lock: art for {key} ({w}x{h} @{scale:g})")
+    if new:
+        bump_overlay_version(colors)  # the overlay looked for this art when the monitor appeared
+        LOCK_AUTO.parent.mkdir(parents=True, exist_ok=True)
+        with staged(LOCK_AUTO) as tmp:
+            Path(tmp).write_text(json.dumps(auto, indent=2) + "\n")
+    if layout != current and apply_lock_layout(layout):
+        print(f"lock: layout for {', '.join({**LOCK_OUTPUTS, **auto})}")
+    if scales:
+        build_bar(colors)
+        # The bar widgets pick their set when they load.
+        if noctalia_running():
+            subprocess.run(["noctalia", "msg", "config-reload"], capture_output=True)
 
 
 def lock_backdrop_image(output: str) -> Path | None:
@@ -1210,16 +1436,14 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
     cmd += ltext("SESSION LOCKED  //  AUTH PENDING", 10, "outline", xl + 20, yt + 43)
     cmd += ltext(f"{USER_TAG}//HUD", 10, "primary", xr - 20, yt + 27, right=True)
     cmd += ltext("LINK SEALED", 10, "outline", xr - 20, yt + 43, right=True)
-    # Altimeter rulers on both frame edges down to the horizon, and read-outs.
+    # Altimeter rulers on both frame edges down to the horizon. (No read-outs
+    # beside them: the user had the HZN/ALT labels of the wide outputs removed.)
     ticks = []
     for i, y in enumerate(range(yt + 75, LOCK_HORIZON - 25, 8)):
         n = 8 if i % 5 == 0 else 3.5
         ticks += [f"line {cx(xl):.1f},{cy(y):.1f} {cx(xl + n):.1f},{cy(y):.1f}",
                   f"line {cx(xr):.1f},{cy(y):.1f} {cx(xr - n):.1f},{cy(y):.1f}"]
     cmd += stroke("outline") + ["-draw", " ".join(ticks)]
-    if xr - 90 > LOCK_BANK_X + LOCK_CARD[0] / 2:  # only where the banks leave room
-        cmd += ltext("HZN +000.0", 7.3, "on_surface_variant", xl + 20, LOCK_HORIZON - 7)
-        cmd += ltext("ALT 0x7F", 7.3, "on_surface_variant", xr - 20, LOCK_HORIZON - 7, right=True)
     cmd += ltext("ACID//HUD  -  SECURE NODE 0x2100  -  SESSION SEALED", 7.3, "outline",
                  xr - 16, yt + 90, rotate=90)
 
@@ -1279,8 +1503,8 @@ def render_lock_static(colors: dict[str, str], w: int, h: int, scale: float, dst
         run(*cmd, "-depth", "8", tmp)
 
 
-def lock_layout_toml() -> str:
-    """The live lockscreen widgets for every output in LOCK_OUTPUTS, as TOML."""
+def lock_layout_toml(outputs: dict[str, tuple[int, int, float]] = LOCK_OUTPUTS) -> str:
+    """The live lockscreen widgets for every output in `outputs`, as TOML."""
     lock = OUT / "lock"
     out = ["[lockscreen_widgets]", "enabled = true",
            "schema_version = 2 # current layout schema; without it noctalia migrates the table into state"]
@@ -1294,7 +1518,7 @@ def lock_layout_toml() -> str:
             return repr(float(v))  # exact: 0.92 must not become 0.9
         return '"' + str(v) + '"'
 
-    for name, (w, h, scale) in LOCK_OUTPUTS.items():
+    for name, (w, h, scale) in outputs.items():
         u = h / 800
         tag = name.lower().replace("-", "")
 
@@ -1644,6 +1868,8 @@ def main() -> None:
                          "(for Noctalia's palette hook, which also fires on every start)")
     ap.add_argument("--lock-layout", action="store_true",
                     help="print the [lockscreen_widgets] TOML for noctalia's themes/acid.toml and exit")
+    ap.add_argument("--lock-sync", action="store_true",
+                    help="set the lock and the bar up for a connected monitor that is new to the theme")
     ap.add_argument("--shaders", action="store_true", help="compile the overlay shaders and exit")
     args = ap.parse_args()
     if args.lock_layout:
@@ -1665,11 +1891,15 @@ def main() -> None:
     fcntl.flock(lock, fcntl.LOCK_EX)
 
     colors = load_colors()
+    if args.lock_sync:
+        lock_sync(colors)
+        return
     # The stamp covers the palette and this script, so editing the renderers
     # also invalidates it; a crop run (no --tint-only) always builds.
     stamp = CACHE / "build.stamp"
     key = json.dumps(colors, sort_keys=True) + f"\n{Path(__file__).stat().st_mtime_ns}\n"
-    outputs_present = (OUT / "bar/icons/vol.png").exists() and (OUT / "overlay").is_dir()
+    # (The bar icons are per output scale; the 1x set is always built.)
+    outputs_present = (OUT / "bar/icons/1/vol.png").exists() and (OUT / "overlay").is_dir()
     if args.if_changed and outputs_present and stamp.exists() and stamp.read_text() == key:
         print("hud-build: palette unchanged, nothing to do")
         return

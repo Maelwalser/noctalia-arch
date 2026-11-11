@@ -14,6 +14,9 @@ import Quickshell
 Item {
     id: root
     required property ShellScreen screen
+    // The key of this output's lock art (static-<key>.png, reticle-<key>.png):
+    // not always the connector, so UnlockFold resolves it (sceneName).
+    property string sceneName: ""
     property bool active: true
     // Above the lock (shell.qml) each box is backed by an opaque copy of
     // the scene under it (the same backdrop and static art Noctalia draws,
@@ -82,7 +85,7 @@ Item {
         Image {
             x: -parent.parent.x; y: -parent.parent.y
             width: root.width; height: root.height
-            source: root.screen ? "file://" + Theme.home + "/.local/share/hud/lock/static-" + root.screen.name + ".png" : ""
+            source: root.sceneName ? "file://" + Theme.home + "/.local/share/hud/lock/static-" + root.sceneName + ".png?v=" + Theme.version : ""
             fillMode: Image.Stretch
         }
     }
@@ -164,9 +167,12 @@ Item {
         font.family: Theme.monoFont
     }
 
-    // The reticle GIF was baked over the scene under it (hud-build
-    // bake_reticle), so it must land on the same physical pixels: whole
-    // pixels and an even size, as reticle_box computes them.
+    // The reticle's frames were baked over the scene under them (hud-build
+    // bake_reticle: one PNG strip, RETICLE_FRAMES side by side), so the box
+    // must land on the same physical pixels: whole pixels and an even size,
+    // as reticle_box computes them. The strip slides behind the box one
+    // frame per tick of the shared counter, so every copy shows the same one.
+    readonly property int reticleFrames: 45
     Item {
         id: reticle
         readonly property real k: root.u * root.dpr
@@ -177,14 +183,13 @@ Item {
         y: py / root.dpr
         width: size / root.dpr
         height: size / root.dpr
+        clip: true
         Backing { anchors.fill: parent; visible: root.backed }
-        AnimatedImage {
-            anchors.fill: parent
-            source: root.screen ? "file://" + Theme.home + "/.local/share/hud/lock/reticle-" + root.screen.name + ".gif" : ""
-            // Stepped by the shared counter, not by its own timer, so every
-            // copy shows the same frame.
-            playing: false
-            currentFrame: frameCount > 0 ? LockClock.reticleTick % frameCount : 0
+        Image {
+            x: -(LockClock.reticleTick % root.reticleFrames) * reticle.width
+            width: root.reticleFrames * reticle.width
+            height: reticle.height
+            source: root.sceneName ? "file://" + Theme.home + "/.local/share/hud/lock/reticle-" + root.sceneName + ".png?v=" + Theme.version : ""
             smooth: false
         }
     }

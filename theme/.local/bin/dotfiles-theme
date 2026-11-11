@@ -211,6 +211,15 @@ switch_noctalia() {
     fi
   fi
   link "$CONFIG/noctalia/theme.toml" "$DOTFILES/noctalia/.config/noctalia/themes/$to.toml"
+  # The ACID//HUD lock layout of this machine's own monitors (written by
+  # `hud-build --lock-sync`) would win over any theme.toml: park it outside
+  # Noctalia's *.toml while another theme is active.
+  local hud_lock="$CONFIG/noctalia/zz-hud-lock.toml"
+  if [[ "$to" == acid ]]; then
+    [[ ! -f "$hud_lock.parked" ]] || mv "$hud_lock.parked" "$hud_lock"
+  elif [[ -f "$hud_lock" ]]; then
+    mv "$hud_lock" "$hud_lock.parked"
+  fi
   # Re-applying the active theme keeps its state; switching parks the old one.
   # A failure here must not leave the shell down, so it only warns.
   if [[ "$from" != "$to" ]]; then

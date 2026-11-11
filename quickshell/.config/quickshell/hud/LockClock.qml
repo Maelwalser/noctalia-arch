@@ -15,7 +15,7 @@ Singleton {
         enabled: root.active
         precision: SystemClock.Seconds
     }
-    // The reticle GIF is a stepper, one frame every 400 ms (hud-build
+    // The reticle is a stepper, one frame every 400 ms (hud-build
     // bake_reticle); this counts its frames for all copies at once.
     property int reticleTick: 0
     Timer {

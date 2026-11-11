@@ -7,3 +7,13 @@ hl.on("hyprland.start", function()
     end
     hl.exec_cmd("sleep 1 && noctalia msg session lock")
 end)
+
+-- ACID//HUD: a monitor the theme has not seen yet gets its lock art, its lock
+-- layout and the bar's sets for its scale (a quick no-op for a known one).
+-- While the session is locked this waits for the unlock hook (noctalia
+-- themes/acid.toml), which also covers the monitors present at startup.
+hl.on("monitor.added", function()
+    if require("dotfiles_theme") == "acid" then
+        hl.exec_cmd("$HOME/.local/bin/hud-build --lock-sync")
+    end
+end)

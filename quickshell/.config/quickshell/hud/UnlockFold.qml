@@ -80,6 +80,15 @@ Item {
     readonly property var sceneNames: !screen ? [] : [screen.name]
         .concat((screen.model + " " + screen.manufacturer).split(/\s+/).filter(t => t.length > 0))
     property int sceneIndex: 0
+    // The name that resolved (the first one until a miss moves it on); the
+    // lock readouts load their art by it too.
+    readonly property string sceneName: sceneNames[sceneIndex] ?? ""
+    // hud-build renders a new monitor's art after the monitor (and this fold)
+    // has appeared, and bumps the asset version then: look again.
+    Connections {
+        target: Theme
+        function onVersionChanged() { fold.sceneIndex = 0; }
+    }
 
     function arm() {
         anim.stop();
@@ -233,7 +242,7 @@ Item {
         }
         Image {
             anchors.fill: parent
-            source: "file://" + Theme.home + "/.local/share/hud/lock/static-" + fold.sceneNames[fold.sceneIndex] + ".png"
+            source: "file://" + Theme.home + "/.local/share/hud/lock/static-" + fold.sceneName + ".png?v=" + Theme.version
             fillMode: Image.Stretch
             asynchronous: true
             onStatusChanged: {
@@ -249,6 +258,7 @@ Item {
         LockWidgets {
             anchors.fill: parent
             screen: fold.screen
+            sceneName: fold.sceneName
             visible: !fold.fromCapture
             active: visible && fold.active
         }

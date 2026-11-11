@@ -200,6 +200,7 @@ ShellRoot {
                 LockWidgets {
                     anchors.fill: parent
                     screen: output.modelData
+                    sceneName: unlock.sceneName ?? ""
                     active: parent.visible
                     backed: true
                     covered: unlock.covering
