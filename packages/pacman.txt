@@ -4,11 +4,13 @@ adw-gtk-theme
 alsa-utils
 base
 base-devel
+bear
 bind
 bluez
 bluez-utils
 btop
 buf
+clang
 cmake
 docker
 docker-buildx
@@ -17,6 +19,7 @@ eza
 fastfetch
 fd
 fzf
+gdb
 ghostscript
 ghostty
 git
@@ -46,6 +49,7 @@ mpv
 nautilus
 neovim
 networkmanager
+ninja
 noctalia
 nodejs
 npm

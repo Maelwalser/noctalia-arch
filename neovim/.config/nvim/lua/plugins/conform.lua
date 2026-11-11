@@ -38,6 +38,8 @@ return {
 			yaml = { "prettier" },
 			go = { "goimports", "gofmt" },
 			rust = { "rustfmt", lsp_format = "fallback" },
+			c = { "clang-format" },
+			cpp = { "clang-format" },
 			["_"] = { "trim_whitespace" },
 		}
 
@@ -69,9 +71,17 @@ return {
 				if vim.g.autoformat == false or vim.b[bufnr].autoformat == false then
 					return
 				end
-				local disable_filetypes = { c = true, cpp = true }
-				if disable_filetypes[vim.bo[bufnr].filetype] then
-					return
+				-- C/C++ has no universal style, so only format on save when the
+				-- project opts in with its own clang-format file.
+				local clang_filetypes = { c = true, cpp = true }
+				if clang_filetypes[vim.bo[bufnr].filetype] then
+					local style_file = vim.fs.find({ ".clang-format", "_clang-format" }, {
+						upward = true,
+						path = vim.fs.dirname(vim.api.nvim_buf_get_name(bufnr)),
+					})[1]
+					if not style_file then
+						return
+					end
 				end
 				return {
 					timeout_ms = 1000,

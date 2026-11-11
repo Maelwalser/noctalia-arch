@@ -13,7 +13,7 @@ return {
         require("nvim-treesitter.config").setup({})
 
         local ensure_installed = {
-            "bash", "c", "css", "diff", "dockerfile", "git_rebase",
+            "bash", "c", "cmake", "cpp", "css", "diff", "dockerfile", "git_rebase",
             "gitattributes", "gitcommit", "gitignore", "go", "gomod",
             "gosum", "gowork", "html", "java", "javascript", "json",
             "json5", "latex", "lua", "luadoc", "make", "markdown",

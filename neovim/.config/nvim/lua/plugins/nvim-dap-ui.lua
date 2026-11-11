@@ -121,6 +121,7 @@ return {
     require("config.dap.python")
     require("config.dap.go")
     require("config.dap.javascript")
+    require("config.dap.cpp")
 
     -- dap configurations based on language/adapter settings
     dap.configurations.java = {

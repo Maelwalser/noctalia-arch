@@ -209,6 +209,25 @@ return {
 			},
 		})
 
+		-- clangd comes from pacman's `clang`, not Mason: the system build
+		-- matches the installed headers and compiler, and ships clang-tidy.
+		-- mason-lspconfig only auto-enables servers it installed, so this
+		-- one is enabled by hand.
+		vim.lsp.config("clangd", {
+			cmd = {
+				"clangd",
+				"--background-index",
+				"--clang-tidy",
+				"--header-insertion=iwyu",
+				"--completion-style=detailed",
+				"--function-arg-placeholders=1",
+				"--fallback-style=llvm",
+			},
+		})
+		if vim.fn.executable("clangd") == 1 then
+			vim.lsp.enable("clangd")
+		end
+
 		-- taplo + ast_grep just use the defaults (capabilities + on_attach)
 		vim.lsp.config("taplo", {})
 		vim.lsp.config("ast_grep", {})
@@ -231,6 +250,7 @@ return {
 				"ruff",
 				"vtsls",
 				"taplo",
+				"neocmake",
 			},
 			auto_installation = true,
 			-- automatic_enable calls vim.lsp.enable() for every installed server,
