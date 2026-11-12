@@ -18,8 +18,8 @@ hl.bind("ALT + O", hl.dsp.window.resize({ x = 0, y = -20, relative = true }), { 
 hl.bind("ALT + P", hl.dsp.window.resize({ x = 20, y = 0, relative = true }), { repeating = true })
 
 -- --- Window management ---
--- Maximize window (within tiling)
-hl.bind("ALT + F", hl.dsp.window.fullscreen({ mode = "maximized" }))
+-- (ALT + F, maximize, is with the scrolling layout below: the strip needs a
+-- say in it.)
 
 -- Layout changes show a toast naming the new layout: with one or two windows
 -- open the three tile them alike and the change cannot be seen. It is a plain
@@ -117,6 +117,40 @@ local function stack_workspace(down)
     return down and "r+1" or "r-1"
 end
 
+-- Maximize window (within tiling).
+-- On the strip a maximized window is a column the width of the screen, and
+-- the strip is slid so that it starts at the left edge. Shrinking it again
+-- leaves it there, which is where a left-hand column came from; a column
+-- that sat further right would end up on the wrong side with a hole beside
+-- it. So the place it was maximized from is kept and the strip slid back to
+-- it, in the same step as the resize: the edge it grew from is the one that
+-- comes back in.
+local maximized_from = {} -- window address -> x it was maximized from
+
+hl.bind("ALT + F", function()
+    local toggle = hl.dsp.window.fullscreen({ mode = "maximized" })
+    local win = hl.get_active_window()
+    if not win or win.floating or not on_strip() then
+        hl.dispatch(toggle)
+        return
+    end
+    if win.fullscreen == 0 then
+        maximized_from[win.address] = win.at.x
+        hl.dispatch(toggle)
+        return
+    end
+    local from = maximized_from[win.address]
+    maximized_from[win.address] = nil
+    hl.dispatch(toggle)
+    -- `at` is already the place the window is heading for.
+    win = hl.get_active_window()
+    if from and win and win.fullscreen == 0 and from > win.at.x then
+        hl.dispatch(hl.dsp.layout("move +" .. math.floor(from - win.at.x)))
+        -- A pixel move hands the focus to the column in the middle.
+        hl.dispatch(hl.dsp.focus({ window = win }))
+    end
+end, { description = "Maximize window" })
+
 hl.bind("SUPER + mouse_down", strip("move +col"), { description = "Scroll the window strip forward" })
 hl.bind("SUPER + mouse_up", strip("move -col"), { description = "Scroll the window strip back" })
 hl.bind("SUPER + R", strip("colresize +conf"), { description = "Cycle column width" })
@@ -196,10 +230,13 @@ local function switch_window(forward)
     end
 end
 
--- Overview: the same carousel of window snapshots with every window on every
--- workspace in it, whatever the layout. No "hold": it stays open until a
--- window is picked or it is dismissed.
-hl.bind("SUPER + Tab", hl.dsp.exec_cmd("noctalia msg window-switcher all"), { description = "Overview of all windows" })
+-- Overview: the HUD's stack overview (quickshell hud, Overview.qml), a row
+-- per workspace of this monitor with its windows as they lie, the columns
+-- of a strip that are out of sight included; H/J/K/L move in it and Enter
+-- goes there. Noctalia's carousel of every window when the HUD is not
+-- running (classic theme); no "hold", so that one stays open until a window
+-- is picked or it is dismissed.
+hl.bind("SUPER + Tab", hl.dsp.exec_cmd("qs -c hud ipc call overview toggle || noctalia msg window-switcher all"), { description = "Overview of workspaces and windows" })
 
 hl.bind("ALT + Tab", function()
     switch_window(true)
@@ -309,8 +346,22 @@ hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), { mouse = true, description
 hl.bind("SUPER + SHIFT + mouse:272", hl.dsp.window.resize(), { mouse = true, description = "Resize window" })
 
 -- Move focus with ALT + HJKL
-hl.bind("ALT + h", hl.dsp.focus({ direction = "l" }))
-hl.bind("ALT + l", hl.dsp.focus({ direction = "r" }))
+-- Next to a maximized window the plain focus dispatcher does nothing: it
+-- only looks for a neighbour on screen, and the window covers the screen.
+-- The strip's own message knows the columns beside it, so sideways steps
+-- keep scrolling the strip, past the maximized column like any other.
+local function focus_sideways(direction)
+    local ws = hl.get_active_workspace()
+    local win = hl.get_active_window()
+    if on_strip() and ws.has_fullscreen and win and not win.floating then
+        hl.dispatch(hl.dsp.layout("focus " .. direction))
+    else
+        hl.dispatch(hl.dsp.focus({ direction = direction }))
+    end
+end
+
+hl.bind("ALT + h", function() focus_sideways("l") end)
+hl.bind("ALT + l", function() focus_sideways("r") end)
 local function focus_vertical(down)
     if leaves_strip(down) then
         hl.dispatch(hl.dsp.focus({ workspace = stack_workspace(down) }))
