@@ -1731,6 +1731,17 @@ def bar_icon(shape: str, outline: str, accent: str | None, sc: float, dst: Path)
 # finished at each output's device resolution (ws_tiles).
 WS_W, WS_ACTIVE_W, WS_H, WS_SKEW, WS_SCALE, WS_MAX = 26, 38, 20, 6, 4, 10
 
+# The drum, the widget's form on the scrolling layout, where workspaces lie
+# above each other: the focused tile alone, with the edges of its neighbours
+# above and below, one WS_DRUM_PITCH apart along the tiles' slant. The pieces
+# are whole drum canvases (WS_DRUM_PAD of room each side for the slant) that
+# the widget lays over each other. WS_ROLL is where a tile stands in them, in
+# px below the middle: at rest, and two steps towards each neighbour for the
+# roll from one workspace to the next (a tile 7 up meets the next one 14.5
+# down).
+WS_DRUM_H, WS_DRUM_PITCH, WS_DRUM_PAD = 28, 21.5, 7
+WS_ROLL = (-14.5, -7, 0, 7, 14.5)
+
 
 def output_scales() -> list[float]:
     """Device scales of the connected outputs (always with 1x), for assets that
@@ -1815,6 +1826,15 @@ def ws_tiles(colors: dict[str, str], out: Path, sc: float) -> int:
             "-stroke", "none", "-fill", text, "-font", digit_font, "-pointsize", f"{11 * sc:g}",
             "-gravity", anchor, "-annotate", f"{dev(dx):+d}+0", str(n), dst)
 
+    drum = f"{dev(WS_ACTIVE_W + 2 * WS_DRUM_PAD)}x{dev(WS_DRUM_H)}"
+
+    def drum_at(off: float) -> str:
+        """Where a focused tile goes on the drum canvas, `off` px below the
+        middle: a tile further up stands further right, along the slant."""
+        x = dev(WS_DRUM_PAD - off * WS_SKEW / (WS_H - 1))
+        y = dev((WS_DRUM_H - WS_H) / 2) + dev(off)
+        return f"{x:+d}{y:+d}"
+
     count = 0
     for n in range(1, WS_MAX + 1):
         for state in ("empty", "occupied", "visible", "urgent", "active"):
@@ -1834,7 +1854,23 @@ def ws_tiles(colors: dict[str, str], out: Path, sc: float) -> int:
             "(", act, "-fill", colors["on_surface"], "-colorize", "100", ")",
             "-geometry", f"+{dev(2)}+0", "-composite", act, "-geometry", "+0+0", "-composite",
             out / f"glitch1-{n}.png")
-        count += 2
+        for j, off in enumerate(WS_ROLL):
+            run("magick", "-size", drum, "xc:none", act, "-geometry", drum_at(off),
+                "-composite", out / f"roll{j}-{n}.png")
+        count += 2 + len(WS_ROLL)
+    # The neighbours' edges: a tile of the focused one's width without a
+    # number, one pitch up or down, so only its near edge is on the canvas.
+    wide = f"polygon {k + i},{i} {aw - 1 - i},{i} {aw - 1 - k - i},{h - 1 - i} {i},{h - 1 - i}"
+    for state, fill, stroke in (("empty", "none", colors["outline"]),
+                                ("occupied", colors["on_surface"] + "1f", colors["on_surface_variant"]),
+                                ("urgent", colors["error"] + "55", colors["error"])):
+        for side, off in (("up", -WS_DRUM_PITCH), ("down", WS_DRUM_PITCH)):
+            run("magick", "-size", drum, "xc:none",
+                "(", "-size", f"{aw}x{h}", "xc:none", "-fill", fill, "-stroke", stroke,
+                "-strokewidth", str(s), "-draw", wide,
+                "-filter", "lanczos", "-resize", f"{dev(WS_ACTIVE_W)}x{dev(WS_H)}!", ")",
+                "-geometry", drum_at(off), "-composite", out / f"sliver-{side}-{state}.png")
+            count += 1
     # Slanted acid brackets that close the row.
     cw = (WS_SKEW + 6) * s
     run("magick", "-size", f"{cw}x{h}", "xc:none", "-stroke", colors["primary"],

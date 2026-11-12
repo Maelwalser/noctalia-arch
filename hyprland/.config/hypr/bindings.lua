@@ -31,6 +31,9 @@ local function set_layout(name)
     -- The strip pans, the other layouts snap: windows and workspaces move
     -- differently on it (motion.lua).
     require("motion").apply(name)
+    -- Nothing on the event socket says the layout changed: tell the bar's
+    -- workspace widget, which is a drum on the strip and a row elsewhere.
+    hl.dispatch(hl.dsp.event("layout"))
     hl.exec_cmd("gdbus call --session --dest org.freedesktop.Notifications"
         .. " --object-path /org/freedesktop/Notifications"
         .. " --method org.freedesktop.Notifications.Notify"
