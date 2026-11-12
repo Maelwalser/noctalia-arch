@@ -70,6 +70,8 @@ hud/**
 !hud/.local/bin/hud-*
 hud/.local/bin/*.*
 !hud/.local/share/hud-src/elements.toml
+!hud/.local/share/hud-src/plymouth/acid-hud.plymouth
+!hud/.local/share/hud-src/plymouth/acid-hud.script
 !hud/.local/share/hud-src/noctalia-plugins/**/*.luau
 !hud/.local/share/hud-src/noctalia-plugins/**/plugin.toml
 !hud/.local/share/hud-src/noctalia-plugins/**/translations/*.json

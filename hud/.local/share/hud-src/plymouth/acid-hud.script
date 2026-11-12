@@ -1,0 +1,210 @@
+# ACID//HUD boot splash. `hud-build --plymouth` fills the @...@ placeholders
+# from the palette and renders the images beside this file: the emblem in
+# @FRAMES@ rotation steps, the loading bar's track (unlit segments, corner
+# brackets, caption), one lit segment and one head segment to lay over it, and
+# the label and digits of the readout above it.
+#
+# Every image exists once per screen height in `sizes`, drawn for that height
+# (1200 px = scale 1). The nearest set is used and only scaled when the screen
+# matches none of them.
+
+Window.SetBackgroundTopColor(@BG@);
+Window.SetBackgroundBottomColor(@BG@);
+
+@SIZES@
+frames = @FRAMES@;
+cells = @CELLS@;
+
+screen_w = Window.GetWidth();
+screen_h = Window.GetHeight();
+best = 0;
+for (i = 1; i < size_count; i++) {
+    if (Math.Abs(sizes[i] - screen_h) < Math.Abs(sizes[best] - screen_h))
+        best = i;
+}
+zoom = screen_h / sizes[best];
+unit = screen_h / 1200;
+pitch = Math.Int(pitches[best] * zoom + 0.5);
+
+fun load(name) {
+    image = Image(name + "-" + sizes[best] + ".png");
+    if (zoom != 1)
+        image = image.Scale(Math.Int(image.GetWidth() * zoom), Math.Int(image.GetHeight() * zoom));
+    return image;
+}
+
+# Whole pixels: the lit segments must land exactly on the track's cells.
+center_x = Math.Int(screen_w / 2);
+emblem_y = Math.Int(screen_h / 2 - 70 * unit);
+bar_y = Math.Int(emblem_y + 210 * unit);
+bar_x = Math.Int(center_x - cells * pitch / 2);
+bar_w = cells * pitch;
+
+for (i = 0; i < frames; i++)
+    emblem_images[i] = load("emblem-" + i);
+emblem = Sprite(emblem_images[0]);
+emblem.SetPosition(center_x - emblem_images[0].GetWidth() / 2, emblem_y - emblem_images[0].GetHeight() / 2, 1);
+
+track_image = load("track");
+track = Sprite(track_image);
+track.SetPosition(center_x - track_image.GetWidth() / 2, bar_y - track_image.GetHeight() / 2, 1);
+
+# The lit and head images are one cell wide plus the same bloom margin on
+# both sides, centred on their cell.
+cell_image = load("cell");
+cell_dx = (cell_image.GetWidth() - pitch) / 2;
+cell_dy = cell_image.GetHeight() / 2;
+for (i = 0; i < cells; i++) {
+    lit[i] = Sprite(cell_image);
+    lit[i].SetPosition(bar_x + i * pitch - cell_dx, bar_y - cell_dy, 2);
+    lit[i].SetOpacity(0);
+}
+head = Sprite(load("head"));
+head.SetOpacity(0);
+
+# Readout above the bar: what is happening on the left, the percentage on the
+# right (boot only: no other mode reports boot progress).
+mode = Plymouth.GetMode();
+label_name = "label-boot";
+if (mode == "shutdown")
+    label_name = "label-shutdown";
+if (mode == "reboot")
+    label_name = "label-reboot";
+has_progress = 0;
+if (mode == "boot")
+    has_progress = 1;
+
+label_image = load(label_name);
+readout_y = bar_y - Math.Int(26 * unit) - label_image.GetHeight();
+label = Sprite(label_image);
+label.SetPosition(bar_x, readout_y, 2);
+
+for (i = 0; i < 10; i++)
+    digit_images[i] = load("digit-" + i);
+zero_image = load("zero");
+percent_image = load("percent");
+digit_w = percent_image.GetWidth();
+digits_y = readout_y + (label_image.GetHeight() - percent_image.GetHeight()) / 2;
+percent = Sprite(percent_image);
+percent.SetPosition(bar_x + bar_w - digit_w, digits_y, 2);
+for (i = 0; i < 3; i++) {
+    digit[i] = Sprite(zero_image);
+    digit[i].SetPosition(bar_x + bar_w - (4 - i) * digit_w, digits_y, 2);
+}
+
+prompt = Sprite();
+
+tick = 0;
+fade = 0;
+target = 0;    # progress as Plymouth reports it, 0..1
+shown = 0;     # what the bar shows: eases towards target
+shown_percent = -1;
+
+fun set_percent(value) {
+    place[0] = Math.Int(value / 100);
+    place[1] = Math.Int(value / 10) % 10;
+    place[2] = value % 10;
+    leading = 1;
+    for (i = 0; i < 3; i++) {
+        if (place[i] != 0 || i == 2)
+            leading = 0;
+        if (leading) {
+            digit[i].SetImage(zero_image);
+        } else {
+            digit[i].SetImage(digit_images[place[i]]);
+        }
+    }
+}
+
+# Boot: segments behind the head are lit, the head (the segment being
+# filled) breathes so the bar is alive while progress stands still. At 100 %
+# every segment is lit and the head is gone.
+fun draw_progress() {
+    shown += (target - shown) * 0.08;
+    if (target - shown < 0.002)
+        shown = target;
+    filled = Math.Int(shown * cells + 0.001);
+    for (i = 0; i < cells; i++) {
+        if (i < filled) {
+            lit[i].SetOpacity(fade);
+        } else {
+            lit[i].SetOpacity(0);
+        }
+    }
+    if (filled < cells) {
+        head.SetPosition(bar_x + filled * pitch - cell_dx, bar_y - cell_dy, 3);
+        head.SetOpacity(fade * (0.7 + 0.3 * Math.Sin(tick * 0.12)));
+    } else {
+        head.SetOpacity(0);
+    }
+    value = Math.Min(100, Math.Int(shown * 100 + 0.5));
+    if (value != shown_percent) {
+        shown_percent = value;
+        set_percent(value);
+    }
+}
+
+# Every other mode: a short run of segments sweeps along the track,
+# brightest at its front.
+fun draw_sweep() {
+    span = cells + 6;
+    front = tick * 0.3;
+    front -= span * Math.Int(front / span);
+    for (i = 0; i < cells; i++) {
+        behind = front - i;
+        if (behind >= 0 && behind < 6) {
+            lit[i].SetOpacity(fade * (1 - behind / 6));
+        } else {
+            lit[i].SetOpacity(0);
+        }
+    }
+}
+
+# Called 50 times a second: one emblem step per call (a turn in 3.6 s).
+fun refresh() {
+    tick++;
+    emblem.SetImage(emblem_images[tick % frames]);
+    if (fade < 1) {
+        fade = Math.Min(1, fade + 0.05);
+        emblem.SetOpacity(fade);
+        track.SetOpacity(fade);
+        label.SetOpacity(fade);
+        for (i = 0; i < 3; i++)
+            digit[i].SetOpacity(fade * has_progress);
+        percent.SetOpacity(fade * has_progress);
+    }
+    if (has_progress)
+        draw_progress();
+    else
+        draw_sweep();
+}
+emblem.SetOpacity(0);
+track.SetOpacity(0);
+label.SetOpacity(0);
+percent.SetOpacity(0);
+for (i = 0; i < 3; i++)
+    digit[i].SetOpacity(0);
+Plymouth.SetRefreshFunction(refresh);
+
+fun boot_progress(duration, progress) {
+    target = Math.Max(target, Math.Min(1, progress));
+}
+Plymouth.SetBootProgressFunction(boot_progress);
+
+# Disk passphrase prompt (LUKS): the question and one mark per typed key,
+# under the bar's caption.
+fun display_password(question, bullets) {
+    text = question + "  ";
+    for (i = 0; i < bullets; i++)
+        text += "*";
+    image = Image.Text(text, @FG@);
+    prompt.SetImage(image);
+    prompt.SetPosition(center_x - image.GetWidth() / 2, bar_y + Math.Int(80 * unit), 3);
+    prompt.SetOpacity(1);
+}
+Plymouth.SetDisplayPasswordFunction(display_password);
+
+fun display_normal() {
+    prompt.SetOpacity(0);
+}
+Plymouth.SetDisplayNormalFunction(display_normal);

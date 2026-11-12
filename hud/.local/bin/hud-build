@@ -11,6 +11,7 @@ derived from them is committed: this script regenerates everything locally.
   hud-build --lock-sync    give a connected monitor the theme has not seen its lock art and
                            layout, and the bar its scale (monitor hotplug, Hyprland autostart)
   hud-build --shaders    compile the overlay's shaders only (quickshell/hud/shaders)
+  hud-build --plymouth   render the boot splash theme only (installed by hud-boot)
 
 Outputs (all under ~/.local/share/hud unless noted):
   elements/<name>.png        white-on-transparent masks, tinted at runtime by the overlay
@@ -18,6 +19,7 @@ Outputs (all under ~/.local/share/hud unless noted):
   lock/                      lockscreen art: static-<output>.png, reticle-<output>.png, backdrop.png
   overlay/, bar/             Quickshell overlay layers, Noctalia bar plugin frames
   fastfetch-logo.png, nvim-header.txt, nvim-header-large.txt
+  plymouth/acid-hud/         the boot splash theme (--plymouth only)
   ~/Pictures/Wallpapers/hud/hud-<w>x<h>.png
 """
 
@@ -38,6 +40,7 @@ import sys
 import tempfile
 import time
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HOME = Path.home()
@@ -966,8 +969,9 @@ def is_virtual(name: str) -> bool:
 
 
 def connected_outputs() -> list[dict]:
-    """The connected monitors: connector, description, model and the logical
-    width, height and scale as LOCK_OUTPUTS states them."""
+    """The connected monitors: connector, description, model, the logical
+    width, height and scale as LOCK_OUTPUTS states them, and the panel's own
+    mode in device pixels (`native`: unscaled and unrotated)."""
     try:
         monitors = json.loads(subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True,
                                              text=True, check=True).stdout)
@@ -983,7 +987,8 @@ def connected_outputs() -> list[dict]:
         if int(mon.get("transform", 0)) % 2:  # rotated by 90 or 270 degrees
             w, h = h, w
         outputs.append({"name": mon["name"], "description": mon.get("description", ""),
-                        "model": mon.get("model", ""), "geometry": (round(w / scale), round(h / scale), scale)})
+                        "model": mon.get("model", ""), "geometry": (round(w / scale), round(h / scale), scale),
+                        "native": (mon["width"], mon["height"])})
     return outputs
 
 
@@ -1897,6 +1902,168 @@ def build_extras(colors: dict[str, str]) -> None:
     print("extras: fastfetch-logo.png, nvim-header.txt, nvim-header-large.txt")
 
 
+PLYMOUTH_HEIGHTS = (1080, 1200, 1440, 2160)  # screen heights the splash is drawn for
+PLYMOUTH_FRAMES = 60                          # emblem steps across its 120-degree symmetry
+PLYMOUTH_CELLS = 24                           # segments of the loading bar
+PLYMOUTH_LABELS = {"boot": "SYS//BOOT", "shutdown": "SYS//HALT", "reboot": "SYS//REBOOT"}
+
+
+def alpha_centroid(src: Path) -> tuple[float, float, float]:
+    """Centre of mass of an image's alpha and the farthest opaque pixel from
+    it, in source px. For a rotationally symmetric mark this is the point it
+    turns about."""
+    w = 256
+    # -strip: a comment in the source would add a line to the PGM header.
+    pgm = subprocess.run(["magick", str(src), "-alpha", "extract", "-strip", "-resize", f"{w}x",
+                          "-depth", "8", "pgm:-"], capture_output=True, check=True).stdout
+    _, dims, _, data = pgm.split(b"\n", 3)
+    w, h = map(int, dims.split())
+    total = sx = sy = 0
+    for y in range(h):
+        for x, v in enumerate(data[y * w:(y + 1) * w]):
+            total, sx, sy = total + v, sx + v * x, sy + v * y
+    cx, cy = (sx / total + 0.5, sy / total + 0.5) if total else (0, 0)
+    reach = max((math.hypot(x + 0.5 - cx, y + 0.5 - cy)
+                 for y in range(h) for x in range(w) if data[y * w + x] > 127), default=0)
+    if not reach:
+        raise RuntimeError(f"{src} has no opaque pixels")
+    k = int(subprocess.run(["magick", "identify", "-format", "%w", str(src)],
+                           capture_output=True, text=True, check=True).stdout) / w
+    return cx * k, cy * k, reach * k
+
+
+def build_plymouth(colors: dict[str, str]) -> None:
+    """The Plymouth theme `acid-hud` in OUT/plymouth, for hud-boot to install.
+
+    Plymouth's script plugin can only place, swap and fade images, so every
+    moving part is pre-rendered: the emblem in PLYMOUTH_FRAMES rotation steps
+    (three blades repeat every 120 degrees, so the frames cover just that), one
+    lit segment and one head segment for the loading bar, and the readout's
+    digits. Each screen height gets its own set drawn at device resolution
+    (the script picks the nearest); the connected monitors are added to the
+    list.
+    """
+    src = SRC / "plymouth"
+    blade = OUT / "elements" / "tri-blade.png"
+    if not blade.exists():
+        raise RuntimeError(f"{blade} missing: run hud-build first")
+    out = OUT / "plymouth" / "acid-hud"
+    staging = out.with_name(".acid-hud.new")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+
+    # Plymouth runs before any compositor: it sees each panel's own mode.
+    heights = sorted(set(PLYMOUTH_HEIGHTS) | {o["native"][1] for o in connected_outputs()})
+
+    # Emblem: on a square canvas centred on the point it turns about, with
+    # room for its bloom, at twice the largest size it is needed in. One magick
+    # run per angle rotates that and writes the frame for every height. The
+    # mark is one flat colour, so the bloom only has to blur the alpha.
+    cx, cy, reach = alpha_centroid(blade)
+    emblem_r, canvas_r = 100, 140  # blade tip and canvas edge from the centre, at 1200 px
+    half = math.ceil(reach * canvas_r / emblem_r)
+    work = min(2 * half, 4 * round(canvas_r * heights[-1] / 1200))
+    flat = ["-fill", colors["primary"], "-colorize", "100"]
+    base = staging / "_emblem.png"
+    run("magick", blade, "-background", "none", "-gravity", "NorthWest",
+        "-extent", f"{2 * half}x{2 * half}{round(cx) - half:+d}{round(cy) - half:+d}",
+        "-filter", "lanczos", "-resize", f"{work}x{work}!", base)
+
+    def frame(i: int) -> None:
+        # One thread each: the frames already run in parallel.
+        cmd = ["magick", "-limit", "thread", "1", base, "-virtual-pixel", "transparent",
+               "-distort", "SRT", f"{i * 120 / PLYMOUTH_FRAMES:.2f}", "-write", "mpr:turned", "+delete"]
+        for h in heights:
+            u = h / 1200
+            size = 2 * round(canvas_r * u)
+            cmd += ["(", "mpr:turned", "-filter", "lanczos", "-resize", f"{size}x{size}!", *flat,
+                    "(", "+clone", "-channel", "A", "-blur", f"0x{14 * u:.1f}",
+                    "-evaluate", "multiply", "0.55", "+channel", ")",
+                    "-compose", "DstOver", "-composite", "-write", staging / f"emblem-{i}-{h}.png", ")",
+                    "+delete"]
+        run(*cmd[:-1], "null:")
+
+    with ThreadPoolExecutor(max(1, (os.cpu_count() or 2) // 2)) as pool:
+        list(pool.map(frame, range(PLYMOUTH_FRAMES)))
+    base.unlink()
+
+    ss = 4
+    pitches = []
+    for h in heights:
+        u = h / 1200
+        # Loading bar: slanted segments on a whole-pixel pitch, so the lit
+        # segments the script lays over the track land exactly on its cells.
+        pitch = round(14 * u)
+        pitches.append(pitch)
+        cell_w, cell_h, slant = 9 * u, 11 * u, 3.5 * u
+        bar_w = PLYMOUTH_CELLS * pitch
+
+        def cell(x: float, cy_: float, k: int = ss) -> str:
+            x0, y0, y1 = x + (pitch - cell_w) / 2, cy_ - cell_h / 2, cy_ + cell_h / 2
+            pts = ((x0 + slant, y0), (x0 + cell_w, y0), (x0 + cell_w - slant, y1), (x0, y1))
+            return "polygon " + " ".join(f"{px * k:.1f},{py * k:.1f}" for px, py in pts)
+
+        # Track: the unlit segments between four corner brackets, and the node
+        # caption under them (set after the downscale: the readout face is a
+        # pixel font and smears when resized).
+        pad_x, half_h = round(30 * u), round(52 * u)
+        w, hh = bar_w + 2 * pad_x, 2 * half_h
+        draw = ["-fill", colors["outline"] + "73", "-stroke", "none"]
+        for n in range(PLYMOUTH_CELLS):
+            draw += ["-draw", cell(pad_x + n * pitch, half_h)]
+        draw += ["-fill", "none", "-stroke", colors["primary"], "-strokewidth", f"{1.5 * u * ss:.1f}"]
+        box_x, box_y, arm = 14 * u, 15 * u, 7 * u
+        for sx in (1, -1):
+            for sy in (1, -1):
+                bx, by = w / 2 - sx * (bar_w / 2 + box_x), half_h - sy * box_y
+                pts = ((bx + sx * arm, by), (bx, by), (bx, by + sy * arm))
+                draw += ["-draw", "polyline " + " ".join(f"{px * ss:.1f},{py * ss:.1f}" for px, py in pts)]
+        run("magick", "-size", f"{w * ss}x{hh * ss}", "xc:none", *draw,
+            "-filter", "lanczos", "-resize", f"{w}x{hh}!",
+            "-gravity", "center", "-font", MONO_FONT, "-pointsize", str(round(12 * u)),
+            "-kerning", f"{2 * u:.1f}", "-fill", colors["outline"], "-stroke", "none",
+            "-annotate", f"+0+{round(38 * u)}", "ACID//HUD  ·  NODE 0x2100",
+            staging / f"track-{h}.png")
+        # One lit segment and the head segment, each with its own bloom.
+        pad = round(14 * u)
+        w, hh = pitch + 2 * pad, 2 * round(22 * u)
+        for name, role, bloom in (("cell", "primary", 0.7), ("head", "tertiary", 0.9)):
+            run("magick", "-size", f"{w * ss}x{hh * ss}", "xc:none", "-fill", colors[role],
+                "-draw", cell(pad, hh / 2), "-filter", "lanczos", "-resize", f"{w}x{hh}!",
+                "(", "+clone", "-channel", "RGBA", "-blur", f"0x{4.5 * u:.1f}",
+                "-channel", "A", "-evaluate", "multiply", str(bloom), "+channel", ")",
+                "-compose", "DstOver", "-composite", staging / f"{name}-{h}.png")
+        # Readout: the mode label and fixed-width digits (dim for leading zeros).
+        size, kern = round(15 * u), 2 * u
+        text = ["-background", "none", "-font", MONO_FONT, "-pointsize", str(size), "-kerning", f"{kern:.1f}"]
+        for mode, label in PLYMOUTH_LABELS.items():
+            run("magick", *text, "-fill", colors["on_surface_variant"], f"label:{label}",
+                staging / f"label-{mode}-{h}.png")
+        advance = text_width("0", MONO_FONT, size) + round(kern)
+        line = round(size * 1.4)
+        glyphs = [(f"digit-{d}", str(d), "on_surface") for d in range(10)]
+        glyphs += [("zero", "0", "outline"), ("percent", "%", "on_surface_variant")]
+        for name, char, role in glyphs:
+            run("magick", "-size", f"{advance}x{line}", *text, "-gravity", "center",
+                "-fill", colors[role], f"label:{char.replace('%', '%%')}", staging / f"{name}-{h}.png")
+
+    def rgb(role: str) -> str:
+        v = colors[role].lstrip("#")
+        return ", ".join(f"{int(v[i:i + 2], 16) / 255:.3f}" for i in (0, 2, 4))
+
+    sizes = "".join(f"sizes[{i}] = {h};\npitches[{i}] = {p};\n"
+                    for i, (h, p) in enumerate(zip(heights, pitches))) + f"size_count = {len(heights)};"
+    script = (src / "acid-hud.script").read_text()
+    for key, value in (("@BG@", rgb("surface")), ("@FG@", rgb("on_surface")), ("@SIZES@", sizes),
+                       ("@FRAMES@", str(PLYMOUTH_FRAMES)), ("@CELLS@", str(PLYMOUTH_CELLS))):
+        script = script.replace(key, value)
+    (staging / "acid-hud.script").write_text(script)
+    shutil.copy(src / "acid-hud.plymouth", staging / "acid-hud.plymouth")
+    shutil.rmtree(out, ignore_errors=True)
+    staging.rename(out)
+    print(f"plymouth: {len(heights)} sizes x {PLYMOUTH_FRAMES} emblem frames in {out}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tint-only", action="store_true", help="skip cropping; recolour outputs only")
@@ -1909,12 +2076,19 @@ def main() -> None:
     ap.add_argument("--lock-sync", action="store_true",
                     help="set the lock and the bar up for a connected monitor that is new to the theme")
     ap.add_argument("--shaders", action="store_true", help="compile the overlay shaders and exit")
+    ap.add_argument("--plymouth", action="store_true",
+                    help="render the boot splash theme and exit (hud-boot installs it)")
     args = ap.parse_args()
     if args.lock_layout:
         print(lock_layout_toml(), end="")
         return
     if args.shaders:
         build_shaders()
+        return
+    if args.plymouth:
+        if shutil.which("magick") is None:
+            sys.exit("hud-build: missing tools: magick (pacman -S imagemagick)")
+        build_plymouth(load_colors())
         return
 
     require_tools()

@@ -123,6 +123,14 @@ if [[ -d "$HOME/Pictures/ricing" ]] && command -v gs &>/dev/null && command -v m
 else
   echo "  ⚠ ~/Pictures/ricing or build tools missing — skipped hud-build"
 fi
+# Boot splash: needs root, so only when plymouth is installed and the theme is
+# not the default yet. Run `hud-boot` by hand after a palette change.
+if command -v plymouth-set-default-theme &>/dev/null \
+  && [[ -f "$HOME/.local/share/hud/elements/tri-blade.png" ]] \
+  && [[ "$(plymouth-set-default-theme 2>/dev/null)" != acid-hud ]]; then
+  echo "Installing the ACID//HUD boot splash (needs sudo)..."
+  "$HOME/.local/bin/hud-boot" || echo "  ⚠ hud-boot failed — rerun it to see the error"
+fi
 if pgrep -x noctalia &>/dev/null; then
   # The bar ornaments plugin lives in this repo; register its folder once.
   # Output is captured first: `grep -q` exiting early would SIGPIPE the

@@ -185,13 +185,13 @@ step_system() {
   fi
   run sudo sysctl --system
 
-  if [[ "$profile" == laptop ]]; then
-    run sudo mkinitcpio -P
-    if [[ -f /boot/grub/grub.cfg ]]; then
-      run sudo grub-mkconfig -o /boot/grub/grub.cfg
-    else
-      warn "no /boot/grub/grub.cfg: add the options in system/laptop/etc/default/grub.d/nvidia.cfg to your bootloader by hand"
-    fi
+  # system/etc carries a mkinitcpio hook (plymouth) and GRUB defaults (hidden
+  # menu, splash), the laptop profile more of both: regenerate on every profile.
+  run sudo mkinitcpio -P
+  if [[ -f /boot/grub/grub.cfg ]]; then
+    run sudo grub-mkconfig -o /boot/grub/grub.cfg
+  else
+    warn "no /boot/grub/grub.cfg: add the options in system/**/etc/default/grub.d/*.cfg to your bootloader by hand"
   fi
 }
 

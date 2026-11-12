@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Install the ACID//HUD boot splash: render the Plymouth theme from the
+# palette (hud-build --plymouth), copy it to /usr/share/plymouth/themes, make
+# it the default and rebuild the initramfs and GRUB's menu so the next boot
+# uses it. Calls sudo itself. Run it again after a palette change to recolour
+# the splash.
+#
+# The plymouth hook and the kernel's `splash` option come from this repo's
+# system/etc (mkinitcpio.conf.d/plymouth.conf, default/grub.d/boot-splash.cfg),
+# which bootstrap.sh installs.
+set -euo pipefail
+
+readonly THEME=acid-hud
+readonly SRC="${XDG_DATA_HOME:-$HOME/.local/share}/hud/plymouth/$THEME"
+readonly DEST="/usr/share/plymouth/themes/$THEME"
+
+(( EUID != 0 )) || { echo "hud-boot: run as your user, it calls sudo itself" >&2; exit 1; }
+command -v plymouth-set-default-theme &>/dev/null \
+  || { echo "hud-boot: plymouth is not installed (pacman -S plymouth)" >&2; exit 1; }
+
+"$(dirname "$0")/hud-build" --plymouth
+
+sudo rm -rf "$DEST"
+sudo install -d "$DEST"
+sudo install -m644 "$SRC"/* "$DEST"/
+sudo plymouth-set-default-theme "$THEME"
+
+[[ -f /etc/mkinitcpio.conf.d/plymouth.conf ]] \
+  || echo "  ⚠ /etc/mkinitcpio.conf.d/plymouth.conf missing: the initramfs will not start plymouth"
+sudo mkinitcpio -P
+if [[ -f /boot/grub/grub.cfg ]]; then
+  [[ -f /etc/default/grub.d/boot-splash.cfg ]] \
+    || echo "  ⚠ /etc/default/grub.d/boot-splash.cfg missing: the kernel boots without 'splash'"
+  sudo grub-mkconfig -o /boot/grub/grub.cfg
+else
+  echo "  ⚠ no /boot/grub/grub.cfg: add 'splash' to your bootloader's kernel options by hand"
+fi
+# No preview from the desktop: the compositor owns the display, so plymouthd
+# started there draws nothing.
+echo "Boot splash installed; it shows on the next boot."
+echo "To preview without rebooting, switch to a text console (Ctrl+Alt+F3), log in and run:"
+echo "  sudo plymouthd; sudo plymouth --show-splash; sleep 5; sudo plymouth quit"

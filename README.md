@@ -18,9 +18,9 @@ git clone https://github.com/Maelwalser/noctalia-arch.git ~/dotfiles
 | Step | What it does |
 |------|--------------|
 | `packages` | installs `packages/pacman.txt`, builds yay, installs `packages/aur.txt` |
-| `system` | copies `system/etc` to `/etc`, SDDM autologin, locale/keymap/timezone, groups, zsh as login shell, enables services, ufw defaults |
+| `system` | copies `system/etc` to `/etc` (incl. the hidden GRUB menu and the plymouth initramfs hook), SDDM autologin, locale/keymap/timezone, groups, zsh as login shell, enables services, ufw defaults, rebuilds the initramfs and `grub.cfg` |
 | `shell` | oh-my-zsh and its two plugins |
-| `dotfiles` | `setup.sh`: stow, seed files, Vivaldi mod, GTK settings, Hyprland plugins, HUD assets, theme |
+| `dotfiles` | `setup.sh`: stow, seed files, Vivaldi mod, GTK settings, Hyprland plugins, HUD assets, boot splash (`hud-boot`), theme |
 | `claude` | Claude Code, the private `claude-config` repo (rules, agents, skills, hooks), MCP servers, plugins |
 | `dev` (`--dev`) | rustup, Flutter SDK, and the tools in `packages/{cargo,go,uv-tools}.txt` |
 | `security` (`--security`) | the security tooling in `packages/security*.txt` (pacman, go, uv, pipx) |
@@ -43,6 +43,7 @@ SSH keys), the licensed HUD art in `~/Pictures/ricing`, browser and vault sign-i
 ```bash
 ./setup.sh                 # after adding a package directory or pulling
 dotfiles-theme acid        # or classic
+hud-boot                   # re-render and reinstall the boot splash (after a palette change)
 pacman -Qqen               # compare with packages/pacman.txt + laptop.txt
 pacman -Qqem               # compare with packages/aur.txt + laptop-aur.txt
 ```
