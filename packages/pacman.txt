@@ -45,6 +45,7 @@ jq
 keyd
 lazydocker
 lazygit
+libinput-tools
 linux
 linux-firmware
 mpv

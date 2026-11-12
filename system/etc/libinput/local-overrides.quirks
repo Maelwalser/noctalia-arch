@@ -1,0 +1,15 @@
+# keyd grabs the laptop keyboard and re-emits every key through a virtual USB
+# keyboard. libinput only pairs a touchpad with an *internal* keyboard for
+# disable-while-typing, so without this the touchpad stays live under the
+# palms while typing.
+[keyd virtual keyboard]
+MatchUdevType=keyboard
+MatchName=keyd virtual keyboard
+AttrKeyboardIntegration=internal
+
+# Same Elan 04F3:311C pad as the XPS 15 9500, which libinput already quirks:
+# drop button presses that arrive with no finger on the pad.
+[Dell XPS 15 9520 Touchpad]
+MatchName=* Touchpad
+MatchDMIModalias=dmi:*:svnDellInc.:pnXPS159520:*
+ModelTouchpadPhantomClicks=1
