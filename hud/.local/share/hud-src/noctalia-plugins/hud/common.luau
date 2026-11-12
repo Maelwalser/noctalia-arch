@@ -68,6 +68,13 @@ function M.wsWidthPath(output)
   return dir, string.format("%s/ws-%s", dir, output or "default")
 end
 
+-- Whether the HUD desktop overlay shows its scene: the Quickshell instance
+-- publishes "on"/"off" (shell.qml), hud-overlay writes "off" when it stops it.
+function M.overlayOn()
+  local dir = (noctalia.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/mael-hud"
+  return noctalia.readFile(dir .. "/overlay") == "on"
+end
+
 -- Readout icons rendered by hud-build at device resolution (bar/icons/<scale>/
 -- <name>.png). The 1x set serves until resolveIcons has learnt the scale.
 local iconDir = nil

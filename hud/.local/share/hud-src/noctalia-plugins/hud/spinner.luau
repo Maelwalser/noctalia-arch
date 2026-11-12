@@ -7,6 +7,7 @@ local common = require("./common.luau")
 local dir = nil -- this output's frame set, resolved asynchronously
 local frames = 0
 local frame = 0
+local drawn = nil -- the frame on screen
 local resolving = false
 
 local function resolve()
@@ -34,9 +35,18 @@ function update()
     end
     return
   end
-  noctalia.setUpdateInterval(animate and 120 or 60000)
-  if animate then
+  if not animate then
+    noctalia.setUpdateInterval(60000)
+  elseif common.overlayOn() then
+    noctalia.setUpdateInterval(120)
     frame = (frame + 1) % frames
+  else
+    -- Overlay off: the ring rests where it stopped. The state is one small
+    -- file, so keep looking often enough that a click starts it promptly.
+    noctalia.setUpdateInterval(250)
+    if drawn == frame then
+      return
+    end
   end
   -- A rebuild swaps the frame directory: skip a tick rather than render a gap.
   if not noctalia.fileExists(common.frameIn(dir, frame)) then
@@ -48,6 +58,7 @@ function update()
     height = 18,
     fit = "contain",
   }))
+  drawn = frame
 end
 
 common.tip("HUD overlay · click to toggle")

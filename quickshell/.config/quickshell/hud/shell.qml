@@ -35,6 +35,36 @@ ShellRoot {
         function status(): string { return shell.overlayOn ? "on" : "off"; }
     }
 
+    // The state as a file, for the bar's spinner (spinner.luau): it turns
+    // only while the scene is on, and a bar widget can read a file on every
+    // tick but not ask over IPC. Replaced atomically, never read half-written.
+    onOverlayOnChanged: overlayState.sync()
+    Component.onCompleted: overlayState.sync()
+    Process {
+        id: overlayState
+        property string written: ""
+        property string writing: ""
+        command: ["sh", "-c",
+            "d=\"${XDG_RUNTIME_DIR:-/tmp}/mael-hud\" && mkdir -p \"$d\" && printf %s \"$1\" > \"$d/.overlay\" && mv \"$d/.overlay\" \"$d/overlay\"",
+            "sh", writing]
+        // One write at a time; a toggle made meanwhile is written after it.
+        function sync() {
+            const want = shell.overlayOn ? "on" : "off";
+            if (running || want === written)
+                return;
+            writing = want;
+            running = true;
+        }
+        onExited: (code, status) => {
+            if (code !== 0) {
+                console.warn("hud: cannot publish the overlay state, exit", code);
+                return;
+            }
+            written = writing;
+            sync();
+        }
+    }
+
     function eachFold(fn, output) {
         screens.instances.forEach(o => { if (!output || o.fold.screen.name === output) fn(o.fold); });
     }

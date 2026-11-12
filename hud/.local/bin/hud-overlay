@@ -36,6 +36,10 @@ start() {
 stop() {
   local p
   for p in $(pids); do kill "$p" 2>/dev/null || true; done
+  # The instance publishes on/off for the bar's spinner (shell.qml) but
+  # cannot say that it is gone.
+  local d="${XDG_RUNTIME_DIR:-/tmp}/mael-hud"
+  if [[ -d "$d" ]]; then printf off > "$d/overlay"; fi
 }
 
 status() {
