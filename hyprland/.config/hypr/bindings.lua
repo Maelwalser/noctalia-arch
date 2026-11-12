@@ -21,19 +21,109 @@ hl.bind("ALT + P", hl.dsp.window.resize({ x = 20, y = 0, relative = true }), { r
 -- Maximize window (within tiling)
 hl.bind("ALT + F", hl.dsp.window.fullscreen({ mode = "maximized" }))
 
+-- Layout changes show a toast naming the new layout: with one or two windows
+-- open the three tile them alike and the change cannot be seen. It is a plain
+-- desktop notification (Noctalia's "brief" filter: 3.5 s, never sticky).
+local LAYOUT_NAMES = { dwindle = "Dwindle", master = "Master stack", scrolling = "Scrolling strip" }
+
+local function set_layout(name)
+    hl.config({ general = { layout = name } })
+    -- On the strip the workspaces are a stack (ALT + J/K below), so they
+    -- slide vertically there; otherwise sideways, as looknfeel.lua has them.
+    local style = name == "scrolling" and "slidefadevert" or "slidefade"
+    hl.animation({ leaf = "workspacesIn", enabled = true, speed = 1.3, bezier = "wsSlide", style = style .. " 12%" })
+    hl.animation({ leaf = "workspacesOut", enabled = true, speed = 1.3, bezier = "wsSlide", style = style .. " 20%" })
+    hl.exec_cmd("gdbus call --session --dest org.freedesktop.Notifications"
+        .. " --object-path /org/freedesktop/Notifications"
+        .. " --method org.freedesktop.Notifications.Notify"
+        .. " hypr-layout 0 '' 'Layout' '" .. LAYOUT_NAMES[name] .. "' '[]' \"{'transient': <true>}\" 2000")
+end
+
 -- Toggle between master-stack and dwindle layout.
 -- The layoutmsg has to be deferred: dispatching it inline still hits the old
--- (dwindle) layout, which rejects `swapwithmaster`.
+-- layout, which rejects `swapwithmaster`.
 hl.bind("ALT + SHIFT + F", function()
     if hl.get_config("general.layout") == "master" then
-        hl.config({ general = { layout = "dwindle" } })
+        set_layout("dwindle")
     else
-        hl.config({ general = { layout = "master" } })
+        set_layout("master")
         hl.timer(function()
             hl.dispatch(hl.dsp.layout("swapwithmaster"))
         end, { timeout = 10, type = "oneshot" })
     end
 end, { description = "Toggle master/dwindle layout" })
+
+-- The scrolling strip has a key of its own, on and off (off is dwindle).
+hl.bind("SUPER + S", function()
+    set_layout(hl.get_config("general.layout") == "scrolling" and "dwindle" or "scrolling")
+end, { description = "Toggle scrolling layout" })
+
+-- --- Scrolling layout ---
+-- Windows are columns on a strip that runs off the screen once they no
+-- longer fit: at half a screen each (looknfeel.lua), from the third window
+-- on. The focus and move binds below work on it as they are, and the strip
+-- follows the focus. These add what only a strip has; each message is sent only on
+-- a scrolling workspace, as the other layouts reject it.
+--   SUPER + wheel   slide the strip a column at a time
+--   SUPER + R       next column width (a third, half, two thirds, full)
+--   SUPER + J       stack the window under the column before it, or lift a
+--                   stacked window out into a column of its own
+--                   (in dwindle: flip the split, as before)
+--   ALT + C         centre the column (a floating window: centre it, as before)
+--   ALT + J / K     past the bottom or top of a column: the workspace below
+--                   or above, so the workspaces are strips stacked on each
+--                   other (with SHIFT the window is taken along)
+--   SUPER + A       overview: squeeze every column onto the screen at once
+--   SUPER + SHIFT + A   back from it: every column half a screen again
+local function on_strip()
+    local ws = hl.get_active_workspace()
+    return ws ~= nil and ws.tiled_layout == "scrolling"
+end
+
+local function strip(msg, otherwise)
+    return function()
+        if on_strip() then
+            hl.dispatch(hl.dsp.layout(msg))
+        elseif otherwise then
+            hl.dispatch(otherwise)
+        end
+    end
+end
+
+-- Whether a tiled window sits above/below `win` in its column.
+local function column_neighbour(win, down)
+    for _, other in ipairs(hl.get_workspace_windows(hl.get_active_workspace().id)) do
+        if other.address ~= win.address and not other.hidden and not other.floating
+            and other.at.x < win.at.x + win.size.x and win.at.x < other.at.x + other.size.x then
+            if down and other.at.y > win.at.y or not down and other.at.y < win.at.y then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- True when a vertical step from the focused window leaves the strip: it is
+-- tiled (or there is none) and nothing is above/below it in its column.
+local function leaves_strip(down)
+    if not on_strip() then
+        return false
+    end
+    local win = hl.get_active_window()
+    return not win or (not win.floating and not column_neighbour(win, down))
+end
+
+-- r+1 / r-1: the next workspace on this monitor, empty ones included, so
+-- there is always a free strip below the last one.
+local function stack_workspace(down)
+    return down and "r+1" or "r-1"
+end
+
+hl.bind("SUPER + mouse_down", strip("move +col"), { description = "Scroll the window strip forward" })
+hl.bind("SUPER + mouse_up", strip("move -col"), { description = "Scroll the window strip back" })
+hl.bind("SUPER + R", strip("colresize +conf"), { description = "Cycle column width" })
+hl.bind("SUPER + A", strip("fit all"), { description = "Fit all columns on screen" })
+hl.bind("SUPER + SHIFT + A", strip("colresize all 0.5"), { description = "Reset column widths" })
 
 -- Tiling windows
 hl.bind("ALT + T", hl.dsp.window.float({ action = "toggle" }))
@@ -41,7 +131,14 @@ hl.bind("SUPER + T", hl.dsp.group.toggle())
 hl.bind("ALT + SHIFT + T", hl.dsp.window.float({ action = "disable" }))
 
 -- Center window to the middle of the screen, when tiled
-hl.bind("ALT + C", hl.dsp.window.center())
+hl.bind("ALT + C", function()
+    local win = hl.get_active_window()
+    if win and not win.floating and on_strip() then
+        hl.dispatch(hl.dsp.layout("center"))
+    else
+        hl.dispatch(hl.dsp.window.center())
+    end
+end)
 
 -- --- Window Switcher ---
 -- In fullscreen, Alt+Tab opens Noctalia's switcher overlay (style/MRU in
@@ -101,6 +198,11 @@ local function switch_window(forward)
     end
 end
 
+-- Overview: the same carousel of window snapshots with every window on every
+-- workspace in it, whatever the layout. No "hold": it stays open until a
+-- window is picked or it is dismissed.
+hl.bind("SUPER + Tab", hl.dsp.exec_cmd("noctalia msg window-switcher all"), { description = "Overview of all windows" })
+
 hl.bind("ALT + Tab", function()
     switch_window(true)
 end)
@@ -112,7 +214,13 @@ hl.bind("ALT + SHIFT + Tab", function()
 end, { non_consuming = true })
 
 -- --- Window Navigation (Vim-style) ---
-hl.bind("SUPER + J", hl.dsp.layout("togglesplit"))
+hl.bind("SUPER + J", function()
+    if on_strip() then
+        hl.dispatch(hl.dsp.layout("consume_or_expel prev"))
+    elseif hl.get_config("general.layout") == "dwindle" then
+        hl.dispatch(hl.dsp.layout("togglesplit"))
+    end
+end)
 
 -- Close window
 hl.bind("ALT + SHIFT + q", hl.dsp.window.close())
@@ -177,8 +285,16 @@ end
 
 hl.bind("ALT + SHIFT + h", function() move_window(-FLOAT_STEP, 0, "l") end, { repeating = true })
 hl.bind("ALT + SHIFT + l", function() move_window(FLOAT_STEP, 0, "r") end, { repeating = true })
-hl.bind("ALT + SHIFT + k", function() move_window(0, -FLOAT_STEP, "u") end, { repeating = true })
-hl.bind("ALT + SHIFT + j", function() move_window(0, FLOAT_STEP, "d") end, { repeating = true })
+local function move_vertical(down)
+    if hl.get_active_window() and leaves_strip(down) then
+        hl.dispatch(hl.dsp.window.move({ workspace = stack_workspace(down) }))
+    else
+        move_window(0, down and FLOAT_STEP or -FLOAT_STEP, down and "d" or "u")
+    end
+end
+
+hl.bind("ALT + SHIFT + k", function() move_vertical(false) end, { repeating = true })
+hl.bind("ALT + SHIFT + j", function() move_vertical(true) end, { repeating = true })
 
 -- --- Mouse: move and resize ---
 -- SUPER rather than ALT, the keyboard's window modifier: apps use Alt+click
@@ -197,8 +313,16 @@ hl.bind("SUPER + SHIFT + mouse:272", hl.dsp.window.resize(), { mouse = true, des
 -- Move focus with ALT + HJKL
 hl.bind("ALT + h", hl.dsp.focus({ direction = "l" }))
 hl.bind("ALT + l", hl.dsp.focus({ direction = "r" }))
-hl.bind("ALT + k", hl.dsp.focus({ direction = "u" }))
-hl.bind("ALT + j", hl.dsp.focus({ direction = "d" }))
+local function focus_vertical(down)
+    if leaves_strip(down) then
+        hl.dispatch(hl.dsp.focus({ workspace = stack_workspace(down) }))
+    else
+        hl.dispatch(hl.dsp.focus({ direction = down and "d" or "u" }))
+    end
+end
+
+hl.bind("ALT + k", function() focus_vertical(false) end)
+hl.bind("ALT + j", function() focus_vertical(true) end)
 
 -- --- Application shortcuts ---
 hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))

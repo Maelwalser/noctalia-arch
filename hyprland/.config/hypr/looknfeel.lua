@@ -58,6 +58,16 @@ hl.config({
         mfact = 0.65,
     },
 
+    -- https://wiki.hypr.land/Configuring/Layouts/Scrolling-Layout/
+    scrolling = {
+        -- Two columns to a screen; SUPER + R steps through the other widths.
+        column_width = 0.5,
+        -- The strip has two ends: focus and column swaps stop there instead
+        -- of jumping to the other end.
+        wrap_focus = false,
+        wrap_swapcol = false,
+    },
+
     animations = {
         enabled = true,
     },
