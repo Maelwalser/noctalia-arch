@@ -13,7 +13,8 @@
       "context": "Scroll",
       "bindings": {
         "ctrl+k": "scroll:lineUp",
-        "ctrl+j": "scroll:lineDown"
+        "ctrl+j": "scroll:lineDown",
+        "ctrl+e": "scroll:bottom"
       }
     }
   ]
