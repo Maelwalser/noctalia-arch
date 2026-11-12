@@ -65,7 +65,7 @@ end, { description = "Toggle scrolling layout" })
 -- on. The focus and move binds below work on it as they are, and the strip
 -- follows the focus. These add what only a strip has; each message is sent only on
 -- a scrolling workspace, as the other layouts reject it.
---   SUPER + wheel   slide the strip a column at a time
+--   ALT + wheel     slide the strip a column at a time
 --   SUPER + R       next column width (a third, half, two thirds, full)
 --   SUPER + J       stack the window under the column before it, or lift a
 --                   stacked window out into a column of its own
@@ -204,8 +204,8 @@ local function slide_strip(forward)
     end
 end
 
-hl.bind("SUPER + mouse_down", slide_strip(true), { description = "Scroll the window strip forward" })
-hl.bind("SUPER + mouse_up", slide_strip(false), { description = "Scroll the window strip back" })
+hl.bind("ALT + mouse_down", slide_strip(true), { description = "Scroll the window strip forward" })
+hl.bind("ALT + mouse_up", slide_strip(false), { description = "Scroll the window strip back" })
 hl.bind("SUPER + R", strip("colresize +conf"), { description = "Cycle column width" })
 hl.bind("SUPER + A", strip("fit all"), { description = "Fit all columns on screen" })
 hl.bind("SUPER + SHIFT + A", strip("colresize all 0.5"), { description = "Reset column widths" })
@@ -401,9 +401,9 @@ hl.bind("ALT + SHIFT + j", function() move_vertical(true) end, { repeating = tru
 --                               the touchpad
 -- Without a modifier, dragging a window border or the gap next to it resizes
 -- (general.resize_on_border in input.lua).
-hl.bind("SUPER + mouse:272", hl.dsp.window.drag(), { mouse = true, description = "Move window" })
-hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), { mouse = true, description = "Resize window" })
-hl.bind("SUPER + SHIFT + mouse:272", hl.dsp.window.resize(), { mouse = true, description = "Resize window" })
+hl.bind("ALT + mouse:272", hl.dsp.window.drag(), { mouse = true, description = "Move window" })
+hl.bind("ALT + mouse:273", hl.dsp.window.resize(), { mouse = true, description = "Resize window" })
+hl.bind("ALT + SHIFT + mouse:272", hl.dsp.window.resize(), { mouse = true, description = "Resize window" })
 
 -- Move focus with ALT + HJKL
 -- Next to a maximized window the plain focus dispatcher does nothing: it
