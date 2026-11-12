@@ -230,13 +230,10 @@ local function switch_window(forward)
     end
 end
 
--- Overview: the HUD's stack overview (quickshell hud, Overview.qml), a row
--- per workspace of this monitor with its windows as they lie, the columns
--- of a strip that are out of sight included; H/J/K/L move in it and Enter
--- goes there. Noctalia's carousel of every window when the HUD is not
--- running (classic theme); no "hold", so that one stays open until a window
--- is picked or it is dismissed.
-hl.bind("SUPER + Tab", hl.dsp.exec_cmd("qs -c hud ipc call overview toggle || noctalia msg window-switcher all"), { description = "Overview of workspaces and windows" })
+-- Overview: the same carousel of window snapshots with every window on every
+-- workspace in it, whatever the layout. No "hold": it stays open until a
+-- window is picked or it is dismissed.
+hl.bind("SUPER + Tab", hl.dsp.exec_cmd("noctalia msg window-switcher all"), { description = "Overview of all windows" })
 
 hl.bind("ALT + Tab", function()
     switch_window(true)
