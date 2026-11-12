@@ -1,5 +1,5 @@
 --!nonstrict
--- Rotating HUD ring; a click toggles the Quickshell desktop overlay (manifest action).
+-- Rotating HUD ring, glowing on hover; a click toggles the Quickshell desktop overlay (manifest action).
 -- hud-build renders the frames at device resolution per output scale
 -- (bar/spinner/<scale>), so the set is picked once this output's scale is known.
 local common = require("./common.luau")
@@ -7,7 +7,26 @@ local common = require("./common.luau")
 local dir = nil -- this output's frame set, resolved asynchronously
 local frames = 0
 local frame = 0
-local drawn = nil -- the frame on screen
+local drawn = nil -- "<frame>|<hovered>" on screen
+local hovered = false
+
+local function key()
+  return frame .. "|" .. tostring(hovered)
+end
+
+local function draw()
+  -- A rebuild swaps the frame directory: skip a tick rather than render a gap.
+  if frames == 0 or not noctalia.fileExists(common.frameIn(dir, frame)) then
+    return
+  end
+  local path = common.frameIn(dir, frame)
+  barWidget.render(common.bare({
+    common.glow(hovered, function()
+      return ui.image({ path = path, width = 18, height = 18, fit = "contain" })
+    end),
+  }))
+  drawn = key()
+end
 local resolving = false
 
 local function resolve()
@@ -44,25 +63,17 @@ function update()
     -- Overlay off: the ring rests where it stopped. The state is one small
     -- file, so keep looking often enough that a click starts it promptly.
     noctalia.setUpdateInterval(250)
-    if drawn == frame then
+    if drawn == key() then
       return
     end
   end
-  -- A rebuild swaps the frame directory: skip a tick rather than render a gap.
-  if not noctalia.fileExists(common.frameIn(dir, frame)) then
-    return
-  end
-  barWidget.render(ui.image({
-    path = common.frameIn(dir, frame),
-    width = 18,
-    height = 18,
-    fit = "contain",
-  }))
-  drawn = frame
+  draw()
 end
 
 common.tip("HUD overlay · click to toggle")
 
 function onHover(inside)
+  hovered = inside
   common.hover(inside)
+  draw()
 end

@@ -191,6 +191,15 @@ function M.pill(nodes, tagged, gap)
   return ui.row({ gap = 8 - GLOW, align = "center", height = LAYER_H, paddingH = 8 - GLOW }, readout(nodes, tagged, gap))
 end
 
+-- A bare ornament on the rail (no pill): glow() nodes side by side, `gap` px
+-- between their ink. The glow padding hangs over the widget's edges instead of
+-- widening it (negative gaps against 1 px spacers), so the ornament takes
+-- exactly the room of its nodes and the lane lays out as it did without glow.
+function M.bare(nodes, gap)
+  local inner = ui.row({ gap = (gap or 0) - 2 * GLOW, align = "center" }, nodes)
+  return ui.row({ gap = -(GLOW + 1), align = "center", height = LAYER_H }, { space(1, 1), inner, space(1, 1) })
+end
+
 M.GLOW = GLOW
 
 -- Tooltips. Noctalia's own are opaque popups that cannot be made glass, so a

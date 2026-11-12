@@ -46,6 +46,10 @@ hover_highlight = false
   min = 16
   max = 160
 
+  # No click action; declared so the tape is a hover target like the rest.
+  [widget.actions]
+  middle = "none"
+
 [[widget]]
 id = "spinner"
 entry = "spinner.luau"
