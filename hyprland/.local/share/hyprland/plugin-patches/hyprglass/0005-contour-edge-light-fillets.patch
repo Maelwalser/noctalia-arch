@@ -1,0 +1,550 @@
+Contour: edge light and fillets (edge_light, mask_fillet), a sheet that wells
+out of the layer it hangs from.
+
+- hg.layer(..., { edge_light = 0.55 }): the pane's edge drawn as light. A
+  crisp line on the traced outline with a short tail and a slightly darker
+  band just inside it, lit from the upper left: brightest on edges facing up,
+  towards the left, less on those facing down, towards the right, a fifth on
+  the sides. Clear glass over dark ground has nothing to bend and shows by
+  this line alone. It reads the distance field, so it follows the outline
+  frame by frame as the app animates it and leaves open and joined edges
+  out. A nested shape keeps its own rim line. On a mask_open layer the light
+  is placed across the layer it continues, so both carry it as one pane and
+  the line of one runs into the line of the other.
+- The outline is traced round every texel the app covers at all, a good
+  pixel outside the edge that shows: the line starts that far in
+  (OUTLINE_INSET_PX).
+- hg.layer(..., { mask_open = "top", mask_fillet = 22 }): where the shape's
+  side meets its open edge the seed pass adds a fillet of that radius (logical
+  px) to the shape, and within those rows the glass is cut by the outline
+  instead of by the app's alpha. The side is read one radius in from the
+  edge, so the fillet does not depend on what the app draws there: Noctalia
+  slides a panel out from under the bar and shows its own fillets only once
+  it has arrived, which left square inner corners all the way down and a pop
+  at the end.
+- The fillet starts on the edge of the layer the shape hangs from, not on
+  the box's (the boxes overlap by a row), so the outline leaves that edge at
+  a tangent.
+- mask_join now reads the other layer's distance between its texels and at
+  the row the two boxes really meet on (it assumed they abut, and stepped by
+  that field's whole texels, which put a jog into the edge where it turns
+  into a fillet), and counts that shape only where it is at least 1.75 px deep:
+  a fillet's tip is a sliver too thin to show an edge of its own, and this
+  layer's edge runs on beside it until it does. With edge_light on both
+  layers one line then bends from the bar's edge into the fillet.
+- The light's numbers are those of the ACID//HUD pane light (quickshell hud,
+  shaders/pane.frag), which draws it for layers the HUD owns.
+
+diff --git a/README.md b/README.md
+index 036deed..184fae2 100644
+--- a/README.md
++++ b/README.md
+@@ -356,6 +356,10 @@ Where a `mask_open` layer meets the layer that names it in `mask_join`, both are
+ 
+ `open_frost` lets the glass thicken as it runs on: at the open edge it is the layer's own glass, the same as the one it continues, and over `open_feather` logical px it turns into frosted glass, blurred by that much more (in `blur_strength` units). The seam stays invisible, and a window edge right behind it dissolves instead of reading as a line. Top and bottom open edges only.
+ 
++`mask_fillet` rounds the inner corners a `mask_open` shape makes with the layer it hangs from: where its side meets the open edge, the outline sweeps out in a quarter circle of that radius, and the glass fills it. It starts on the edge of the layer the shape hangs from (the boxes may overlap by a row), so the outline leaves that edge at a tangent, and that layer's `mask_join` follows it between texels: with `edge_light` on both, one line bends from the edge into the fillet. The side is read one radius in from the edge, so the fillet is the same whether or not the app draws one itself. A panel that slides out from under a bar and shows its own fillets only when it has arrived then has them from the first frame; set the radius the app uses and nothing moves when its own appear.
++
++`edge_light` draws the pane's edge as light: a crisp line on the traced outline with a short tail and a slightly darker band just inside it, lit from the upper left (brightest on edges facing up, less on those facing down, a fifth on the sides). Clear glass over a dark backdrop has nothing to bend and shows by this line alone. It follows the outline as the app animates it and leaves open and joined edges out, so a `mask_open` panel carries the line down its sides and round its corners from the layer it hangs from. Give both layers the same `edge_light`: the light then falls on the two as one pane, and the line of the one runs into the line of the other where their outlines meet.
++
+ **Cost:** none for layers that do not use it. For a layer that does, one extra texture read per glass pixel, and a few short GPU passes and a few MB of memory while a contour layer exists (shared work buffers included), freed when the last one closes or stops using `contour`. `hyprctl hyprglass stats` counts the rebuilds (`contour_build`).
+ 
+ **Fixed shape:** `shape` gives a layer's glass its own rounded box, so a floating bar or a card inside a larger layer gets its own edge, bend and highlights instead of those of the whole layer. `inset` trims the layer's edges (one value, or top, right, bottom, left) and `radius` rounds the corners, `-1` for a pill; both in logical px (up to 16384), and a negative inset reaches past that edge. Content outside the shape is still drawn, without glass. Inside it, `mask_mode` still decides where the glass goes: set the layer's `mask_threshold` to `0` to fill the whole shape.
+@@ -397,6 +401,8 @@ hg.layer("debug-panel", { exclude = true })
+ | `mask_join` | string | Contour only: namespace of a contour layer lying against this one's top or bottom edge; the outline opens where the two touch |
+ | `open_frost` | float | Contour only, with `mask_open`: extra blur the glass grows into away from its open top or bottom edge, in `blur_strength` units (`0`, the default, = none) |
+ | `open_feather` | float | Logical px over which `open_frost` grows from nothing at the open edge (default `16`) |
++| `mask_fillet` | float | Contour only, with `mask_open`: radius in logical px of the inner corners where the shape leaves its open top or bottom edge (`0`, the default, = square) |
++| `edge_light` | float | Contour only: peak alpha (`0`..`1`) of a light line along the traced outline (`0`, the default, = none) |
+ | `shape` | table | Fixed glass shape: `{ inset = px or { top, right, bottom, left }, radius = px }`, both optional (`0`); `radius = -1` = pill |
+ | `exclude` | bool | Blacklist this namespace instead of whitelisting it |
+ 
+diff --git a/src/Contour.cpp b/src/Contour.cpp
+index 0f4f348..b957753 100644
+--- a/src/Contour.cpp
++++ b/src/Contour.cpp
+@@ -226,6 +226,9 @@ bool CField::build(Render::CRenderContext& ctx, const SBuildKey& key, const SP<R
+             glUniform1f(uniforms.nested, key.nested * fade);
+             glUniform1i(uniforms.voteRadius, voteRadius);
+             glUniform1i(uniforms.voteStep, voteStep);
++            glUniform1i(uniforms.openEdges, key.openEdges);
++            glUniform1f(uniforms.filletPx, key.filletPx);
++            glUniform1f(uniforms.filletInsetPx, key.filletInsetPx);
+         });
+     }
+ 
+@@ -241,7 +244,7 @@ bool CField::build(Render::CRenderContext& ctx, const SBuildKey& key, const SP<R
+             glUniform1i(uniforms.openEdges, key.openEdges);
+             glUniform1i(uniforms.joinEdge, joined ? key.joinEdge : 0);
+             glUniform1i(uniforms.joinTex, JOIN_TEXTURE_UNIT);
+-            glUniform2f(uniforms.joinMap, key.joinOffsetPx, static_cast<float>(std::max(key.joinDivisor, 1)));
++            glUniform3f(uniforms.joinMap, key.joinOffsetPx, static_cast<float>(std::max(key.joinDivisor, 1)), key.joinEdgeRowPx);
+             glUniform2f(uniforms.joinFieldSize, static_cast<float>(key.joinFieldWidth), static_cast<float>(key.joinFieldHeight));
+         };
+         // mask_join: the other layer's field, read along the edge it lies against
+diff --git a/src/Contour.hpp b/src/Contour.hpp
+index 6427209..36082d8 100644
+--- a/src/Contour.hpp
++++ b/src/Contour.hpp
+@@ -145,6 +145,12 @@ struct SBuildKey {
+     // mask_open: past these edges of the box the outline runs on wherever the content
+     // reaches the edge, instead of closing there. EDGE_* bits.
+     int   openEdges = 0;
++    // mask_fillet: where the shape leaves an open top or bottom edge its inner corners are
++    // rounded with this radius, framebuffer px. 0 = square, as the app drew them.
++    float filletPx = 0.0f;
++    // ... and they start this many px in from the open edge: the rows the box shares with
++    // the layer the shape hangs from, whose edge the fillets have to leave at a tangent.
++    float filletInsetPx = 0.0f;
+     // mask_join: another layer's field lies against joinEdge (EDGE_TOP or EDGE_BOTTOM, 0 =
+     // none). Where that layer's content touches the edge the outline runs on into it. The
+     // serial is that field's build: a new one means its outline moved.
+@@ -152,6 +158,9 @@ struct SBuildKey {
+     unsigned int  joinTexture = 0;
+     unsigned long joinSerial = 0;
+     float         joinOffsetPx = 0.0f; // this box's left edge in the other box, framebuffer px
++    // The row of the other box this field's joined edge lies on, framebuffer px: the boxes
++    // may overlap by a row or two, and the field can end past its box's last row.
++    float         joinEdgeRowPx = 0.0f;
+     int           joinDivisor = 1;
+     int           joinFieldWidth = 0, joinFieldHeight = 0;
+ 
+diff --git a/src/GlassLayerSurface.cpp b/src/GlassLayerSurface.cpp
+index d519f5c..234d6a1 100644
+--- a/src/GlassLayerSurface.cpp
++++ b/src/GlassLayerSurface.cpp
+@@ -583,6 +583,15 @@ std::optional<Contour::SBuildKey> CGlassLayerSurface::contourBuildKey(PHLMONITOR
+     const auto& state = *g_pGlobalState;
+     if (const auto it = state.layerNamespaceMaskOpen.find(layerSurface->m_namespace); it != state.layerNamespaceMaskOpen.end())
+         key.openEdges = it->second;
++    if (const auto it = state.layerNamespaceMaskFillet.find(layerSurface->m_namespace); it != state.layerNamespaceMaskFillet.end() && key.openEdges != 0)
++        key.filletPx = std::round(it->second * scale);
++    if (key.filletPx > 0.0f) {
++        int edge = 0;
++        if (const auto* other = continuedLayer(monitor, layerBox, edge)) {
++            const CBox& otherBox = other->m_sampledBox;
++            key.filletInsetPx    = static_cast<float>(std::max(edge == Contour::EDGE_TOP ? otherBox.y + otherBox.h - layerBox.y : layerBox.y + layerBox.h - otherBox.y, 0.0));
++        }
++    }
+ 
+     // mask_join: a layer of that namespace, drawn with contour on this monitor, whose box
+     // lies against this one's top or bottom edge
+@@ -617,6 +626,8 @@ std::optional<Contour::SBuildKey> CGlassLayerSurface::contourBuildKey(PHLMONITOR
+         key.joinTexture     = fieldFramebuffer->getTexture()->m_texID;
+         key.joinSerial      = other->m_contour.serial();
+         key.joinOffsetPx    = static_cast<float>(layerBox.x - otherBox.x);
++        key.joinEdgeRowPx   = static_cast<float>(edge == Contour::EDGE_BOTTOM ? layerBox.y + static_cast<double>(key.plan.fieldHeight) * key.plan.divisor - otherBox.y
++                                                                                : layerBox.y - otherBox.y);
+         key.joinDivisor     = otherPlan.divisor;
+         key.joinFieldWidth  = otherPlan.fieldWidth;
+         key.joinFieldHeight = otherPlan.fieldHeight;
+@@ -729,6 +740,9 @@ void CGlassLayerSurface::attachSeam(PHLMONITOR monitor, const CBox& layerBox, Gl
+         maskInfo.seamFadeBottomPx = SEAM_FADE_PX;
+     }
+ 
++    if (otherBox.w > 0.0)
++        maskInfo.edgeLightSpan = {layerBox.w / otherBox.w, (layerBox.x - otherBox.x) / otherBox.w};
++
+     // the other layer's sample, as it reads it itself: its padded box is the whole texture
+     const auto map         = GlassRenderer::sampleMapFor(otherBox, other->m_sampledDownscale);
+     maskInfo.seamTextureId = other->m_sampleFramebuffer->getTexture()->m_texID;
+@@ -820,6 +834,16 @@ bool CGlassLayerSurface::attachContour(Render::CRenderContext& ctx, PHLMONITOR m
+                                    layerBox.h / (static_cast<double>(plan.fieldHeight) * plan.divisor)};
+     maskInfo.contourReferencePx = plan.referencePx;
+     maskInfo.contourReachPx     = plan.reachPx;
++    if (key->filletPx > 0.0f) {
++        const float rows = key->filletPx + key->filletInsetPx + static_cast<float>(plan.divisor);
++        maskInfo.filletTopPx    = (key->openEdges & Contour::EDGE_TOP) ? rows : 0.0f;
++        maskInfo.filletBottomPx = (key->openEdges & Contour::EDGE_BOTTOM) ? rows : 0.0f;
++    }
++    if (const auto layerSurface = m_layerSurface.lock()) {
++        const auto lightIt = g_pGlobalState->layerNamespaceEdgeLight.find(layerSurface->m_namespace);
++        if (lightIt != g_pGlobalState->layerNamespaceEdgeLight.end())
++            maskInfo.edgeLight = lightIt->second;
++    }
+     return true;
+ }
+ 
+diff --git a/src/GlassRenderer.cpp b/src/GlassRenderer.cpp
+index d31af57..ae98bf2 100644
+--- a/src/GlassRenderer.cpp
++++ b/src/GlassRenderer.cpp
+@@ -651,6 +651,9 @@ void applyGlassEffect(Render::CRenderContext& ctx,
+         glUniform2f(uniforms.contourUVScale, static_cast<float>(mask->contourUVScale.x), static_cast<float>(mask->contourUVScale.y));
+         glUniform1f(uniforms.contourReferencePx, mask->contourReferencePx);
+         glUniform1f(uniforms.contourReachPx, mask->contourReachPx);
++        glUniform1f(uniforms.edgeLight, mask->edgeLight);
++        glUniform2f(uniforms.filletRows, mask->filletTopPx, mask->filletBottomPx);
++        glUniform2f(uniforms.edgeLightSpan, static_cast<float>(mask->edgeLightSpan.x), static_cast<float>(mask->edgeLightSpan.y));
+     }
+ 
+     uploadThemeUniforms(resolveContext, program);
+diff --git a/src/GlassRenderer.hpp b/src/GlassRenderer.hpp
+index b91309c..c3f1b5e 100644
+--- a/src/GlassRenderer.hpp
++++ b/src/GlassRenderer.hpp
+@@ -144,6 +144,12 @@ struct SMaskInfo {
+     Vector2D contourUVScale{1.0, 1.0}; // box UV -> field UV
+     float    contourReferencePx = 0.0f; // edge_thickness is a fraction of this
+     float    contourReachPx     = 0.0f; // where the field stops
++    float    filletTopPx        = 0.0f; // mask_fillet: rows at the quad's top and bottom the outline cuts the glass in
++    float    filletBottomPx     = 0.0f;
++    float    edgeLight          = 0.0f; // edge_light: peak alpha of the light line along the outline
++    // edge_light on a mask_open layer: the light falls on it and the layer it continues as
++    // one pane. The box's u, scaled and offset, is the u across that layer.
++    Vector2D edgeLightSpan{1.0, 0.0};
+ };
+ 
+ // Affine map from source-framebuffer pixels into the sample framebuffer.
+diff --git a/src/Globals.hpp b/src/Globals.hpp
+index b493519..412b058 100644
+--- a/src/Globals.hpp
++++ b/src/Globals.hpp
+@@ -88,6 +88,11 @@ struct SGlobalState {
+     // edges, in blur_strength units, and the logical px it grows over from each of them)
+     std::unordered_map<std::string, float> layerNamespaceOpenFrost;
+     std::unordered_map<std::string, float> layerNamespaceOpenFeather;
++    // Per-namespace mask_fillet (namespace → logical px radius of the inner corners where the
++    // shape leaves an open top or bottom edge)
++    std::unordered_map<std::string, float> layerNamespaceMaskFillet;
++    // Per-namespace edge_light (namespace → peak alpha of the light line along the outline)
++    std::unordered_map<std::string, float> layerNamespaceEdgeLight;
+     // Per-namespace fixed glass shape (namespace → shape); absent = the whole layer box
+     std::unordered_map<std::string, SLayerShape> layerNamespaceShapes;
+ 
+diff --git a/src/PluginConfig.cpp b/src/PluginConfig.cpp
+index aa05708..20e7bf4 100644
+--- a/src/PluginConfig.cpp
++++ b/src/PluginConfig.cpp
+@@ -774,6 +774,8 @@ struct SPendingLayer {
+     std::string                   maskJoin;
+     float                         openFrost     = -1.0f;
+     float                         openFeather   = -1.0f;
++    float                         edgeLight     = -1.0f;
++    float                         maskFillet    = -1.0f;
+     bool                          exclude       = false;
+     int                           liveResample  = -1; // -1 = not set
+     std::optional<ELayerMaskMode> maskMode;
+@@ -823,7 +825,7 @@ static std::optional<SLayerShape> readLuaLayerShape(lua_State* L, int tableIdx)
+ }
+ 
+ // What hyprglass.layer takes in its table; anything else is reported.
+-static constexpr std::array<std::string_view, 12> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "mask_nested", "mask_open", "mask_join", "open_frost", "open_feather", "live_resample", "mask_mode", "shape"};
++static constexpr std::array<std::string_view, 14> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "mask_nested", "mask_open", "mask_join", "mask_fillet", "open_frost", "open_feather", "edge_light", "live_resample", "mask_mode", "shape"};
+ 
+ // mask_open = "top", "top bottom", ...: the box edges the outline runs on past. Nullopt for an unknown word.
+ static std::optional<int> parseMaskOpen(std::string_view value) {
+@@ -950,6 +952,20 @@ static int handleLuaLayer(lua_State* L) {
+             typeError("open_feather", "a finite number, 0 or more");
+         lua_pop(L, 1);
+ 
++        lua_getfield(L, 2, "mask_fillet");
++        if (const auto value = luaFiniteNumber(L, -1); value && *value >= 0.0 && *value <= 256.0)
++            entry.maskFillet = static_cast<float>(*value);
++        else if (!lua_isnil(L, -1))
++            typeError("mask_fillet", "a number between 0 and 256");
++        lua_pop(L, 1);
++
++        lua_getfield(L, 2, "edge_light");
++        if (const auto value = luaFiniteNumber(L, -1); value && *value >= 0.0 && *value <= 1.0)
++            entry.edgeLight = static_cast<float>(*value);
++        else if (!lua_isnil(L, -1))
++            typeError("edge_light", "a number between 0 and 1");
++        lua_pop(L, 1);
++
+         lua_getfield(L, 2, "live_resample");
+         if (lua_isboolean(L, -1))
+             entry.liveResample = lua_toboolean(L, -1) ? 1 : 0;
+@@ -1004,6 +1020,8 @@ static void resetLayerNamespaces() {
+     g_pGlobalState->layerNamespaceMaskJoin.clear();
+     g_pGlobalState->layerNamespaceOpenFrost.clear();
+     g_pGlobalState->layerNamespaceOpenFeather.clear();
++    g_pGlobalState->layerNamespaceEdgeLight.clear();
++    g_pGlobalState->layerNamespaceMaskFillet.clear();
+     g_pGlobalState->layerNamespaceShapes.clear();
+ }
+ 
+@@ -1031,6 +1049,10 @@ void commitPendingLayers() {
+                 g_pGlobalState->layerNamespaceOpenFrost[entry.ns] = entry.openFrost;
+             if (entry.openFeather >= 0.0f)
+                 g_pGlobalState->layerNamespaceOpenFeather[entry.ns] = entry.openFeather;
++            if (entry.maskFillet > 0.0f)
++                g_pGlobalState->layerNamespaceMaskFillet[entry.ns] = entry.maskFillet;
++            if (entry.edgeLight > 0.0f)
++                g_pGlobalState->layerNamespaceEdgeLight[entry.ns] = entry.edgeLight;
+             if (entry.liveResample >= 0)
+                 g_pGlobalState->layerNamespaceLiveResample[entry.ns] = entry.liveResample != 0;
+             if (entry.maskMode)
+diff --git a/src/ShaderManager.cpp b/src/ShaderManager.cpp
+index 15039c5..25e7349 100644
+--- a/src/ShaderManager.cpp
++++ b/src/ShaderManager.cpp
+@@ -97,6 +97,9 @@ bool CShaderManager::compileGlassProgram(SGlassProgram& glass, GlassFeatureMask
+     glassUniforms.contourUVScale        = glGetUniformLocation(program, "contourUVScale");
+     glassUniforms.contourReferencePx    = glGetUniformLocation(program, "contourReferencePx");
+     glassUniforms.contourReachPx        = glGetUniformLocation(program, "contourReachPx");
++    glassUniforms.edgeLight             = glGetUniformLocation(program, "edgeLight");
++    glassUniforms.edgeLightSpan         = glGetUniformLocation(program, "edgeLightSpan");
++    glassUniforms.filletRows            = glGetUniformLocation(program, "filletRows");
+ 
+     return true;
+ }
+@@ -143,6 +146,9 @@ bool CShaderManager::compileContourPrograms() {
+     seed.nested        = locate(m_contour.seed, "nested");
+     seed.voteRadius    = locate(m_contour.seed, "voteRadius");
+     seed.voteStep      = locate(m_contour.seed, "voteStep");
++    seed.openEdges     = locate(m_contour.seed, "openEdges");
++    seed.filletPx      = locate(m_contour.seed, "filletPx");
++    seed.filletInsetPx = locate(m_contour.seed, "filletInsetPx");
+ 
+     auto& edt          = m_contour.edtUniforms;
+     edt.tex            = locate(m_contour.edt, "tex");
+diff --git a/src/ShaderManager.hpp b/src/ShaderManager.hpp
+index d2c754b..19d1e90 100644
+--- a/src/ShaderManager.hpp
++++ b/src/ShaderManager.hpp
+@@ -87,6 +87,9 @@ struct SGlassUniforms {
+     GLint contourUVScale     = -1;
+     GLint contourReferencePx = -1;
+     GLint contourReachPx     = -1;
++    GLint edgeLight          = -1;
++    GLint edgeLightSpan      = -1;
++    GLint filletRows         = -1;
+ };
+ 
+ struct SBlurUniforms {
+@@ -103,7 +106,7 @@ struct SContourPrograms {
+     SP<CShader> pack   = makeShared<CShader>();
+ 
+     struct {
+-        GLint tex = -1, boxOffsetPx = -1, boxSizePx = -1, sourceSizePx = -1, divisor = -1, threshold = -1, nested = -1, voteRadius = -1, voteStep = -1;
++        GLint tex = -1, boxOffsetPx = -1, boxSizePx = -1, sourceSizePx = -1, divisor = -1, threshold = -1, nested = -1, voteRadius = -1, voteStep = -1, openEdges = -1, filletPx = -1, filletInsetPx = -1;
+     } seedUniforms;
+     struct {
+         GLint tex = -1, fieldSize = -1, direction = -1, reachTexels = -1, resolveSigned = -1, texelPx = -1, reachPx = -1;
+diff --git a/src/Shaders.hpp b/src/Shaders.hpp
+index 6b8f310..9b09bc6 100644
+--- a/src/Shaders.hpp
++++ b/src/Shaders.hpp
+@@ -155,6 +155,27 @@ uniform highp sampler2D contourTex; // r: signed distance to the outline in px (
+ uniform vec2 contourUVScale;      // box UV -> field UV: the field covers whole texels, the box need not
+ uniform float contourReferencePx; // the bezel is a fraction of this, not of the layer's short side
+ uniform float contourReachPx;     // where the field stops; the edge effects fade out before it
++// The outline is traced round every texel the app covers at all (mask_threshold), which
++// puts it this many framebuffer px outside the edge the eye sees.
++const float OUTLINE_INSET_PX = 1.25;
++// mask_fillet: within this many px of the top (x) and bottom (y) of the quad the outline may
++// hold more than the app drew (the fillets). There the glass is cut by the outline.
++uniform vec2 filletRows;
++// edge_light: clear glass over dark ground shows by its edge alone. A crisp line on the
++// outline with a short tail, lit from the upper left: brightest on edges facing up, towards
++// the left, less on those facing down, towards the right, a fraction on the sides; just
++// inside it the glass is a shade darker, which gives the edge its thickness over a lit
++// backdrop. Logical px.
++uniform float edgeLight;          // peak alpha of the line on an edge facing up; 0 = none
++uniform vec2  edgeLightSpan;      // box u -> u across the pane the light falls on: scale, offset
++const vec3  EDGE_LIGHT_COLOR = vec3(0.863, 0.902, 0.941);
++const float EDGE_LIGHT_LINE  = 1.1;   // the line's falloff
++const float EDGE_LIGHT_TAIL  = 5.0;   // its tail's, at EDGE_LIGHT_TAIL_GAIN of the line
++const float EDGE_LIGHT_TAIL_GAIN = 0.16;
++const float EDGE_LIGHT_SIDES = 0.20;  // what every edge catches
++const float EDGE_LIGHT_SHADE = 0.18;  // the dark band, relative to edgeLight
++const float EDGE_LIGHT_SHADE_DEPTH = 6.0;
++const float EDGE_LIGHT_SHADE_WIDTH = 3.5;
+ // Nested shapes (mask_nested): the lens edge is this fraction of the pane's, the rim line
+ // gets this gain, and on the sides at least this much of its facing-the-light brightness.
+ const float NESTED_EDGE_SCALE = 0.5;
+@@ -373,6 +394,7 @@ void main() {
+     vec4 surfacePixel = vec4(0.0);
+     float maskRamp = 1.0;
+     bool hasMask = (useMask == 1);
++    bool filletCut = false;
+     if (hasMask) {
+         // premultiplied nothing: what is in the framebuffer stays
+         float rowPx = uv.y * fullSize.y;
+@@ -384,6 +406,9 @@ void main() {
+ 
+         vec2 maskUV = uv * maskUVScale + maskUVOffset;
+         surfacePixel = texture(maskTex, clamp(maskUV, 0.001, 0.999));
++#ifdef HYPRGLASS_FEATURE_CONTOUR
++        filletCut = rowPx < filletRows.x || fullSize.y - rowPx < filletRows.y;
++#endif
+ 
+         if (maskMode == 1) {
+             vec2 pixelPos = uv * fullSize;
+@@ -400,11 +425,14 @@ void main() {
+         } else {
+             // Below the threshold the content gets no glass but is still drawn
+             // (shadows, faint fills), like outside a region.
+-            if (surfacePixel.a < maskAlphaThreshold) { fragColor = surfacePixel; return; } // premultiplied, output as-is
++            if (surfacePixel.a < maskAlphaThreshold) {
++                if (!filletCut) { fragColor = surfacePixel; return; } // premultiplied, output as-is
++                maskRamp = 0.0;
++            }
+             // Antialiased edges get proportionally less glass, so rounded corners fade
+             // out instead of ending on a hard, stepped edge. Not smoothstep(): it is undefined
+             // when threshold + coverage rounds to threshold in float.
+-            if (maskCoverage > 0.0) {
++            else if (maskCoverage > 0.0) {
+                 float t = clamp((surfacePixel.a - maskAlphaThreshold) / maskCoverage, 0.0, 1.0);
+                 maskRamp = t * t * (3.0 - 2.0 * t);
+             }
+@@ -423,6 +451,11 @@ void main() {
+     // 1 inside a nested shape (mask_nested): a lens laid on the pane, with a narrower edge
+     // and a rim that shows on its sides too, like the selected tab of an iOS 26 tab bar.
+     float nestedRim      = contourSample.a;
++    if (filletCut) {
++        // as far inside the outline as an edge the app draws itself would show
++        maskRamp = max(maskRamp, clamp(0.5 - cornerSdf - OUTLINE_INSET_PX, 0.0, 1.0));
++        if (maskRamp <= 0.0) { fragColor = surfacePixel; return; }
++    }
+ #else
+     float cornerSdf    = getCornerSDF(uv);
+     float cornerAlpha  = 1.0 - smoothstep(-1.5, 0.5, cornerSdf);
+@@ -809,6 +842,26 @@ void main() {
+     }
+ #endif
+ 
++#ifdef HYPRGLASS_FEATURE_CONTOUR
++    // ========================================
++    // EDGE LIGHT — the pane's own outline only: a nested shape has its rim line
++    // ========================================
++    if (edgeLight > 0.001) {
++        float depth = max(-cornerSdf - OUTLINE_INSET_PX, 0.0) / max(monitorScale, 0.001);
++        float up    = max(-contourOutward.y, 0.0);
++        float down  = max(contourOutward.y, 0.0);
++        float across = clamp(uv.x * edgeLightSpan.x + edgeLightSpan.y, 0.0, 1.0);
++        float catchLight = EDGE_LIGHT_SIDES
++            + 0.80 * pow(up, 1.5) * mix(1.0, 0.55, across)
++            + 0.50 * pow(down, 1.5) * mix(0.45, 1.0, across);
++        float line  = exp(-depth / EDGE_LIGHT_LINE) + EDGE_LIGHT_TAIL_GAIN * exp(-depth / EDGE_LIGHT_TAIL);
++        float band  = (depth - EDGE_LIGHT_SHADE_DEPTH) / EDGE_LIGHT_SHADE_WIDTH;
++        float own   = 1.0 - nestedRim;
++        color *= 1.0 - EDGE_LIGHT_SHADE * edgeLight * exp(-band * band) * own * length(contourOutward);
++        color  = mix(color, EDGE_LIGHT_COLOR, clamp(edgeLight * catchLight * line * own, 0.0, 1.0));
++    }
++#endif
++
+     // float framebuffers (FP16 under wide-gamut cm) store unbounded values and
+     // the glass re-samples its own output: unclamped color diverges over frames
+     color = clamp(color, 0.0, 1.0);
+@@ -908,6 +961,13 @@ uniform float threshold;     // alpha at which the app's content counts
+ uniform float nested;        // alpha at which content inside the outline is a nested shape; 0 = none
+ uniform int voteRadius;      // texels each side the nested vote looks at
+ uniform int voteStep;        // texels between its taps
++uniform int openEdges;       // mask_open: 1 = top, 2 = bottom (Contour.hpp, EDGE_*)
++uniform float filletPx;      // mask_fillet: radius of the inner corners at those edges; 0 = none
++uniform float filletInsetPx; // px in from the open edge where the other layer's edge lies: the fillets leave from there
++// An outline the app draws is traced this far outside the edge that shows (the glass shader's
++// OUTLINE_INSET_PX): the fillet's is put there too, so it shows where an app's own would.
++const float OUTLINE_INSET_PX = 1.25;
++const float FILLET_TRIM_PX = 0.4;
+ 
+ layout(location = 0) out vec4 fragColor;
+ 
+@@ -936,10 +996,57 @@ float blockAlpha(vec2 texel) {
+     return sum / (taps * taps);
+ }
+ 
++// mask_fillet: the shape hangs from whatever lies past its open edge, and where its side
++// meets that edge the two leave a square inner corner. A texel is in the fillet that rounds
++// it when it lies in the corner's square, outside the circle that touches both the edge and
++// the side. The side is read one radius in from the edge, below any rounding of the app's
++// own, so the fillet is the same whether or not the app has drawn one (a panel that slides
++// out of a bar and shows its own fillets only once it has arrived).
++bool inFillet(vec2 texel) {
++    vec2  centre = (texel + 0.5) * divisor;
++    float fromEdge;
++    float sideRowPx;
++    float reachPx = filletPx + filletInsetPx;
++    if ((openEdges & 1) != 0 && centre.y < reachPx) {
++        fromEdge  = max(centre.y - filletInsetPx, 0.0);
++        sideRowPx = reachPx + divisor;
++    } else if ((openEdges & 2) != 0 && boxSizePx.y - centre.y < reachPx) {
++        fromEdge  = max(boxSizePx.y - centre.y - filletInsetPx, 0.0);
++        sideRowPx = boxSizePx.y - reachPx - divisor;
++    } else {
++        return false;
++    }
++    if (sideRowPx < 0.0 || sideRowPx >= boxSizePx.y)
++        return false;
++
++    float sideRow = floor(sideRowPx / divisor);
++    float rise    = filletPx - fromEdge;
++    int   reach   = int(ceil(filletPx / divisor));
++    for (int i = 1; i <= reach; i++) {
++        for (float dir = -1.0; dir <= 1.0; dir += 2.0) {
++            vec2 n = vec2(texel.x + dir * float(i), sideRow);
++            if (n.x < 0.0 || n.x * divisor >= boxSizePx.x)
++                continue;
++            float a = blockAlpha(n);
++            if (a < threshold)
++                continue;
++            // the side lies in this texel, as far in as it is covered
++            float toSide = (float(i) + 0.5 - clamp(a / max(blockAlpha(n + vec2(dir, 0.0)), 1e-4), 0.0, 1.0)) * divisor;
++            float run    = filletPx - toSide;
++            // ... and half a texel more, which testing texels by their centre takes off the arc.
++            // FILLET_TRIM_PX is measured: without it the sliver the fillet starts as showed
++            // from its tip on, a row under the edge it leaves, instead of sinking away from it.
++            float arc = filletPx - OUTLINE_INSET_PX - 0.5 * divisor + FILLET_TRIM_PX;
++            return run > 0.0 && rise * rise + run * run > arc * arc;
++        }
++    }
++    return false;
++}
++
+ void main() {
+     vec2 texel = floor(gl_FragCoord.xy);
+     float alpha = blockAlpha(texel);
+-    bool inside = alpha >= threshold;
++    bool inside = alpha >= threshold || (filletPx > 0.0 && inFillet(texel));
+ 
+     // A nested shape is a region the app fills above `nested`: a pill inside a bar. Text and
+     // icons sit on both the bar and its pills, so one texel's alpha cannot tell them apart:
+@@ -998,9 +1105,14 @@ uniform float reachPx;        // the signed distance is clamped to +-this
+ uniform int openEdges;        // mask_open: 1 top, 2 bottom, 4 left, 8 right
+ uniform int joinEdge;         // mask_join: 1 top, 2 bottom, 0 none
+ uniform sampler2D joinTex;    // the field of the layer lying against that edge
+-uniform vec2 joinMap;         // this box's left edge in that layer's box (px), its px per texel
++uniform vec3 joinMap;        // this box's left edge in the joined box (px), that field's px per texel, and the row of that box this field's joined edge lies on (px)
+ uniform vec2 joinFieldSize;   // texels
+ 
++// How deep inside its outline the joined shape must be to count. A fillet leaves the edge
++// at a tangent: for its first px it is a sliver too thin to show an edge of its own, and this
++// outline's edge has to run on beside it until it does, or neither shows there.
++const float JOIN_DEPTH_PX = 1.75;
++
+ layout(location = 0) out vec4 fragColor;
+ 
+ const float FAR = 16384.0;
+@@ -1027,13 +1139,24 @@ vec4 known(vec2 p) {
+         return INSIDE;
+     if (joinEdge == edge) {
+         // the joined layer's own shape, as far past the edge as p lies: this outline then
+-        // keeps its distance from that one's too (the fillets a panel leaves a bar by)
++        // keeps its distance from that one's too (the fillets a panel leaves a bar by).
++        // Its distance is read between its texels: a fillet leaves the edge at a tangent,
++        // and an outline stepped by that field's whole texels put a jog into the edge
++        // where it turns into the fillet.
+         float past = (edge == 2 ? p.y - fieldSize.y : -1.0 - p.y) + 0.5;
+-        float rows = floor(past * texelPx / joinMap.y);
+-        float x    = floor(((p.x + 0.5) * texelPx + joinMap.x) / joinMap.y);
+-        float y    = edge == 2 ? rows : joinFieldSize.y - 1.0 - rows;
+-        if (x >= 0.0 && x < joinFieldSize.x && y >= 0.0 && y < joinFieldSize.y && texelFetch(joinTex, ivec2(int(x), int(y)), 0).r < 0.0)
+-            return INSIDE;
++        vec2  sizePx = joinFieldSize * joinMap.y;
++        vec2  px = vec2((p.x + 0.5) * texelPx + joinMap.x, joinMap.z + (edge == 2 ? past : -past) * texelPx);
++        if (px.x >= 0.0 && px.x < sizePx.x && px.y >= 0.0 && px.y < sizePx.y) {
++            vec2  t = px / joinMap.y - 0.5;
++            ivec2 last = ivec2(joinFieldSize) - 1;
++            ivec2 a = clamp(ivec2(floor(t)), ivec2(0), last);
++            ivec2 b = min(a + 1, last);
++            vec2  f = clamp(t - vec2(a), 0.0, 1.0);
++            float top    = mix(texelFetch(joinTex, a, 0).r, texelFetch(joinTex, ivec2(b.x, a.y), 0).r, f.x);
++            float bottom = mix(texelFetch(joinTex, ivec2(a.x, b.y), 0).r, texelFetch(joinTex, b, 0).r, f.x);
++            if (mix(top, bottom, f.y) < -JOIN_DEPTH_PX)
++                return INSIDE;
++        }
+     }
+     return OUTSIDE;
+ }

@@ -1,0 +1,1038 @@
+Contour: open and joined edges (mask_open, mask_join), two layers as one sheet.
+
+- hg.layer(..., { mask_open = "top" }): the outline of a traced shape runs on
+  past the named edges of the layer's box instead of closing there, wherever
+  the content reaches that edge. The distance transform reads "inside" for
+  texels past an open edge, so there is no lens edge, rim or bevel along it.
+- hg.layer(..., { mask_join = "<namespace>" }): a contour layer of that
+  namespace whose box lies against this one's top or bottom edge. Past that
+  edge the transform reads the other layer's field, as far in as its own
+  reach, so the outline opens exactly where the other shape touches and keeps
+  its distance from that shape's outline too (a panel hanging from a bar, the
+  fillets it leaves by included). The build key carries the other field's
+  build serial, and a layer that rebuilds its field damages the layers joined
+  to it, so the edge follows the other layer as it maps, moves and unmaps.
+- The seam between the two is drawn from one backdrop. The layer with the
+  open edge samples the frame after the other was drawn, so its sample held
+  that layer's glass where they meet, and tinting and blurring it again showed
+  as a brighter row or two over dark windows. Now the other layer's sample is
+  copied over that part before the blur, the rows the boxes overlap by are
+  left to the other layer, and beside them the glass shader reads the other
+  layer's sample directly (same texels, exact mapping), fading to its own.
+- hg.layer(..., { open_frost = blur, open_feather = px }): the glass is the
+  layer's own at its open top or bottom edge and grows into frosted glass over
+  that many logical px, through the frosted copy of the sample that `frost`
+  gives windows, mixed in per pixel. A layer's frost keeps the glass's tone
+  (no extra saturation or dimming), so nothing but the blur changes.
+- A layer's cached sample is retaken when its box is not the one it was
+  taken for: the frame an open animation ends on kept the sample of the frame
+  before, a few pixels off.
+
+diff --git a/README.md b/README.md
+index a4df269..036deed 100644
+--- a/README.md
++++ b/README.md
+@@ -344,6 +344,18 @@ hg.layer("quickshell:notifications", { mask_mode = "contour" })
+ hg.layer("quickshell:bar", { mask_mode = "contour", mask_nested = 0.15 })
+ ```
+ 
++**Joined shapes:** two layers that lie against each other (a bar and the panel that drops out of it) each get a closed outline, so a lit rim runs along the seam. `mask_open` names the edges of a layer's box (`top`, `bottom`, `left`, `right`) where the outline runs on instead of closing, wherever the content reaches that edge. `mask_join` names the namespace of a contour layer lying against this one's top or bottom edge: the outline opens along the stretch where that layer's shape touches, and closes again when it goes.
++
++```lua
++-- a panel that hangs from the bar: one sheet of glass, no rim between them
++hg.layer("bar", { mask_mode = "contour", mask_join = "panel" })
++hg.layer("panel", { mask_mode = "contour", mask_open = "top", open_frost = 3.0, open_feather = 7 })
++```
++
++Where a `mask_open` layer meets the layer that names it in `mask_join`, both are drawn from the same backdrop: the row or two their boxes overlap by stays the first layer's, and beside it the second reads the first one's sample, fading to its own over the next 36 px. With the same preset on both, the seam is then exact over any backdrop; a different blur, tint or rim still shows as a change of glass.
++
++`open_frost` lets the glass thicken as it runs on: at the open edge it is the layer's own glass, the same as the one it continues, and over `open_feather` logical px it turns into frosted glass, blurred by that much more (in `blur_strength` units). The seam stays invisible, and a window edge right behind it dissolves instead of reading as a line. Top and bottom open edges only.
++
+ **Cost:** none for layers that do not use it. For a layer that does, one extra texture read per glass pixel, and a few short GPU passes and a few MB of memory while a contour layer exists (shared work buffers included), freed when the last one closes or stops using `contour`. `hyprctl hyprglass stats` counts the rebuilds (`contour_build`).
+ 
+ **Fixed shape:** `shape` gives a layer's glass its own rounded box, so a floating bar or a card inside a larger layer gets its own edge, bend and highlights instead of those of the whole layer. `inset` trims the layer's edges (one value, or top, right, bottom, left) and `radius` rounds the corners, `-1` for a pill; both in logical px (up to 16384), and a negative inset reaches past that edge. Content outside the shape is still drawn, without glass. Inside it, `mask_mode` still decides where the glass goes: set the layer's `mask_threshold` to `0` to fill the whole shape.
+@@ -381,6 +393,10 @@ hg.layer("debug-panel", { exclude = true })
+ | `mask_mode` | string | `"auto"`, `"region"`, `"alpha"` or `"contour"`. Per-layer override of `layers.mask_mode` |
+ | `mask_feather` | float | Per-layer override of `layers.mask_feather` |
+ | `mask_nested` | float | Contour only: alpha above which content inside the traced shape is a nested shape with its own edge (`0`, the default, = none) |
++| `mask_open` | string | Contour only: box edges (`top`, `bottom`, `left`, `right`, space separated) where the outline stays open (`""`, the default, = none) |
++| `mask_join` | string | Contour only: namespace of a contour layer lying against this one's top or bottom edge; the outline opens where the two touch |
++| `open_frost` | float | Contour only, with `mask_open`: extra blur the glass grows into away from its open top or bottom edge, in `blur_strength` units (`0`, the default, = none) |
++| `open_feather` | float | Logical px over which `open_frost` grows from nothing at the open edge (default `16`) |
+ | `shape` | table | Fixed glass shape: `{ inset = px or { top, right, bottom, left }, radius = px }`, both optional (`0`); `radius = -1` = pill |
+ | `exclude` | bool | Blacklist this namespace instead of whitelisting it |
+ 
+diff --git a/src/Contour.cpp b/src/Contour.cpp
+index f41b84d..0f4f348 100644
+--- a/src/Contour.cpp
++++ b/src/Contour.cpp
+@@ -15,6 +15,9 @@ namespace Contour {
+ 
+ namespace {
+ 
++// The texture unit the distance transform reads a joined layer's field from (mask_join).
++constexpr int JOIN_TEXTURE_UNIT = 1;
++
+ GLuint framebufferId(const SP<Render::IFramebuffer>& framebuffer) {
+     return dynamic_cast<Render::GL::CGLFramebuffer*>(framebuffer.get())->getFBID();
+ }
+@@ -192,6 +195,9 @@ bool CField::build(Render::CRenderContext& ctx, const SBuildKey& key, const SP<R
+     const float fieldHeight = static_cast<float>(plan.fieldHeight);
+     const float divisor     = static_cast<float>(plan.divisor);
+ 
++    const bool  joined = key.joinEdge != 0 && key.joinTexture != 0 && key.joinFieldWidth > 0 && key.joinFieldHeight > 0 &&
++                         glIsTexture(key.joinTexture) == GL_TRUE;
++
+     const auto  pass = [&](const SP<CShader>& program, const SP<Render::IFramebuffer>& target, const SP<Render::IFramebuffer>& source, auto&& setUniforms) {
+         auto shader = g_pHyprOpenGL->useShader(program);
+         shader->setUniformMatrix3fv(SHADER_PROJ, 1, GL_FALSE, FULLSCREEN_PROJECTION);
+@@ -232,7 +238,18 @@ bool CField::build(Render::CRenderContext& ctx, const SBuildKey& key, const SP<R
+             glUniform1i(uniforms.reachTexels, plan.reachTexels);
+             glUniform1f(uniforms.texelPx, divisor);
+             glUniform1f(uniforms.reachPx, plan.reachPx);
++            glUniform1i(uniforms.openEdges, key.openEdges);
++            glUniform1i(uniforms.joinEdge, joined ? key.joinEdge : 0);
++            glUniform1i(uniforms.joinTex, JOIN_TEXTURE_UNIT);
++            glUniform2f(uniforms.joinMap, key.joinOffsetPx, static_cast<float>(std::max(key.joinDivisor, 1)));
++            glUniform2f(uniforms.joinFieldSize, static_cast<float>(key.joinFieldWidth), static_cast<float>(key.joinFieldHeight));
+         };
++        // mask_join: the other layer's field, read along the edge it lies against
++        if (joined) {
++            g_pHyprOpenGL->setActiveTexture(GL_TEXTURE0 + JOIN_TEXTURE_UNIT);
++            glBindTexture(GL_TEXTURE_2D, key.joinTexture);
++            g_pHyprOpenGL->setActiveTexture(GL_TEXTURE0);
++        }
+         pass(programs->edt, second, first, [&] {
+             common();
+             glUniform2f(uniforms.direction, 0.0f, 1.0f);
+@@ -284,6 +301,8 @@ bool CField::build(Render::CRenderContext& ctx, const SBuildKey& key, const SP<R
+     if (const auto monitor = ctx.m_data.pMonitor.lock())
+         Diagnostics::recordContourRebuild(monitor->m_id);
+ 
++    static unsigned long s_builds = 0;
++    m_serial          = ++s_builds;
+     m_builtKey        = key;
+     m_dirty           = false;
+     m_uncoveredFrames = 0;
+diff --git a/src/Contour.hpp b/src/Contour.hpp
+index 9d92f44..6427209 100644
+--- a/src/Contour.hpp
++++ b/src/Contour.hpp
+@@ -126,6 +126,12 @@ struct SPlan {
+     return std::nullopt;
+ }
+ 
++// The edges of a layer's box, for mask_open and mask_join, as they are on screen.
++inline constexpr int EDGE_TOP    = 1;
++inline constexpr int EDGE_BOTTOM = 2;
++inline constexpr int EDGE_LEFT   = 4;
++inline constexpr int EDGE_RIGHT  = 8;
++
+ // What a build depends on besides the plan.
+ struct SBuildKey {
+     SPlan plan;
+@@ -136,6 +142,18 @@ struct SBuildKey {
+     // Where the box sits in the framebuffer, only while part of it is off the screen: the
+     // visible part is all that was drawn. (0, 0) while it is entirely on screen.
+     int   boxX = 0, boxY = 0;
++    // mask_open: past these edges of the box the outline runs on wherever the content
++    // reaches the edge, instead of closing there. EDGE_* bits.
++    int   openEdges = 0;
++    // mask_join: another layer's field lies against joinEdge (EDGE_TOP or EDGE_BOTTOM, 0 =
++    // none). Where that layer's content touches the edge the outline runs on into it. The
++    // serial is that field's build: a new one means its outline moved.
++    int           joinEdge = 0;
++    unsigned int  joinTexture = 0;
++    unsigned long joinSerial = 0;
++    float         joinOffsetPx = 0.0f; // this box's left edge in the other box, framebuffer px
++    int           joinDivisor = 1;
++    int           joinFieldWidth = 0, joinFieldHeight = 0;
+ 
+     [[nodiscard]] bool operator==(const SBuildKey&) const noexcept = default;
+ };
+@@ -196,12 +214,18 @@ class CField {
+     // The texture the glass shader reads.
+     [[nodiscard]] SP<Render::IFramebuffer> framebuffer() const { return m_field; }
+ 
++    // What the held field was built for, and which build it is: every build of any field
++    // gets a new serial, so a layer joined to this one (mask_join) can tell its outline moved.
++    [[nodiscard]] const SBuildKey& builtKey() const noexcept { return m_builtKey; }
++    [[nodiscard]] unsigned long    serial() const noexcept { return m_serial; }
++
+     // Marks the layer as using contour, so that pending() starts to report.
+     void request() noexcept { m_requested = true; }
+ 
+   private:
+     SP<Render::IFramebuffer>                                  m_field;
+     SBuildKey                                                 m_builtKey;
++    unsigned long                                             m_serial    = 0;
+     bool                                                      m_requested = false;
+     bool                                                      m_dirty     = false;
+     bool                                                      m_counted   = false; // counted in SScratch::users
+diff --git a/src/GlassLayerSurface.cpp b/src/GlassLayerSurface.cpp
+index 86a0251..d519f5c 100644
+--- a/src/GlassLayerSurface.cpp
++++ b/src/GlassLayerSurface.cpp
+@@ -17,6 +17,10 @@
+ #include <hyprland/src/render/Renderer.hpp>
+ #include <hyprutils/math/Misc.hpp>
+ 
++// mask_open: framebuffer px over which a layer fades from the sample of the layer it
++// continues to its own. Well inside that sample's padding, which is all it holds past its box.
++static constexpr float SEAM_FADE_PX = 0.6f * GlassRenderer::SAMPLE_PADDING_PX;
++
+ CGlassLayerSurface::CGlassLayerSurface(PHLLS layerSurface)
+     : m_layerSurface(layerSurface) {
+ }
+@@ -355,9 +359,14 @@ bool CGlassLayerSurface::wantsBackgroundResample(PHLMONITOR monitor, const CBox&
+     // region mode: the cached texture is still region-shrunk.
+     const bool regionBoxChanged = sampleRegionBox(monitor, layerBox) != m_cachedRegionSampleBox;
+ 
++    // The frame an open animation ends on is no longer "animating", but its box is not the
++    // one the last sample was taken for: kept, the glass would show the backdrop a few
++    // pixels off, which is a visible step where this layer continues another (mask_join).
++    const bool boxMoved = layerBox.x != m_sampledBox.x || layerBox.y != m_sampledBox.y || layerBox.w != m_sampledBox.w || layerBox.h != m_sampledBox.h;
++
+     return !m_hasCachedSample ||
+            g_pGlobalState->getSceneGeneration(monitor) != m_lastSceneGeneration ||
+-           isAnimating || m_backgroundDirty || forceLive || regionBoxChanged ||
++           isAnimating || m_backgroundDirty || forceLive || regionBoxChanged || boxMoved ||
+            xray != m_cachedFromSnapshot;
+ }
+ 
+@@ -439,6 +448,10 @@ void CGlassLayerSurface::sampleAndRedirect(Render::CRenderContext& ctx, PHLMONIT
+         GlassRenderer::sampleBackground(ctx, m_sampleFramebuffer, xray ? snapshot : source, sampleBox, m_samplePaddingRatio, downscale);
+         // only here: a deferred or cached frame keeps compositing the old texture
+         m_cachedRegionSampleBox = regionSampleBox;
++        m_sampledBox            = *layerBox;
++        m_sampledDownscale      = downscale;
++        if (!regionSampleBox && !xray)
++            restoreBackdropUnderJoinedLayer(monitor, *layerBox, downscale, source);
+ 
+         float blurRadius     = blurStrength * 12.0f / downscale;
+         int blurIterations   = std::clamp(static_cast<int>(resolvePresetInt(resolveContext, &SPresetValues::blurIterations, &SOverridableConfig::blurIterations)), 1, 5);
+@@ -450,6 +463,7 @@ void CGlassLayerSurface::sampleAndRedirect(Render::CRenderContext& ctx, PHLMONIT
+         }
+ 
+         GlassRenderer::blurBackground(ctx, m_sampleFramebuffer, blurRadius, blurIterations, source);
++        m_frost.sampleChanged();
+ 
+         m_hasCachedSample      = true;
+         m_cachedFromSnapshot   = xray;
+@@ -552,7 +566,7 @@ std::optional<Contour::SBuildKey> CGlassLayerSurface::contourBuildKey(PHLMONITOR
+     const float maskThreshold = resolveMaskThreshold();
+     const float maskNested    = resolveMaskNested();
+ 
+-    return Contour::SBuildKey{
++    Contour::SBuildKey key{
+         .plan        = *plan,
+         .threshold   = std::isfinite(maskThreshold) ? maskThreshold : 0.001f,
+         .nested      = std::isfinite(maskNested) ? maskNested : 0.0f,
+@@ -561,6 +575,72 @@ std::optional<Contour::SBuildKey> CGlassLayerSurface::contourBuildKey(PHLMONITOR
+         .boxX        = onScreen ? 0 : static_cast<int>(layerBox.x),
+         .boxY        = onScreen ? 0 : static_cast<int>(layerBox.y),
+     };
++
++    const auto layerSurface = m_layerSurface.lock();
++    if (!layerSurface)
++        return key;
++
++    const auto& state = *g_pGlobalState;
++    if (const auto it = state.layerNamespaceMaskOpen.find(layerSurface->m_namespace); it != state.layerNamespaceMaskOpen.end())
++        key.openEdges = it->second;
++
++    // mask_join: a layer of that namespace, drawn with contour on this monitor, whose box
++    // lies against this one's top or bottom edge
++    const auto joinIt = state.layerNamespaceMaskJoin.find(layerSurface->m_namespace);
++    if (joinIt == state.layerNamespaceMaskJoin.end())
++        return key;
++
++    const double tolerance = 3.0 * scale;
++    for (const auto& [raw, other] : state.layerSurfaces) {
++        if (!other || other.get() == this || !other->m_contour.held() || other->m_contourMonitor != monitor.get())
++            continue;
++        const auto otherSurface = other->getLayerSurface();
++        if (!otherSurface || !otherSurface->mapped() || otherSurface->m_namespace != joinIt->second)
++            continue;
++        const auto fieldFramebuffer = other->m_contour.framebuffer();
++        if (!fieldFramebuffer || !fieldFramebuffer->getTexture())
++            continue;
++
++        const CBox& otherBox = other->m_contourBox;
++        if (otherBox.x + otherBox.w <= layerBox.x || otherBox.x >= layerBox.x + layerBox.w)
++            continue;
++        int edge = 0;
++        if (std::abs(otherBox.y - (layerBox.y + layerBox.h)) <= tolerance)
++            edge = Contour::EDGE_BOTTOM;
++        else if (std::abs(otherBox.y + otherBox.h - layerBox.y) <= tolerance)
++            edge = Contour::EDGE_TOP;
++        else
++            continue;
++
++        const auto& otherPlan = other->m_contour.builtKey().plan;
++        key.joinEdge        = edge;
++        key.joinTexture     = fieldFramebuffer->getTexture()->m_texID;
++        key.joinSerial      = other->m_contour.serial();
++        key.joinOffsetPx    = static_cast<float>(layerBox.x - otherBox.x);
++        key.joinDivisor     = otherPlan.divisor;
++        key.joinFieldWidth  = otherPlan.fieldWidth;
++        key.joinFieldHeight = otherPlan.fieldHeight;
++        break;
++    }
++    return key;
++}
++
++void CGlassLayerSurface::damageJoinedLayers() const {
++    const auto layerSurface = m_layerSurface.lock();
++    if (!layerSurface || !g_pGlobalState)
++        return;
++
++    const auto& state = *g_pGlobalState;
++    for (const auto& [raw, other] : state.layerSurfaces) {
++        if (!other || other.get() == this || !other->m_contour.held())
++            continue;
++        const auto otherSurface = other->getLayerSurface();
++        if (!otherSurface)
++            continue;
++        const auto joinIt = state.layerNamespaceMaskJoin.find(otherSurface->m_namespace);
++        if (joinIt != state.layerNamespaceMaskJoin.end() && joinIt->second == layerSurface->m_namespace)
++            other->damageSampleRegion();
++    }
+ }
+ 
+ bool CGlassLayerSurface::needsContourBuild(Render::CRenderContext& ctx, PHLMONITOR monitor, const CBox& layerBox, float alpha) const {
+@@ -580,6 +660,129 @@ bool CGlassLayerSurface::needsContourBuild(Render::CRenderContext& ctx, PHLMONIT
+     return key && m_contour.wantsBuild(*key);
+ }
+ 
++CGlassLayerSurface* CGlassLayerSurface::continuedLayer(PHLMONITOR monitor, const CBox& layerBox, int& edge) const {
++    edge = 0;
++    const auto layerSurface = m_layerSurface.lock();
++    if (!layerSurface || !monitor)
++        return nullptr;
++
++    const auto& state  = *g_pGlobalState;
++    const auto  openIt = state.layerNamespaceMaskOpen.find(layerSurface->m_namespace);
++    if (openIt == state.layerNamespaceMaskOpen.end())
++        return nullptr;
++
++    const double tolerance = 3.0 * (monitor->m_scale > 0.0f ? monitor->m_scale : 1.0f);
++    for (const auto& [raw, other] : state.layerSurfaces) {
++        // its sample has to be the plain backdrop of its whole box
++        if (!other || other.get() == this || !other->m_hasCachedSample || other->m_cachedFromSnapshot || other->m_cachedRegionSampleBox ||
++            !other->m_sampleFramebuffer || !other->m_sampleFramebuffer->getTexture())
++            continue;
++        const auto otherSurface = other->getLayerSurface();
++        if (!otherSurface || !otherSurface->mapped() || otherSurface->m_monitor != layerSurface->m_monitor)
++            continue;
++        const auto joinIt = state.layerNamespaceMaskJoin.find(otherSurface->m_namespace);
++        if (joinIt == state.layerNamespaceMaskJoin.end() || joinIt->second != layerSurface->m_namespace)
++            continue;
++
++        const CBox& otherBox = other->m_sampledBox;
++        if ((openIt->second & Contour::EDGE_TOP) && std::abs(otherBox.y + otherBox.h - layerBox.y) <= tolerance)
++            edge = Contour::EDGE_TOP;
++        else if ((openIt->second & Contour::EDGE_BOTTOM) && std::abs(otherBox.y - (layerBox.y + layerBox.h)) <= tolerance)
++            edge = Contour::EDGE_BOTTOM;
++        else
++            continue;
++        return other.get();
++    }
++    return nullptr;
++}
++
++void CGlassLayerSurface::restoreBackdropUnderJoinedLayer(PHLMONITOR monitor, const CBox& layerBox, int downscale,
++                                                         const SP<Render::IFramebuffer>& source) {
++    int         edge  = 0;
++    const auto* other = continuedLayer(monitor, layerBox, edge);
++    if (!other)
++        return;
++
++    // everything on the other layer's side of the seam, as far as this sample reaches
++    const CBox&  otherBox = other->m_sampledBox;
++    const double reach    = GlassRenderer::SAMPLE_PADDING_PX;
++    const CBox   region   = edge == Contour::EDGE_TOP ?
++        CBox{layerBox.x - reach, layerBox.y - reach, layerBox.w + 2.0 * reach, otherBox.y + otherBox.h - (layerBox.y - reach)} :
++        CBox{layerBox.x - reach, otherBox.y, layerBox.w + 2.0 * reach, layerBox.y + layerBox.h + reach - otherBox.y};
++    GlassRenderer::copySampleRegion(m_sampleFramebuffer, layerBox, downscale, other->m_sampleFramebuffer, otherBox, other->m_sampledDownscale, region,
++                                    source);
++}
++
++void CGlassLayerSurface::attachSeam(PHLMONITOR monitor, const CBox& layerBox, GlassRenderer::SMaskInfo& maskInfo) const {
++    int         edge  = 0;
++    const auto* other = continuedLayer(monitor, layerBox, edge);
++    if (!other || layerBox.w <= 0.0 || layerBox.h <= 0.0)
++        return;
++
++    // the rows the two boxes share are the other layer's
++    const CBox& otherBox = other->m_sampledBox;
++    if (edge == Contour::EDGE_TOP) {
++        maskInfo.skipTopPx     = static_cast<float>(std::max(otherBox.y + otherBox.h - layerBox.y, 0.0));
++        maskInfo.seamFadeTopPx = SEAM_FADE_PX;
++    } else {
++        maskInfo.skipBottomPx     = static_cast<float>(std::max(layerBox.y + layerBox.h - otherBox.y, 0.0));
++        maskInfo.seamFadeBottomPx = SEAM_FADE_PX;
++    }
++
++    // the other layer's sample, as it reads it itself: its padded box is the whole texture
++    const auto map         = GlassRenderer::sampleMapFor(otherBox, other->m_sampledDownscale);
++    maskInfo.seamTextureId = other->m_sampleFramebuffer->getTexture()->m_texID;
++    maskInfo.seamUVScale   = {layerBox.w / map.fullWidth, layerBox.h / map.fullHeight};
++    maskInfo.seamUVOffset  = {(layerBox.x - map.srcX0) / map.fullWidth, (layerBox.y - map.srcY0) / map.fullHeight};
++}
++
++// open_feather when the layer sets none, logical px
++static constexpr float OPEN_FEATHER_DEFAULT = 16.0f;
++
++bool CGlassLayerSurface::openFrost(Render::CRenderContext& ctx, PHLMONITOR monitor, const SP<Render::IFramebuffer>& target,
++                                   const SResolveContext& resolveContext, GlassRenderer::SFrostInput& frostInput) {
++    const auto layerSurface = m_layerSurface.lock();
++    if (!layerSurface || !monitor)
++        return false;
++
++    const auto& state   = *g_pGlobalState;
++    const auto  frostIt = state.layerNamespaceOpenFrost.find(layerSurface->m_namespace);
++    const auto  openIt  = state.layerNamespaceMaskOpen.find(layerSurface->m_namespace);
++    const float setting = frostIt != state.layerNamespaceOpenFrost.end() ? std::min(frostIt->second, Frost::BLUR_MAX) : 0.0f;
++    const int   edges   = openIt != state.layerNamespaceMaskOpen.end() ? openIt->second : 0;
++    if (setting <= 0.0f || (edges & (Contour::EDGE_TOP | Contour::EDGE_BOTTOM)) == 0) {
++        m_frost.reset();
++        return false;
++    }
++
++    // the copy is the sample at half its size: the radius is in its pixels
++    const float blurStrength = resolvePresetFloat(resolveContext, &SPresetValues::blurStrength, &SOverridableConfig::blurStrength);
++    const int   downscale    = blurStrength >= GlassRenderer::BLUR_DOWNSCALE_THRESHOLD ? GlassRenderer::BLUR_DOWNSCALE_MAX : 1;
++    const float radius       = setting * 12.0f / (2.0f * downscale);
++    if (m_frost.needsBuild(m_sampleFramebuffer, radius)) {
++        float frostRadius     = radius;
++        int   frostIterations = Frost::BLUR_ITERATIONS;
++        if (resolveContext.config.blurFold && **resolveContext.config.blurFold) {
++            const GlassRenderer::SFoldedBlur folded = GlassRenderer::foldBlurPasses(frostRadius, frostIterations);
++            frostRadius     = folded.radius;
++            frostIterations = folded.iterations;
++        }
++        if (GlassRenderer::buildFrostCopy(ctx, m_sampleFramebuffer, m_frost.copy(), m_frost.temporary(), frostRadius, frostIterations, target)) {
++            m_frost.built(radius);
++            Diagnostics::recordFrostRebuild(monitor->m_id);
++        }
++    }
++    if (m_frost.needsBuild(m_sampleFramebuffer, radius))
++        return false;
++
++    const float scale     = monitor->m_scale > 0.0f ? monitor->m_scale : 1.0f;
++    const auto  featherIt = state.layerNamespaceOpenFeather.find(layerSurface->m_namespace);
++    // at least a pixel: 0 would frost right up to the edge
++    const float ramp      = std::max((featherIt != state.layerNamespaceOpenFeather.end() ? featherIt->second : OPEN_FEATHER_DEFAULT) * scale, 1.0f);
++    frostInput = {m_frost.copy(), 1.0f, (edges & Contour::EDGE_TOP) ? ramp : 0.0f, (edges & Contour::EDGE_BOTTOM) ? ramp : 0.0f};
++    return true;
++}
++
+ bool CGlassLayerSurface::attachContour(Render::CRenderContext& ctx, PHLMONITOR monitor, const CBox& layerBox, float alpha,
+                                        const SResolveContext& resolveContext, GlassRenderer::SMaskInfo& maskInfo) {
+     if (g_pGlobalState->contourUnavailable)
+@@ -601,6 +804,9 @@ bool CGlassLayerSurface::attachContour(Render::CRenderContext& ctx, PHLMONITOR m
+         if (GlassRenderer::damageCoversBox(layerBox, target, ctx.m_data.damage)) {
+             if (!m_contour.build(ctx, *key, m_surfaceTempFramebuffer, layerBox, alpha, target) && g_pGlobalState->contourUnavailable)
+                 return false;
++            m_contourBox     = layerBox;
++            m_contourMonitor = monitor.get();
++            damageJoinedLayers();
+         } else if (m_contour.noteUncoveredFrame())
+             damageSampleRegion();
+     }
+@@ -768,6 +974,14 @@ void CGlassLayerSurface::compositeAndRestore(Render::CRenderContext& ctx, PHLMON
+         maskInfo.sampleUVScale  = Vector2D(sampleBox.w / box.w, sampleBox.h / box.h);
+     }
+ 
++    // mask_open: the seam with the layer this one continues
++    if (contoured)
++        attachSeam(monitor, box, maskInfo);
++
++    // open_frost: clear like the glass it runs on from at the open edge, frosted away from it
++    GlassRenderer::SFrostInput frostInput;
++    const bool                 frosted = contoured && openFrost(ctx, monitor, target, resolveContext, frostInput);
++
+     // The glass shader composites both the glass effect and the surface content
+     // in a single pass: glass behind, surface on top, using the temp FBO alpha.
+     GlassRenderer::applyGlassEffect(ctx,
+@@ -775,5 +989,5 @@ void CGlassLayerSurface::compositeAndRestore(Render::CRenderContext& ctx, PHLMON
+                                      box, alpha,
+                                      std::array<float, 4>{cornerRadius, cornerRadius, cornerRadius, cornerRadius},
+                                      roundingPower, m_samplePaddingRatio, resolveContext,
+-                                     &maskInfo);
++                                     &maskInfo, 0.0f, frosted ? &frostInput : nullptr);
+ }
+diff --git a/src/GlassLayerSurface.hpp b/src/GlassLayerSurface.hpp
+index e4c62ca..47acdb8 100644
+--- a/src/GlassLayerSurface.hpp
++++ b/src/GlassLayerSurface.hpp
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "Contour.hpp"
++#include "Frost.hpp"
+ #include "GlassRenderer.hpp"
+ #include "PluginConfig.hpp"
+ 
+@@ -61,7 +62,11 @@ class CGlassLayerSurface {
+ 
+     // Frees the field (and the shared build targets with the last one): the layer is no
+     // longer drawn with contour, or is gone.
+-    void releaseContour() { m_contour.release(); }
++    void releaseContour() {
++        if (m_contour.held())
++            damageJoinedLayers();
++        m_contour.release();
++    }
+ 
+     // Decides ALPHA_THRESHOLD vs PROTOCOL_REGION vs NONE for this layer, based on
+     // mask_mode and the root surface's ext-background-effect-v1 state.
+@@ -150,11 +155,44 @@ class CGlassLayerSurface {
+     // regionRects upload so both use identical, proven math.
+     [[nodiscard]] CRegion transformedBlurRegion(PHLMONITOR monitor, const CBox& layerBox) const;
+ 
++    // The layer box the cached sample was taken for, and its downscale.
++    CBox m_sampledBox;
++    int  m_sampledDownscale = 1;
++
++    // mask_open: copies the backdrop the layer this one continues sampled over this layer's
++    // fresh sample where that layer's glass lies (see GlassRenderer::copySampleRegion()).
++    void restoreBackdropUnderJoinedLayer(PHLMONITOR monitor, const CBox& layerBox, int downscale, const SP<Render::IFramebuffer>& source);
++
++    // mask_open: the layer whose glass this one continues past an open edge (it names this
++    // one in its mask_join, lies against that edge and holds a sample), and which edge
++    // (Contour::EDGE_TOP or EDGE_BOTTOM). Null: none.
++    [[nodiscard]] CGlassLayerSurface* continuedLayer(PHLMONITOR monitor, const CBox& layerBox, int& edge) const;
++
++    // mask_open: what the glass draw needs at the seam: the rows the two boxes overlap by,
++    // which stay the other layer's, and that layer's sample to read beside them.
++    void attachSeam(PHLMONITOR monitor, const CBox& layerBox, GlassRenderer::SMaskInfo& maskInfo) const;
++
+     // Saved currentFB pointer, restored in compositeAndRestore
+     SP<Render::IFramebuffer> m_savedCurrentFB;
+ 
+     // mask_mode = contour: the traced outline, rebuilt when the content changes.
+     Contour::CField m_contour;
++    // Where the box was, and on which monitor, when the field was last drawn: what a layer
++    // joined to this one (mask_join) lines its own box up against.
++    CBox  m_contourBox;
++    void* m_contourMonitor = nullptr;
++
++    // open_frost: the frosted copy of the sample.
++    Frost::CFrostState m_frost;
++
++    // open_frost: what this draw's glass needs to frost away from the open edges, building
++    // the frosted copy of the sample when it is missing or stale. False: no frost.
++    [[nodiscard]] bool openFrost(Render::CRenderContext& ctx, PHLMONITOR monitor, const SP<Render::IFramebuffer>& target,
++                                 const SResolveContext& resolveContext, GlassRenderer::SFrostInput& frostInput);
++
++    // mask_join: this layer's field was rebuilt or dropped, so the layers whose outline runs
++    // on into it redraw and rebuild theirs.
++    void damageJoinedLayers() const;
+ 
+     // Brings the field up to date for this draw (a build when one is due and this frame redraws
+     // the whole layer) and points maskInfo at it. False: draw with the layer's rectangle, as every
+diff --git a/src/GlassRenderer.cpp b/src/GlassRenderer.cpp
+index 4d7ac05..d31af57 100644
+--- a/src/GlassRenderer.cpp
++++ b/src/GlassRenderer.cpp
+@@ -185,6 +185,36 @@ void sampleBackground(Render::CRenderContext& ctx, SP<Render::IFramebuffer>& sam
+                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
+ }
+ 
++void copySampleRegion(const SP<Render::IFramebuffer>& sample, const CBox& box, int downscale, const SP<Render::IFramebuffer>& otherSample,
++                      const CBox& otherBox, int otherDownscale, const CBox& region, const SP<Render::IFramebuffer>& sourceFramebuffer) {
++    if (!sample || !otherSample || !sourceFramebuffer || sample == otherSample || !otherSample->isAllocated())
++        return;
++
++    const auto map      = sampleMapFor(box, downscale);
++    const auto otherMap = sampleMapFor(otherBox, otherDownscale);
++
++    // only what both samples hold
++    const double x0 = std::max({region.x, static_cast<double>(map.srcX0), static_cast<double>(otherMap.srcX0)});
++    const double y0 = std::max({region.y, static_cast<double>(map.srcY0), static_cast<double>(otherMap.srcY0)});
++    const double x1 = std::min({region.x + region.w, static_cast<double>(map.srcX1), static_cast<double>(otherMap.srcX1)});
++    const double y1 = std::min({region.y + region.h, static_cast<double>(map.srcY1), static_cast<double>(otherMap.srcY1)});
++    if (x1 <= x0 || y1 <= y0)
++        return;
++
++    const CBox shared{x0, y0, x1 - x0, y1 - y0};
++    const CBox from = otherMap.toSample(shared);
++    const CBox to   = map.toSample(shared);
++    const auto low  = [](double v) { return static_cast<int>(std::floor(v)); };
++    const auto high = [](double v) { return static_cast<int>(std::ceil(v)); };
++
++    // sampleBackground() turned the scissor off
++    g_pHyprOpenGL->bindFramebuffer(GL_READ_FRAMEBUFFER, fbId(otherSample));
++    g_pHyprOpenGL->bindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(sample));
++    glBlitFramebuffer(low(from.x), low(from.y), high(from.x + from.w), high(from.y + from.h), low(to.x), low(to.y), high(to.x + to.w),
++                      high(to.y + to.h), GL_COLOR_BUFFER_BIT, GL_LINEAR);
++    g_pHyprOpenGL->bindFramebuffer(GL_READ_FRAMEBUFFER, fbId(sourceFramebuffer));
++}
++
+ void blendOwnContent(Render::CRenderContext& ctx, SP<Render::IFramebuffer>& sampleFramebuffer, PHLWINDOW window,
+                       PHLMONITOR monitor, const CBox& box, int downscale, float amount, float cornerRadius, float roundingPower) {
+     if (amount <= 0.0f || !sampleFramebuffer || !window || !monitor)
+@@ -455,7 +485,8 @@ static GlassFeatureMask glassFeaturesFor(float edgeHeight, float focusLight, boo
+ }
+ 
+ static constexpr int FROST_TEXTURE_UNIT   = 2; // 0 is the sample, 1 the layer surface mask
+-static constexpr int CONTOUR_TEXTURE_UNIT = 3; // layers only, so never at the same time as frost
++static constexpr int CONTOUR_TEXTURE_UNIT = 3; // layers only
++static constexpr int SEAM_TEXTURE_UNIT    = 4; // layers only: the sample of the layer this one continues
+ 
+ void applyGlassEffect(Render::CRenderContext& ctx,
+                        SP<Render::IFramebuffer> sampleFramebuffer, SP<Render::IFramebuffer> targetFramebuffer,
+@@ -475,8 +506,7 @@ void applyGlassEffect(Render::CRenderContext& ctx,
+         std::min(resolvePresetFloat(resolveContext, &SPresetValues::edgeHeight, &SOverridableConfig::edgeHeight), EDGE_HEIGHT_MAX);
+     // windows only: a masked draw is a layer or an item
+     const float focusLightValue = !mask && focusLight > 0.0f ? std::min(focusLight, 1.0f) : 0.0f;
+-    // windows only, like the light
+-    const bool  frosted         = !mask && frost && frost->copy && frost->copy->getTexture() && frost->amount > Frost::MINIMUM_AMOUNT;
++    const bool  frosted         = frost && frost->copy && frost->copy->getTexture() && frost->amount > Frost::MINIMUM_AMOUNT;
+     // layers only too, and only when the layer has a field to draw
+     const bool  wantsContour    = mask && mask->contourTextureId != 0 && mask->contourReferencePx > 0.0f;
+     const auto  features        = glassFeaturesFor(edgeHeightValue, focusLightValue, frosted, wantsContour);
+@@ -613,6 +643,7 @@ void applyGlassEffect(Render::CRenderContext& ctx,
+     if (features & GLASS_FEATURE_FROST) {
+         glUniform1i(uniforms.frostTex, FROST_TEXTURE_UNIT);
+         glUniform1f(uniforms.frostAmount, std::min(frost->amount, 1.0f));
++        glUniform2f(uniforms.frostRamp, frost->rampTop, frost->rampBottom);
+     }
+ 
+     if (contoured) {
+@@ -674,6 +705,17 @@ void applyGlassEffect(Render::CRenderContext& ctx,
+             static_cast<float>(mask->sampleUVOffset.x), static_cast<float>(mask->sampleUVOffset.y));
+         glUniform2f(uniforms.sampleUVScale,
+             static_cast<float>(mask->sampleUVScale.x), static_cast<float>(mask->sampleUVScale.y));
++        glUniform2f(uniforms.skipRows, mask->skipTopPx, mask->skipBottomPx);
++        const bool seam = mask->seamTextureId != 0 && glIsTexture(mask->seamTextureId) == GL_TRUE;
++        if (seam) {
++            g_pHyprOpenGL->setActiveTexture(GL_TEXTURE0 + SEAM_TEXTURE_UNIT);
++            glBindTexture(GL_TEXTURE_2D, mask->seamTextureId);
++            g_pHyprOpenGL->setActiveTexture(GL_TEXTURE0);
++            glUniform1i(uniforms.seamTex, SEAM_TEXTURE_UNIT);
++            glUniform4f(uniforms.seamUV, static_cast<float>(mask->seamUVScale.x), static_cast<float>(mask->seamUVScale.y),
++                        static_cast<float>(mask->seamUVOffset.x), static_cast<float>(mask->seamUVOffset.y));
++        }
++        glUniform2f(uniforms.seamFade, seam ? mask->seamFadeTopPx : 0.0f, seam ? mask->seamFadeBottomPx : 0.0f);
+     } else {
+         glUniform1i(uniforms.useMask, 0);
+         glUniform1f(uniforms.maskAlphaThreshold, 0.001f);
+diff --git a/src/GlassRenderer.hpp b/src/GlassRenderer.hpp
+index 3f7b8aa..b91309c 100644
+--- a/src/GlassRenderer.hpp
++++ b/src/GlassRenderer.hpp
+@@ -115,6 +115,20 @@ struct SMaskInfo {
+     Vector2D sampleUVOffset{0.0, 0.0};
+     Vector2D sampleUVScale{1.0, 1.0};
+ 
++    // mask_open: rows at the top and bottom of the quad that are left as they are, glass
++    // and content both: the layer this one continues has drawn them (the boxes overlap).
++    float skipTopPx    = 0.0f;
++    float skipBottomPx = 0.0f;
++
++    // mask_open: the sample texture of the layer this one continues (0 = none), how the
++    // quad's UV maps into it, and over how many px from the top or bottom seam the glass
++    // fades from that sample to its own. At the seam both layers then draw the same texels.
++    GLuint   seamTextureId = 0;
++    Vector2D seamUVScale{1.0, 1.0};
++    Vector2D seamUVOffset{0.0, 0.0};
++    float    seamFadeTopPx    = 0.0f;
++    float    seamFadeBottomPx = 0.0f;
++
+     // Subsurface items and shaped layers only: the glass shape's own sub-rect
+     // within the drawn box, box-local pixels (see Shaders.hpp's glassBoxOffsetPx/SizePx).
+     // Sentinel (negative size) means "use the full drawn box", applyGlassEffect's
+@@ -157,6 +171,18 @@ struct SSampleMap {
+ // `damage`. `box` is in framebuffer pixels, not the logical space boundingBox() pads in.
+ [[nodiscard]] bool sampleRegionCovered(const CBox& box, const SP<Render::IFramebuffer>& source, const CRegion& damage);
+ 
++// mask_open: a layer that continues another one samples the frame after that one was drawn,
++// so where the two meet its sample holds glass (tinted, toned, with the other's content on
++// it) instead of the backdrop, and processing that again shows as a band along the seam.
++// This puts the backdrop back: `region` (framebuffer px) of `otherSample`, which was taken
++// for `otherBox` before either was drawn, is copied over the same region of `sample`,
++// taken for `box`. Call it between sampleBackground() and blurBackground(), so the blur
++// does not carry the other glass across the seam; it leaves `sourceFramebuffer` bound for
++// reading as sampleBackground() does. The two samples' texel grids need not line up, so
++// the copy is only good to a texel: fine under a blur, not for pixels that are shown.
++void copySampleRegion(const SP<Render::IFramebuffer>& sample, const CBox& box, int downscale, const SP<Render::IFramebuffer>& otherSample,
++                      const CBox& otherBox, int otherDownscale, const CBox& region, const SP<Render::IFramebuffer>& sourceFramebuffer);
++
+ void sampleBackground(Render::CRenderContext& ctx, SP<Render::IFramebuffer>& sampleFramebuffer,
+                        SP<Render::IFramebuffer> sourceFramebuffer, CBox box, Vector2D& outPaddingRatio, int downscale = 1);
+ 
+@@ -185,6 +211,10 @@ bool buildFrostCopy(Render::CRenderContext& ctx, const SP<Render::IFramebuffer>&
+ struct SFrostInput {
+     SP<Render::IFramebuffer> copy;
+     float                    amount = 0.0f;
++    // Layers (open_frost): the frost grows from nothing at the box's top and bottom edge
++    // over this many px. 0: full right at that edge.
++    float                    rampTop    = 0.0f;
++    float                    rampBottom = 0.0f;
+ };
+ 
+ // When mask is non-null (layers only), the shader composites the surface content
+@@ -199,7 +229,8 @@ struct SFrostInput {
+ // focusLight: brightness of the light along the edge, 0..1 (focus_light times
+ // its fade). Only the active window's glass passes one above 0.
+ //
+-// frost: windows only, null when the glass is not frosted right now (see SFrostInput).
++// frost: null when the glass is not frosted right now (see SFrostInput). Windows by `frost`,
++// layers by `open_frost`.
+ //
+ // box: the drawn quad in framebuffer pixels. The glass's up is the screen's up as the
+ // user sees it, whatever the monitor's transform.
+diff --git a/src/Globals.hpp b/src/Globals.hpp
+index 1c6ac9b..b493519 100644
+--- a/src/Globals.hpp
++++ b/src/Globals.hpp
+@@ -80,6 +80,14 @@ struct SGlobalState {
+     std::unordered_map<std::string, float> layerNamespaceMaskFeathers;
+     // Per-namespace mask_nested (namespace → alpha above which content inside the outline is a nested shape)
+     std::unordered_map<std::string, float> layerNamespaceMaskNested;
++    // Per-namespace mask_open (namespace → Contour::EDGE_* bits: the outline runs on past those box edges)
++    std::unordered_map<std::string, int> layerNamespaceMaskOpen;
++    // Per-namespace mask_join (namespace → the namespace of the layer its outline runs on into)
++    std::unordered_map<std::string, std::string> layerNamespaceMaskJoin;
++    // Per-namespace open_frost and open_feather (namespace → extra blur away from the open
++    // edges, in blur_strength units, and the logical px it grows over from each of them)
++    std::unordered_map<std::string, float> layerNamespaceOpenFrost;
++    std::unordered_map<std::string, float> layerNamespaceOpenFeather;
+     // Per-namespace fixed glass shape (namespace → shape); absent = the whole layer box
+     std::unordered_map<std::string, SLayerShape> layerNamespaceShapes;
+ 
+diff --git a/src/PluginConfig.cpp b/src/PluginConfig.cpp
+index 1bf6060..aa05708 100644
+--- a/src/PluginConfig.cpp
++++ b/src/PluginConfig.cpp
+@@ -770,6 +770,10 @@ struct SPendingLayer {
+     float                         maskThreshold = -1.0f;
+     float                         maskFeather   = -1.0f;
+     float                         maskNested    = -1.0f;
++    int                           maskOpen      = 0;  // Contour::EDGE_* bits
++    std::string                   maskJoin;
++    float                         openFrost     = -1.0f;
++    float                         openFeather   = -1.0f;
+     bool                          exclude       = false;
+     int                           liveResample  = -1; // -1 = not set
+     std::optional<ELayerMaskMode> maskMode;
+@@ -819,7 +823,27 @@ static std::optional<SLayerShape> readLuaLayerShape(lua_State* L, int tableIdx)
+ }
+ 
+ // What hyprglass.layer takes in its table; anything else is reported.
+-static constexpr std::array<std::string_view, 8> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "mask_nested", "live_resample", "mask_mode", "shape"};
++static constexpr std::array<std::string_view, 12> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "mask_nested", "mask_open", "mask_join", "open_frost", "open_feather", "live_resample", "mask_mode", "shape"};
++
++// mask_open = "top", "top bottom", ...: the box edges the outline runs on past. Nullopt for an unknown word.
++static std::optional<int> parseMaskOpen(std::string_view value) {
++    int edges = 0;
++    size_t at = 0;
++    while (at < value.size()) {
++        const size_t start = value.find_first_not_of(" ,", at);
++        if (start == std::string_view::npos)
++            break;
++        const size_t end  = std::min(value.find_first_of(" ,", start), value.size());
++        const auto   word = value.substr(start, end - start);
++        if (word == "top")         edges |= Contour::EDGE_TOP;
++        else if (word == "bottom") edges |= Contour::EDGE_BOTTOM;
++        else if (word == "left")   edges |= Contour::EDGE_LEFT;
++        else if (word == "right")  edges |= Contour::EDGE_RIGHT;
++        else return std::nullopt;
++        at = end;
++    }
++    return edges;
++}
+ 
+ static int handleLuaLayer(lua_State* L) {
+     s_hyprglassCalledThisReload = true;
+@@ -894,6 +918,38 @@ static int handleLuaLayer(lua_State* L) {
+             typeError("mask_nested", "a finite number, 0 or more");
+         lua_pop(L, 1);
+ 
++        lua_getfield(L, 2, "mask_open");
++        if (lua_type(L, -1) == LUA_TSTRING) {
++            if (const auto edges = parseMaskOpen(lua_tostring(L, -1)))
++                entry.maskOpen = *edges;
++            else
++                typeError("mask_open", "any of \"top\", \"bottom\", \"left\", \"right\" in one string");
++        } else if (!lua_isnil(L, -1)) {
++            typeError("mask_open", "any of \"top\", \"bottom\", \"left\", \"right\" in one string");
++        }
++        lua_pop(L, 1);
++
++        lua_getfield(L, 2, "mask_join");
++        if (lua_type(L, -1) == LUA_TSTRING)
++            entry.maskJoin = lua_tostring(L, -1);
++        else if (!lua_isnil(L, -1))
++            typeError("mask_join", "a layer namespace");
++        lua_pop(L, 1);
++
++        lua_getfield(L, 2, "open_frost");
++        if (const auto value = luaFiniteNumber(L, -1); value && *value >= 0.0)
++            entry.openFrost = static_cast<float>(*value);
++        else if (!lua_isnil(L, -1))
++            typeError("open_frost", "a finite number, 0 or more");
++        lua_pop(L, 1);
++
++        lua_getfield(L, 2, "open_feather");
++        if (const auto value = luaFiniteNumber(L, -1); value && *value >= 0.0)
++            entry.openFeather = static_cast<float>(*value);
++        else if (!lua_isnil(L, -1))
++            typeError("open_feather", "a finite number, 0 or more");
++        lua_pop(L, 1);
++
+         lua_getfield(L, 2, "live_resample");
+         if (lua_isboolean(L, -1))
+             entry.liveResample = lua_toboolean(L, -1) ? 1 : 0;
+@@ -944,6 +1000,10 @@ static void resetLayerNamespaces() {
+     g_pGlobalState->layerNamespaceMaskModes.clear();
+     g_pGlobalState->layerNamespaceMaskFeathers.clear();
+     g_pGlobalState->layerNamespaceMaskNested.clear();
++    g_pGlobalState->layerNamespaceMaskOpen.clear();
++    g_pGlobalState->layerNamespaceMaskJoin.clear();
++    g_pGlobalState->layerNamespaceOpenFrost.clear();
++    g_pGlobalState->layerNamespaceOpenFeather.clear();
+     g_pGlobalState->layerNamespaceShapes.clear();
+ }
+ 
+@@ -963,6 +1023,14 @@ void commitPendingLayers() {
+                 g_pGlobalState->layerNamespaceMaskFeathers[entry.ns] = entry.maskFeather;
+             if (entry.maskNested > 0.0f)
+                 g_pGlobalState->layerNamespaceMaskNested[entry.ns] = entry.maskNested;
++            if (entry.maskOpen != 0)
++                g_pGlobalState->layerNamespaceMaskOpen[entry.ns] = entry.maskOpen;
++            if (!entry.maskJoin.empty())
++                g_pGlobalState->layerNamespaceMaskJoin[entry.ns] = entry.maskJoin;
++            if (entry.openFrost > 0.0f)
++                g_pGlobalState->layerNamespaceOpenFrost[entry.ns] = entry.openFrost;
++            if (entry.openFeather >= 0.0f)
++                g_pGlobalState->layerNamespaceOpenFeather[entry.ns] = entry.openFeather;
+             if (entry.liveResample >= 0)
+                 g_pGlobalState->layerNamespaceLiveResample[entry.ns] = entry.liveResample != 0;
+             if (entry.maskMode)
+diff --git a/src/ShaderManager.cpp b/src/ShaderManager.cpp
+index e205def..15039c5 100644
+--- a/src/ShaderManager.cpp
++++ b/src/ShaderManager.cpp
+@@ -76,6 +76,10 @@ bool CShaderManager::compileGlassProgram(SGlassProgram& glass, GlassFeatureMask
+         glassUniforms.regionRects = glGetUniformLocation(program, "regionRects");
+     glassUniforms.sampleUVOffset      = glGetUniformLocation(program, "sampleUVOffset");
+     glassUniforms.sampleUVScale       = glGetUniformLocation(program, "sampleUVScale");
++    glassUniforms.skipRows            = glGetUniformLocation(program, "skipRows");
++    glassUniforms.seamTex             = glGetUniformLocation(program, "seamTex");
++    glassUniforms.seamUV              = glGetUniformLocation(program, "seamUV");
++    glassUniforms.seamFade            = glGetUniformLocation(program, "seamFade");
+     glassUniforms.glassBoxOffsetPx    = glGetUniformLocation(program, "glassBoxOffsetPx");
+     glassUniforms.glassBoxSizePx      = glGetUniformLocation(program, "glassBoxSizePx");
+     glassUniforms.glassUVScale        = glGetUniformLocation(program, "glassUVScale");
+@@ -88,6 +92,7 @@ bool CShaderManager::compileGlassProgram(SGlassProgram& glass, GlassFeatureMask
+     glassUniforms.focusLightColorAlpha  = glGetUniformLocation(program, "focusLightColorAlpha");
+     glassUniforms.frostTex              = glGetUniformLocation(program, "frostTex");
+     glassUniforms.frostAmount           = glGetUniformLocation(program, "frostAmount");
++    glassUniforms.frostRamp             = glGetUniformLocation(program, "frostRamp");
+     glassUniforms.contourTex            = glGetUniformLocation(program, "contourTex");
+     glassUniforms.contourUVScale        = glGetUniformLocation(program, "contourUVScale");
+     glassUniforms.contourReferencePx    = glGetUniformLocation(program, "contourReferencePx");
+@@ -147,6 +152,11 @@ bool CShaderManager::compileContourPrograms() {
+     edt.resolveSigned  = locate(m_contour.edt, "resolveSigned");
+     edt.texelPx        = locate(m_contour.edt, "texelPx");
+     edt.reachPx        = locate(m_contour.edt, "reachPx");
++    edt.openEdges      = locate(m_contour.edt, "openEdges");
++    edt.joinEdge       = locate(m_contour.edt, "joinEdge");
++    edt.joinTex        = locate(m_contour.edt, "joinTex");
++    edt.joinMap        = locate(m_contour.edt, "joinMap");
++    edt.joinFieldSize  = locate(m_contour.edt, "joinFieldSize");
+ 
+     auto& smooth             = m_contour.smoothUniforms;
+     smooth.tex               = locate(m_contour.smooth, "tex");
+diff --git a/src/ShaderManager.hpp b/src/ShaderManager.hpp
+index 1eaea41..d2c754b 100644
+--- a/src/ShaderManager.hpp
++++ b/src/ShaderManager.hpp
+@@ -55,6 +55,10 @@ struct SGlassUniforms {
+     GLint regionRects = -1;
+     GLint sampleUVOffset = -1;
+     GLint sampleUVScale = -1;
++    GLint skipRows      = -1;
++    GLint seamTex       = -1;
++    GLint seamUV        = -1;
++    GLint seamFade      = -1;
+ 
+     // The glass shape's sub-rect of the drawn box (smaller only for subsurface
+     // items), in box-local pixels, and its UV mapping (see Shaders.hpp).
+@@ -76,6 +80,7 @@ struct SGlassUniforms {
+     // GLASS_FEATURE_FROST variant only.
+     GLint frostTex    = -1;
+     GLint frostAmount = -1;
++    GLint frostRamp   = -1;
+ 
+     // GLASS_FEATURE_CONTOUR variant only.
+     GLint contourTex         = -1;
+@@ -102,6 +107,7 @@ struct SContourPrograms {
+     } seedUniforms;
+     struct {
+         GLint tex = -1, fieldSize = -1, direction = -1, reachTexels = -1, resolveSigned = -1, texelPx = -1, reachPx = -1;
++        GLint openEdges = -1, joinEdge = -1, joinTex = -1, joinMap = -1, joinFieldSize = -1;
+     } edtUniforms;
+     struct {
+         GLint tex = -1, fieldSize = -1, direction = -1, radius = -1, negHalfInvSigmaSq = -1;
+diff --git a/src/Shaders.hpp b/src/Shaders.hpp
+index aeffcaf..6b8f310 100644
+--- a/src/Shaders.hpp
++++ b/src/Shaders.hpp
+@@ -103,6 +103,13 @@ uniform vec2 glassUVOffset;
+ // bounding box (see GlassRenderer::sampleBackground callers in GlassLayerSurface.cpp).
+ uniform vec2 sampleUVOffset;
+ uniform vec2 sampleUVScale;
++uniform vec2 skipRows;         // layers: px at the quad's top (x) and bottom (y) that are not drawn at all
++// mask_open: the sample of the layer this one continues, read where the two meet so both
++// show the same backdrop there to the pixel, fading to this layer's own sample.
++uniform sampler2D seamTex;
++uniform vec4 seamUV;           // quad UV to that sample's UV: scale (xy), offset (zw)
++uniform vec2 seamFade;         // px the fade takes from the top (x) or bottom (y) seam; 0 = none
++float seamMix = 0.0;           // the other sample's share at this pixel, set first thing in main()
+ 
+ #ifdef HYPRGLASS_FEATURE_LENS_EDGE
+ uniform float lensHeightPx;          // edge_height in framebuffer px, > 0
+@@ -133,6 +140,9 @@ const float FOCUS_LIGHT_REACH = 24.0;      // deeper, the light is under a third
+ #ifdef HYPRGLASS_FEATURE_FROST
+ uniform sampler2D frostTex;  // tex blurred further, at half its size: same UVs as tex
+ uniform float frostAmount;   // frost times its ease, > 0
++uniform vec2 frostRamp;      // layers (open_frost): px over which the frost grows from nothing at the
++                             // quad's top (x) and bottom (y) edge; 0 = full right at that edge
++float frostMix = 0.0;        // frostAmount at this pixel, set first thing in main()
+ 
+ const float FROST_SATURATION_LIFT = 0.35; // frosted glass reads slightly more colourful ...
+ const float FROST_DIM = 0.10;             // ... and slightly deeper, at full amount
+@@ -170,12 +180,17 @@ vec2 toTexUV(vec2 wuv) {
+ }
+ 
+ vec4 sampleBlurred(vec2 wuv) {
+-    vec2 tuv = toTexUV(toSampleBoxUV(wuv));
++    vec2 tuv = clamp(toTexUV(toSampleBoxUV(wuv)), 0.001, 0.999);
++    vec4 own = texture(tex, tuv);
++    if (seamMix > 0.0) {
++        vec2 suv = wuv * seamUV.xy + seamUV.zw;
++        if (suv.x > 0.001 && suv.y > 0.001 && suv.x < 0.999 && suv.y < 0.999)
++            own = mix(own, texture(seamTex, suv), seamMix);
++    }
+ #ifdef HYPRGLASS_FEATURE_FROST
+-    tuv = clamp(tuv, 0.001, 0.999);
+-    return mix(texture(tex, tuv), texture(frostTex, tuv), frostAmount);
++    return mix(own, texture(frostTex, tuv), frostMix);
+ #else
+-    return texture(tex, clamp(tuv, 0.001, 0.999));
++    return own;
+ #endif
+ }
+ 
+@@ -344,6 +359,14 @@ float lensCornerFade(vec2 uv, float rimPx) {
+ void main() {
+     vec2 uv = v_texcoord;
+ 
++#ifdef HYPRGLASS_FEATURE_FROST
++    frostMix = frostAmount;
++    if (frostRamp.x > 0.0)
++        frostMix *= smoothstep(0.0, frostRamp.x, uv.y * fullSize.y);
++    if (frostRamp.y > 0.0)
++        frostMix *= smoothstep(0.0, frostRamp.y, (1.0 - uv.y) * fullSize.y);
++#endif
++
+     // Layers only: sample the temp FBO to get the rendered surface pixel.
+     // Glass only covers visible content: layer pixels under the mask threshold get none.
+     // For windows, hasMask is false and this block is skipped entirely.
+@@ -351,6 +374,14 @@ void main() {
+     float maskRamp = 1.0;
+     bool hasMask = (useMask == 1);
+     if (hasMask) {
++        // premultiplied nothing: what is in the framebuffer stays
++        float rowPx = uv.y * fullSize.y;
++        if (rowPx < skipRows.x || fullSize.y - rowPx < skipRows.y) { fragColor = vec4(0.0); return; }
++        if (seamFade.x > 0.0)
++            seamMix = 1.0 - smoothstep(0.0, seamFade.x, rowPx - skipRows.x);
++        else if (seamFade.y > 0.0)
++            seamMix = 1.0 - smoothstep(0.0, seamFade.y, fullSize.y - rowPx - skipRows.y);
++
+         vec2 maskUV = uv * maskUVScale + maskUVOffset;
+         surfacePixel = texture(maskTex, clamp(maskUV, 0.001, 0.999));
+ 
+@@ -577,10 +608,11 @@ void main() {
+ 
+ #ifdef HYPRGLASS_FEATURE_FROST
+     // Frosted glass (frost): the backdrop was blurred further above; it also gets
+-    // a little more colour and depth, before the theme's tone mapping below.
+-    {
++    // a little more colour and depth, before the theme's tone mapping below. Not a layer's
++    // (open_frost): its glass keeps the tone of the glass it runs on from.
++    if (useMask == 0) {
+         float frostLum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+-        color = max(mix(vec3(frostLum), color, 1.0 + FROST_SATURATION_LIFT * frostAmount), 0.0) * (1.0 - FROST_DIM * frostAmount);
++        color = max(mix(vec3(frostLum), color, 1.0 + FROST_SATURATION_LIFT * frostMix), 0.0) * (1.0 - FROST_DIM * frostMix);
+     }
+ #endif
+ 
+@@ -945,7 +977,9 @@ void main() {
+     // Passes 2 and 3: the exact Euclidean distance transform, one axis at a time (squared
+     // distance = min over the row of (offset^2 + what the previous axis found)), looking at
+     // most reachTexels away. Texels past the box count as outside, so a layer's own edge is an
+-    // outline. The last pass turns the distances into two signed distances in framebuffer px,
++    // outline, except past an open edge (mask_open), where they are what the box's last texel
++    // is, and past a joined edge (mask_join), where they are inside wherever the layer lying
++    // against it is: there the outline runs on instead of closing. The last pass turns the distances into two signed distances in framebuffer px,
+     // half a texel in from each class's centre so that zero is the outline itself: r to the
+     // outline, g to the nested shapes (positive outside them, +reach where there are none).
+     {"contouredt.frag", R"GLSL(
+@@ -961,15 +995,47 @@ uniform int reachTexels;
+ uniform int resolveSigned;    // 1 on the last pass
+ uniform float texelPx;        // framebuffer px per texel
+ uniform float reachPx;        // the signed distance is clamped to +-this
++uniform int openEdges;        // mask_open: 1 top, 2 bottom, 4 left, 8 right
++uniform int joinEdge;         // mask_join: 1 top, 2 bottom, 0 none
++uniform sampler2D joinTex;    // the field of the layer lying against that edge
++uniform vec2 joinMap;         // this box's left edge in that layer's box (px), its px per texel
++uniform vec2 joinFieldSize;   // texels
+ 
+ layout(location = 0) out vec4 fragColor;
+ 
+ const float FAR = 16384.0;
++const vec4 OUTSIDE = vec4(0.0, FAR, 0.0, FAR);
++// inside the outline, outside every nested shape
++const vec4 INSIDE  = vec4(FAR, 0.0, 0.0, FAR);
+ 
+ vec4 known(vec2 p) {
+-    if (p.x < 0.0 || p.y < 0.0 || p.x >= fieldSize.x || p.y >= fieldSize.y)
+-        return vec4(0.0, FAR, 0.0, FAR);
+-    return texelFetch(tex, ivec2(p), 0);
++    bool pastX = p.x < 0.0 || p.x >= fieldSize.x;
++    bool pastY = p.y < 0.0 || p.y >= fieldSize.y;
++    if (!pastX && !pastY)
++        return texelFetch(tex, ivec2(p), 0);
++    // past a corner nothing lies against the box
++    if (pastX && pastY)
++        return OUTSIDE;
++
++    // field row 0 is the box's top row
++    int edge = pastY ? (p.y < 0.0 ? 1 : 2) : (p.x < 0.0 ? 4 : 8);
++    // the box's last texel towards p: not outside (r > 0) means the content reaches the edge
++    vec4 last = texelFetch(tex, ivec2(clamp(p, vec2(0.0), fieldSize - 1.0)), 0);
++    if (last.r <= 0.0)
++        return OUTSIDE;
++    if ((openEdges & edge) != 0)
++        return INSIDE;
++    if (joinEdge == edge) {
++        // the joined layer's own shape, as far past the edge as p lies: this outline then
++        // keeps its distance from that one's too (the fillets a panel leaves a bar by)
++        float past = (edge == 2 ? p.y - fieldSize.y : -1.0 - p.y) + 0.5;
++        float rows = floor(past * texelPx / joinMap.y);
++        float x    = floor(((p.x + 0.5) * texelPx + joinMap.x) / joinMap.y);
++        float y    = edge == 2 ? rows : joinFieldSize.y - 1.0 - rows;
++        if (x >= 0.0 && x < joinFieldSize.x && y >= 0.0 && y < joinFieldSize.y && texelFetch(joinTex, ivec2(int(x), int(y)), 0).r < 0.0)
++            return INSIDE;
++    }
++    return OUTSIDE;
+ }
+ 
+ void main() {

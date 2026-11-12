@@ -12,8 +12,7 @@ import Quickshell.Hyprland
 // ACID//HUD desktop overlay: two click-through layers per output, above
 // Noctalia's wallpaper and below every window. hud-glass carries the liquid-
 // glass panes (hyprglass renders them, see hyprland/plugins.lua), hud-overlay
-// the content on top of them. hud-barlight lays the panes' edge light over
-// Noctalia's bar. Start with `hud-overlay start`. Another window,
+// the content on top of them. Start with `hud-overlay start`. Another window,
 // hud-unlock, plays the unlock reveal (UnlockFold.qml) on Noctalia's session
 // hooks: `qs -c hud ipc call lock locked|unlocked` (themes/acid.toml), and
 // its reverse on `lock close` (hud-lock), locking the session once the doors
@@ -153,28 +152,6 @@ ShellRoot {
                 WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
                 GlassScene { anchors.fill: parent }
-            }
-
-            // The bar's rail is the same glass as the panes (hyprglass, on
-            // Noctalia's own layer), but Noctalia cannot draw their edge
-            // light: this window lies exactly over the rail and draws only
-            // that (the `order` layer rule in hyprland/looknfeel.lua keeps
-            // it above the bar). On the top layer like the bar, so it goes
-            // with it under a fullscreen window.
-            PanelWindow {
-                screen: output.modelData
-                anchors { top: true; left: true; right: true }
-                margins { top: Layout.barTop; left: Layout.barSide; right: Layout.barSide }
-                implicitHeight: Layout.barHeight
-                exclusionMode: ExclusionMode.Ignore
-                color: "transparent"
-                mask: Region {}
-
-                WlrLayershell.layer: WlrLayer.Top
-                WlrLayershell.namespace: "hud-barlight"
-                WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-
-                PaneLight { anchors.fill: parent }
             }
 
             PanelWindow {

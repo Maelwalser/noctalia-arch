@@ -90,15 +90,6 @@ hl.layer_rule({
     blur = false,
     order = 1,
 })
--- The edge light the HUD lays over Noctalia's bar rail: above the bar
--- whichever of the two maps last.
-hl.layer_rule({
-    name = "hud-barlight",
-    match = { namespace = "^hud-barlight$" },
-    no_anim = true,
-    blur = false,
-    order = -1,
-})
 -- The unlock reveal (overlay layer, mapped only while locked and for the fold):
 -- it animates itself, and hyprglass blurs behind it (plugins.lua).
 hl.layer_rule({

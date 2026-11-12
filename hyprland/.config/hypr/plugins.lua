@@ -93,37 +93,54 @@ if hl.plugin.hyprglass ~= nil then
         -- mask_nested sits between the rail's alpha (0.1) and the capsules'.
         -- The rail is the clear glass of the desktop panes (acid_pane_clear
         -- below) with the toasts' narrow rim: no grey veil over the dark top
-        -- of the wallpaper, and the HUD draws the panes' edge light over it
-        -- (quickshell hud, hud-barlight).
+        -- of the wallpaper. It shows by its edge light, as the panes do.
         hg.preset("acid_rail", {
             inherits = "acid_clear",
             blur_strength = 0.5,
             dark = { tint_color = 0xdce6f007, contrast = 0.975 },
         })
-        hg.layer("noctalia-bar-default", { preset = "acid_rail", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15 })
+        -- mask_join: a panel attached to the bar is the bar running on. Where
+        -- the panel's shape touches the rail's bottom edge the rail has no
+        -- edge.
+        -- edge_light: the panes' edge light (quickshell hud, PaneLight.qml,
+        -- rim 0.55), drawn by the plugin from the traced outline (patch
+        -- 0005). The HUD drew it on a layer of its own over the rail, but it
+        -- cannot know where a panel touches the rail on each frame of its
+        -- slide; the outline does, so the line opens with the panel and runs
+        -- on round its fillets without a break.
+        hg.layer("noctalia-bar-default", { preset = "acid_rail", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15, mask_join = "noctalia-attached-panel", edge_light = 0.55 })
         -- Panels attached to the bar (control centre, session, wallpaper): in
         -- Noctalia's "glass" transparency mode the panel box is a faint rounded
-        -- fill the size of its layer, traced like the toasts. The glass is the
-        -- desktop panes' (wide lens rim), frosted: a panel opens over whatever
-        -- is on screen, and through the panes' clear glass a terminal's text
-        -- stays readable right behind the panel's own. Three times their blur
-        -- melts it into soft light. The rim lights are well above the panes'
-        -- too: those get their edge light from the HUD (PaneLight), a panel
-        -- only has the plugin's, and it has to read over bright windows.
+        -- fill the size of its layer, traced like the toasts. A panel is the
+        -- rail's glass flowing out downwards, so it takes the rail's preset as
+        -- it is: any difference in blur, tint or rim shows as an edge where
+        -- the two meet (a frosted sheet under the clear rail read as a second
+        -- pane with a border; frosting the rail to match changed the bar on
+        -- every open; a wider, brighter rim stepped where the panel's sides
+        -- reach the rail; the user rejected each).
+        -- mask_open: the sheet has no top edge. It hangs from the rail, whose
+        -- glass it continues (mask_join above); the plugin then draws both
+        -- from the same backdrop at the seam, so it is exact over any window.
+        -- open_frost thickens the glass within 10 px into frosted glass:
+        -- tiled windows start 16 px under the rail, and through clear glass
+        -- their top border and the strip of wallpaper above it showed as a
+        -- bright line under the bar, the "border" again. Frosted, they melt
+        -- into a soft glow, and a terminal's text behind the sheet no longer
+        -- fights the panel's own. No more than that: at 3.0 the sheet was a
+        -- flat matte board, nothing like the rail's glass.
+        -- mask_fillet: Noctalia slides the panel out from under the rail and
+        -- shows its fillets (radius 22) only once it has arrived, so its
+        -- sides met the rail in square corners all the way down and the
+        -- curves popped in at the end. The plugin rounds those corners itself
+        -- with the same radius, from the first frame: the sheet wells out of
+        -- the rail in one shape, and nothing moves when Noctalia's own
+        -- fillets arrive (measured: the same pixels).
+        -- edge_light: the rail's, running on round the fillets, down the
+        -- sides and along the bottom.
         -- The cards inside are Noctalia's own fills (62 % at the least, no
         -- option for less), so they stay darker insets on the sheet;
         -- mask_nested does not light them through a fill that dense.
-        hg.preset("acid_panel", {
-            inherits = "acid_pane",
-            blur_strength = 1.5,
-            blur_iterations = 3,
-            fresnel_strength = 0.6,
-            specular_strength = 1.0,
-            bevel_strength = 0.8,
-            bevel_size = 2.5,
-            dark = { tint_color = 0xdce6f00c, contrast = 0.975 },
-        })
-        hg.layer("noctalia-attached-panel", { preset = "acid_panel", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        hg.layer("noctalia-attached-panel", { preset = "acid_rail", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_open = "top", open_frost = 1.5, open_feather = 10, mask_fillet = 22, edge_light = 0.55 })
         -- The desktop overlay's panes (quickshell hud, GlassScene.qml): faint
         -- rounded fills on their own layer, so each gets its own rim; the
         -- overlay's text stays on hud-overlay, which is not listed. Big panes
