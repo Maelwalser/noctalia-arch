@@ -246,6 +246,9 @@ apply() {
   link "$CONFIG/ghostty/theme.conf" "$DOTFILES/ghostty/.config/ghostty/variants/$to.conf"
   link "$CONFIG/tmux/theme.conf" "$DOTFILES/tmux/.config/tmux/variants/$to.conf"
   link "$CONFIG/sioyek/prefs_user.config" "$DOTFILES/sioyek/.config/sioyek/variants/$to.config"
+  # GTK3 apps read it when they start (gtk.css imports it after the palette):
+  # mostly the portal's file chooser and the passphrase prompt.
+  link "$CONFIG/gtk-3.0/theme.css" "$DOTFILES/gtk/.config/gtk-3.0/variants/$to.css"
   # eza reads its theme file on every run; classic is eza's own defaults. Only
   # a link is removed, so a theme.yml the user wrote themselves is kept.
   if [[ "$to" == acid ]]; then

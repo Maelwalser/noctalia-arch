@@ -46,6 +46,7 @@ mpv/.config/mpv/noctalia.conf
 # them inside this repo.
 noctalia/.config/noctalia/theme.toml
 ghostty/.config/ghostty/theme.conf
+gtk/.config/gtk-3.0/theme.css
 tmux/.config/tmux/theme.conf
 tmux/.config/tmux/noctalia.conf
 sioyek/.config/sioyek/prefs_user.config

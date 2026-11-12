@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly DOTFILES_ROOT="$(cd "$(dirname "$0")" && pwd)"
 readonly TARGET="$HOME"
-readonly PACKAGES=(btop claude eza fastfetch ghostty git gnupg gtk hud hyprland mpv neovim noctalia npm obsidian qt6ct quickshell sioyek theme tmux vivaldi zsh)
+readonly PACKAGES=(btop claude eza fastfetch ghostty git gnupg gtk hud hyprland mpv ncdu neovim noctalia npm obsidian qt5ct qt6ct quickshell sioyek theme tmux vivaldi zsh)
 
 # Desktop theme: acid (ACID//HUD) or classic. Defaults to the one already
 # chosen on this machine, else acid. Switch later with `dotfiles-theme <name>`.
@@ -130,6 +130,14 @@ if command -v plymouth-set-default-theme &>/dev/null \
   && [[ "$(plymouth-set-default-theme 2>/dev/null)" != acid-hud ]]; then
   echo "Installing the ACID//HUD boot splash (needs sudo)..."
   "$HOME/.local/bin/hud-boot" || echo "  ⚠ hud-boot failed — rerun it to see the error"
+fi
+# Boot menu: the same, only where GRUB boots this machine and hud-grub has not
+# written its drop-in yet. Run `hud-grub` by hand after a palette change.
+if [[ -d /boot/grub ]] && command -v grub-mkfont &>/dev/null \
+  && [[ -f "$HOME/.config/hud/colors.json" ]] \
+  && [[ ! -f /etc/default/grub.d/theme.cfg ]]; then
+  echo "Installing the ACID//HUD GRUB theme (needs sudo)..."
+  "$HOME/.local/bin/hud-grub" || echo "  ⚠ hud-grub failed — rerun it to see the error"
 fi
 if pgrep -x noctalia &>/dev/null; then
   # The bar ornaments plugin lives in this repo; register its folder once.

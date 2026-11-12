@@ -4,5 +4,7 @@
 
 hl.env("XDG_SESSION_TYPE", "wayland")
 
--- Qt apps read their palette from qt6ct, which Noctalia's qt template feeds.
-hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
+-- Qt apps read their palette from qt6ct / qt5ct, which Noctalia's qt template
+-- feeds. The name is qt5ct for both: Qt5 apps (sioyek) only know that plugin,
+-- and qt6ct answers to it as well, while "qt6ct" leaves Qt5 apps unthemed.
+hl.env("QT_QPA_PLATFORMTHEME", "qt5ct")

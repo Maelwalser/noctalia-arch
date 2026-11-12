@@ -22,8 +22,9 @@ claude() {
   command claude "$@"
 }
 # Under ACID//HUD eza is themed by ~/.config/eza/theme.yml (linked by
-# dotfiles-theme). oh-my-zsh's LS_COLORS would override that file's file kinds
-# and extension colours, so eza runs without it; ls and completion keep it.
+# dotfiles-theme). LS_COLORS would override that file's file kinds and
+# extension colours, so eza runs without it; GNU ls and completion keep it
+# (the palette's own, set further down from ~/.config/zsh/noctalia.zsh).
 [[ "$_dotfiles_theme" == classic ]] || alias eza='LS_COLORS= eza'
 
 export EDITOR='nvim'
@@ -33,6 +34,16 @@ export SUDO_EDITOR='nvim'
 # Palette files Noctalia renders from its templates. bat and delta use the
 # terminal's own 16 colours, which already follow the palette.
 export BAT_THEME=ansi
+# man pages through bat, so they are coloured like every other pager here.
+# groff's own escapes are switched off (MANROFFOPT) and overstrikes stripped
+# (col), or bat would show them as literal noise.
+export MANPAGER="sh -c 'col -bx | bat --language=man --style=plain'"
+export MANROFFOPT=-c
+# less: search hits and the prompt in the palette's magenta and yellow slots.
+export LESS='-R --use-color -DSkm$-DPky$-DEkr'
+# gh pages through delta: diffs (`gh pr diff`) get its colours, anything else
+# passes straight through to less.
+export GH_PAGER=delta
 [[ -f ~/.config/fzf/noctalia.opts ]] && export FZF_DEFAULT_OPTS_FILE="$HOME/.config/fzf/noctalia.opts"
 [[ -f ~/.config/lazygit/noctalia.yml ]] \
   && export LG_CONFIG_FILE="$HOME/.config/lazygit/config.yml,$HOME/.config/lazygit/noctalia.yml"
@@ -117,6 +128,10 @@ ZSH_AUTOSUGGEST_USE_ASYNC=1
 export _ZO_DOCTOR=0
 
 # Tools
+# LS_COLORS, the completion menu and the syntax highlighting, in the palette
+# (rendered by Noctalia from templates/zsh-colors.zsh). After oh-my-zsh: it
+# replaces the LS_COLORS and the highlighter styles that set up.
+[[ -f ~/.config/zsh/noctalia.zsh ]] && source ~/.config/zsh/noctalia.zsh
 # `zoxide init` prints the same script every time, so run it only when zoxide
 # itself is newer than the cache rather than forking it on every startup.
 () {

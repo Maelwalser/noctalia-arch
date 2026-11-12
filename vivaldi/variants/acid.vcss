@@ -506,3 +506,61 @@
 #browser .dialog-footer {
   background: transparent !important;
 }
+
+/* ── Start page ─────────────────────────────────────────────────────────── */
+
+/* The start page is Vivaldi's own UI, not a web page: it takes the tokens
+   above, and here the same glass as the rest. Its backdrop is the body's
+   (scanlines, horizon) with Vivaldi's wallpaper image switched off, the
+   speed dials and dashboard widgets are panes, the navigation is a rail. */
+#browser .startpage {
+  background-color: #0b0712 !important;
+  background-image:
+    radial-gradient(70% 240px at 50% 0, rgba(239, 95, 198, 0.10), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 3px) !important;
+  background-size: auto !important;
+  background-repeat: no-repeat, repeat !important;
+}
+
+#browser .startpage .startpage-navigation {
+  background: transparent !important;
+  box-shadow: inset 0 -1px 0 var(--hud-hairline) !important;
+}
+
+#browser .startpage .startpage-navigation-group button {
+  border-radius: 12px !important;
+  transition: background-color var(--hud-ease), color var(--hud-ease);
+}
+
+#browser .startpage .startpage-navigation-group button:hover {
+  background: var(--hud-glass-hover) !important;
+}
+
+#browser .startpage .startpage-navigation-group button.active {
+  background: var(--hud-acid-dim) !important;
+  color: var(--hud-acid) !important;
+  box-shadow: inset 0 0 0 1px var(--hud-acid-ring) !important;
+}
+
+#browser .startpage .SpeedDial--Thumbnail,
+#browser .startpage .SpeedDial--Icon .favicon,
+#browser .startpage .dashboard-widget {
+  background-color: var(--hud-pane) !important;
+  backdrop-filter: var(--hud-pane-blur);
+  border-radius: 12px !important;
+  box-shadow: var(--hud-pane-edge), 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+  transition: box-shadow var(--hud-ease);
+}
+
+#browser .startpage .SpeedDial:hover .SpeedDial--Thumbnail,
+#browser .startpage .SpeedDial:focus-visible .SpeedDial--Thumbnail,
+#browser .startpage .SpeedDial--Icon:hover .favicon,
+#browser .startpage .SpeedDial--Icon:focus-visible .favicon {
+  box-shadow: inset 0 0 0 1px var(--hud-acid-ring), 0 0 18px var(--hud-acid-glow), 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+#browser .startpage .SpeedDialView-SearchField {
+  background: var(--hud-glass) !important;
+  border: 1px solid var(--hud-rim) !important;
+  border-radius: 12px !important;
+}

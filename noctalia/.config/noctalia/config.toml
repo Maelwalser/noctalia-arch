@@ -156,6 +156,57 @@ output_path = "$XDG_CONFIG_HOME/git/noctalia-delta.gitconfig"
 input_path = "templates/mpv.conf"
 output_path = "$XDG_CONFIG_HOME/mpv/noctalia.conf"
 
+# Qt widget shapes: kvantum-noctalia recolours a stock Kvantum theme into the
+# user theme Noctalia (~/.config/Kvantum/Noctalia), which qt6ct.conf selects.
+[theme.templates.user.kvantum]
+input_path = "templates/kvantum.conf"
+output_path = "$XDG_CONFIG_HOME/Kvantum/noctalia-colors.conf"
+post_hook = "kvantum-noctalia"
+
+# qBittorrent: the per-state text colours of the transfer list, the log and the
+# pieces bar (its own theme folder; the widgets themselves are Kvantum's).
+[theme.templates.user.qbittorrent]
+input_path = "templates/qbittorrent.json"
+output_path = "$XDG_CONFIG_HOME/qBittorrent/themes/default/config.json"
+
+# zsh: LS_COLORS, the completion menu, zsh-syntax-highlighting and the Linux
+# console's 16 colours. ~/.zshrc sources the result after oh-my-zsh.
+[theme.templates.user.zsh]
+input_path = "templates/zsh-colors.zsh"
+output_path = "$XDG_CONFIG_HOME/zsh/noctalia.zsh"
+
+# ytm-player reads theme.toml beside its config.toml on start.
+[theme.templates.user.ytm_player]
+input_path = "templates/ytm-player.toml"
+output_path = "$XDG_CONFIG_HOME/ytm-player/theme.toml"
+
+# Ghidra keeps themes per version, so the rendered file is copied into every
+# ghidra_<version>/themes. Pick "Noctalia" once under Edit > Theme > Switch.
+[theme.templates.user.ghidra]
+input_path = "templates/ghidra.theme"
+output_path = "$XDG_CONFIG_HOME/ghidra/noctalia.theme"
+post_hook = "sh -c 'for d in \"${XDG_CONFIG_HOME:-$HOME/.config}\"/ghidra/ghidra_*/; do mkdir -p \"$d/themes\" && cp \"$d/../noctalia.theme\" \"$d/themes/Noctalia.theme\"; done'"
+
+# JetBrains IDEs (Android Studio) only take a theme from a plugin:
+# jetbrains-noctalia packs these two into one and installs it for every IDE
+# version. Pick "Noctalia" once under Settings > Appearance > Theme.
+[theme.templates.user.jetbrains_theme]
+input_path = "templates/jetbrains.theme.json"
+output_path = "$XDG_DATA_HOME/noctalia-jetbrains/noctalia.theme.json"
+post_hook = "jetbrains-noctalia"
+
+[theme.templates.user.jetbrains_scheme]
+input_path = "templates/jetbrains-scheme.xml"
+output_path = "$XDG_DATA_HOME/noctalia-jetbrains/noctalia.xml"
+post_hook = "jetbrains-noctalia"
+
+# Blender's theme is compiled in: blender-noctalia recolours it in a background
+# Blender and saves it as the theme preset "Noctalia" (Preferences > Themes).
+[theme.templates.user.blender]
+input_path = "templates/blender-colors.json"
+output_path = "$XDG_CONFIG_HOME/blender/noctalia-colors.json"
+post_hook = "blender-noctalia"
+
 # Folder icons: papirus-noctalia recolours Papirus' folders into the
 # Papirus-Noctalia icon theme in ~/.local/share/icons.
 [theme.templates.user.folders]

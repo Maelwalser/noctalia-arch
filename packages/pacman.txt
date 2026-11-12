@@ -43,11 +43,16 @@ iw
 jdk17-openjdk
 jq
 keyd
+kvantum
+kvantum-qt5
 lazydocker
 lazygit
+less
 libinput-tools
 linux
 linux-firmware
+man-db
+man-pages
 mpv
 nautilus
 neovim
@@ -74,6 +79,7 @@ power-profiles-daemon
 proton-vpn-cli
 psmisc
 python-pylatexenc
+qt5ct
 qt6ct
 qt6-declarative
 qt6-shadertools

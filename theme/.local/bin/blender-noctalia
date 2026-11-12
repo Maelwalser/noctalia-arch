@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""Write Blender's default theme, recoloured to the palette, as the preset "Noctalia".
+
+Blender's dark theme is compiled in, and a theme preset is a dump of every
+colour of every editor, so there is no small file to template. This starts
+Blender in the background, recolours the default theme in memory (greys onto
+the palette's surfaces and text, the blue accent onto the primary; axis,
+keyframe and node colours keep their hue, they carry meaning) and saves the
+result where Blender looks for theme presets. Nothing else of Blender's
+settings is read or written.
+
+Noctalia runs it on every palette change; it is safe to run by hand. Pick the
+theme once under Preferences > Themes > Presets: Noctalia. After a palette
+change, pick it again: Blender copies a preset into its preferences.
+"""
+import colorsys
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# Rendered by Noctalia from templates/blender-colors.json.
+PALETTE = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "blender" / "noctalia-colors.json"
+NAME = "Noctalia"
+# The stock accent is #4772b3; everything within this hue band is "the blue".
+ACCENT_HUE = (0.54, 0.68)
+
+
+def rgb(hex_color):
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+
+def mix(a, b, t):
+    return tuple(x + (y - x) * t for x, y in zip(a, b))
+
+
+class Recolour:
+    def __init__(self, palette):
+        c = {k: rgb(v) for k, v in palette.items()}
+        self.primary = c["primary"]
+        black = mix(c["surface"], (0, 0, 0), 0.4)
+        raised = mix(c["surface_variant"], c["outline"], 0.25)
+        # Grey level of the stock theme -> what a grey of that level stands for.
+        self.ramp = [
+            (0x00, black), (0x10, black),
+            (0x18, c["surface"]), (0x1d, c["surface"]),
+            (0x30, c["surface_variant"]),
+            (0x54, raised),
+            (0x80, c["outline"]),
+            (0xb0, c["on_surface_variant"]),
+            (0xe6, c["on_surface"]), (0xff, c["on_surface"]),
+        ]
+
+    def grey(self, level):
+        for (lo, lo_c), (hi, hi_c) in zip(self.ramp, self.ramp[1:]):
+            if level <= hi:
+                return mix(lo_c, hi_c, (level - lo) / (hi - lo) if hi > lo else 0)
+        return self.ramp[-1][1]
+
+    def __call__(self, color):
+        r, g, b = color[:3]
+        hue, lightness, saturation = colorsys.rgb_to_hls(r, g, b)
+        if saturation < 0.12 or max(r, g, b) - min(r, g, b) < 0.04:
+            return self.grey((r * 0.299 + g * 0.587 + b * 0.114) * 255)
+        if ACCENT_HUE[0] <= hue <= ACCENT_HUE[1]:
+            # Keep how light the stock colour is: a selection fill stays a
+            # fill, an outline stays bright.
+            p_hue, _, p_sat = colorsys.rgb_to_hls(*self.primary)
+            return colorsys.hls_to_rgb(p_hue, lightness, min(p_sat, max(saturation, 0.5)))
+        return (r, g, b)
+
+
+def recolour_theme(theme, recolour):
+    seen = set()
+
+    def walk(struct):
+        # A struct that is its parent's first member shares its address.
+        key = (struct.as_pointer(), struct.bl_rna.identifier) if struct is not None else None
+        if key is None or key in seen:
+            return
+        seen.add(key)
+        for prop in struct.bl_rna.properties:
+            if prop.identifier == "rna_type":
+                continue
+            if prop.type == "POINTER":
+                walk(getattr(struct, prop.identifier))
+            elif prop.type == "COLLECTION":
+                for item in getattr(struct, prop.identifier):
+                    walk(item)
+            elif prop.type == "FLOAT" and prop.subtype in {"COLOR", "COLOR_GAMMA"} and not prop.is_readonly:
+                value = tuple(getattr(struct, prop.identifier))
+                setattr(struct, prop.identifier, tuple(recolour(value)) + value[3:])
+
+    walk(theme)
+
+
+def inside_blender():
+    import bpy
+    import _rna_xml as rna_xml
+
+    palette = json.loads(PALETTE.read_text())
+    bpy.ops.preferences.reset_default_theme()
+    recolour_theme(bpy.context.preferences.themes[0], Recolour(palette))
+    target = Path(bpy.utils.user_resource("SCRIPTS", path="presets/interface_theme", create=True)) / f"{NAME}.xml"
+    rna_xml.xml_file_write(
+        bpy.context,
+        str(target),
+        (("preferences.themes[0]", "Theme"), ("preferences.ui_styles[0]", "ThemeStyle")),
+    )
+    print(f"blender-noctalia: wrote {target}")
+
+
+def main():
+    blender = shutil.which("blender")
+    if not blender:
+        # Not an error: the templates are applied on machines without Blender too.
+        print("blender-noctalia: blender not installed; nothing to do")
+        return 0
+    if not PALETTE.is_file():
+        print(f"blender-noctalia: {PALETTE} missing; run: noctalia msg templates-apply", file=sys.stderr)
+        return 1
+    # --factory-startup: the default theme, whatever the saved preferences say,
+    # and no add-ons to wait for. Background mode never saves preferences.
+    result = subprocess.run(
+        [blender, "--background", "--factory-startup", "--python-exit-code", "1", "--python", __file__],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(result.stdout[-2000:] + result.stderr[-2000:], file=sys.stderr)
+    return result.returncode
+
+
+if __name__ == "__main__":
+    try:
+        import bpy  # noqa: F401
+    except ImportError:
+        sys.exit(main())
+    inside_blender()

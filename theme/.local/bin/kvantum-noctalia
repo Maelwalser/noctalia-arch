@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Recolour a stock Kvantum theme into the user theme "Noctalia".
+
+qt6ct already hands Qt apps the palette, but Fusion, the style that draws
+with it, is square and grey-framed. Kvantum draws widgets from an SVG, so its
+shapes can be rounded like the rest of the desktop; the price is that the
+SVG's colours are fixed. This takes KvGnomeDark (rounded, flat, close to the
+libadwaita look of the GTK apps), swaps its greys and its blue for the colours
+in ~/.config/Kvantum/noctalia-colors.conf (rendered by Noctalia from
+templates/kvantum.conf) and writes the result to ~/.config/Kvantum/Noctalia.
+Noctalia runs it on every palette change; it is safe to run by hand.
+
+The stock theme stays where the kvantum package put it and only the recoloured
+copy lands in $HOME, so nothing of Kvantum's is committed to the dotfiles.
+"""
+import colorsys
+import os
+import re
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+HOME = Path.home()
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config") / "Kvantum"
+BASE = "KvGnomeDark"
+# KVANTUM_SOURCE: where the stock themes are, for trying this out before the
+# kvantum package is installed.
+SOURCE = Path(os.environ.get("KVANTUM_SOURCE") or "/usr/share/Kvantum") / BASE
+COLORS = CONFIG / "noctalia-colors.conf"
+NAME = "Noctalia"
+# Lightness of a selection fill: the primary, dimmed until light text reads on it.
+SELECT_LIGHTNESS = 0.27
+HEX = re.compile(r"#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?\b")
+# Kvantum looks widgets up by element id ("button-toggled-top", ...). The
+# stock theme uses one blue for selected rows and for indicators alike, and
+# one near-white for every mark; which of the two a shape is can only be told
+# from the widget it belongs to.
+INDICATOR = re.compile(r"^(progress-pattern|slider-toggled|dial-handle|le-focused|lineedit-focused|tab-tear|focus|checkbox|radio)")
+MARKED = re.compile(r"^(checkbox|radio)")
+HELD = re.compile(r"^(button|tbutton|btn|tbtn|tab)[a-z-]*-(toggled|pressed)")
+NAMESPACES = {
+    "": "http://www.w3.org/2000/svg",
+    "xlink": "http://www.w3.org/1999/xlink",
+    "sodipodi": "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
+    "inkscape": "http://www.inkscape.org/namespaces/inkscape",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "cc": "http://creativecommons.org/ns#",
+    "dc": "http://purl.org/dc/elements/1.1/",
+}
+
+
+def load_colors() -> dict[str, str]:
+    colors = {}
+    for line in COLORS.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        if sep and not key.startswith("#"):
+            colors[key.strip()] = value.strip().lower()
+    return colors
+
+
+def rgb(hex_color: str) -> tuple[float, float, float]:
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+
+def to_hex(color: tuple[float, float, float]) -> str:
+    return "#" + "".join(f"{round(min(max(c, 0), 1) * 255):02x}" for c in color)
+
+
+def mix(a: str, b: str, t: float) -> str:
+    ca, cb = rgb(a), rgb(b)
+    return to_hex(tuple(x + (y - x) * t for x, y in zip(ca, cb)))
+
+
+def with_lightness(hex_color: str, lightness: float) -> str:
+    h, _, s = colorsys.rgb_to_hls(*rgb(hex_color))
+    return to_hex(colorsys.hls_to_rgb(h, min(max(lightness, 0), 1), s))
+
+
+class Recolour:
+    """Maps one colour of the stock theme to the palette."""
+
+    def __init__(self, c: dict[str, str]):
+        self.c = c
+        black = mix(c["surface"], "#000000", 0.45)
+        # The stock theme is a ramp of neutral greys; each anchor says which
+        # palette colour a grey of that level stands for, and greys between two
+        # anchors are blended. Its frames are darker than what they frame,
+        # ours are lighter (the outline), hence the bump at 0x1b.
+        self.ramp = [
+            (0x00, black),
+            (0x12, black),
+            (0x1b, c["outline_dim"]),
+            (0x20, c["outline_dim"]),
+            (0x28, c["field"]),
+            (0x2d, c["field"]),
+            (0x35, c["surface"]),
+            (0x37, c["raised"]),
+            (0x39, c["raised"]),
+            (0x46, c["raised_high"]),
+            (0x5a, c["outline"]),
+            (0xa5, c["text_dim"]),
+            (0xee, c["text"]),
+            (0xff, c["text"]),
+        ]
+        # The stock accent, #15539e, is a dark blue that fills selected rows,
+        # pressed tabs and the like, under white text. The primary is far too
+        # bright for that, so those fills take a dimmed primary, as selections
+        # do in the terminal tools; only the stock theme's light blues (focus
+        # rings, indicators) become the primary itself.
+        self.fill_l = colorsys.rgb_to_hls(*rgb("#15539e"))[1]
+        self.bright_l = colorsys.rgb_to_hls(*rgb("#3584e4"))[1]
+        self.primary_l = colorsys.rgb_to_hls(*rgb(c["primary"]))[1]
+        self.select = with_lightness(c["primary"], SELECT_LIGHTNESS)
+
+    def grey(self, level: float) -> str:
+        for (lo, lo_c), (hi, hi_c) in zip(self.ramp, self.ramp[1:]):
+            if level <= hi:
+                return mix(lo_c, hi_c, (level - lo) / (hi - lo) if hi > lo else 0)
+        return self.c["text"]
+
+    def __call__(self, hex_color: str, widget: str = "") -> str:
+        r, g, b = rgb(hex_color)
+        _, lightness, saturation = colorsys.rgb_to_hls(r, g, b)
+        if saturation < 0.12 or max(r, g, b) - min(r, g, b) < 0.04:
+            level = (r * 0.299 + g * 0.587 + b * 0.114) * 255
+            if level > 0xc0 and MARKED.match(widget):
+                return self.c["primary"]  # the tick, the radio dot
+            if level < 0x12 and MARKED.match(widget):
+                return self.c["outline"]  # the box itself, near-black in the stock theme
+            if 0x1c <= level <= 0x24 and HELD.match(widget):
+                # A button held down or switched on: the stock theme sinks it
+                # into a darker grey; here it takes a tint of the primary.
+                return mix(self.c["raised"], self.c["primary"], 0.3)
+            return self.grey(level)
+        if INDICATOR.match(widget):
+            return self.c["primary"]
+        t = (lightness - self.fill_l) / (self.bright_l - self.fill_l)
+        t = min(max(t, 0), 1)
+        return with_lightness(self.c["primary"], SELECT_LIGHTNESS + (self.primary_l - SELECT_LIGHTNESS) * t)
+
+
+def recolour_text(text: str, recolour: Recolour, widget: str = "") -> str:
+    return HEX.sub(lambda m: recolour("#" + m.group(1), widget) + (m.group(2) or ""), text)
+
+
+def recolour_svg(path: Path, recolour: Recolour) -> str:
+    for prefix, uri in NAMESPACES.items():
+        ET.register_namespace(prefix, uri)
+    tree = ET.parse(path)
+
+    def walk(element: ET.Element, widget: str) -> None:
+        # The outermost element with an id names the widget its children draw.
+        widget = widget or element.get("id") or ""
+        for attribute in ("style", "fill", "stroke", "stop-color"):
+            value = element.get(attribute)
+            if value and "#" in value:
+                element.set(attribute, recolour_text(value, recolour, widget))
+        for child in element:
+            walk(child, widget)
+
+    for child in tree.getroot():
+        walk(child, "")
+    return ET.tostring(tree.getroot(), encoding="unicode", xml_declaration=True)
+
+
+def build_config(stock: str, c: dict[str, str], recolour: Recolour) -> str:
+    general = {
+        "window.color": c["surface"],
+        "inactive.window.color": c["surface"],
+        "base.color": c["field"],
+        "inactive.base.color": c["field"],
+        "alt.base.color": mix(c["field"], c["raised"], 0.5),
+        "inactive.alt.base.color": mix(c["field"], c["raised"], 0.5),
+        "button.color": c["raised"],
+        "light.color": c["outline"],
+        "mid.light.color": c["outline_dim"],
+        "dark.color": mix(c["surface"], "#000000", 0.45),
+        "mid.color": c["raised_high"],
+        "highlight.color": recolour.select,
+        "inactive.highlight.color": recolour.select,
+        "text.color": c["text"],
+        "inactive.text.color": c["text"] + "c8",
+        "window.text.color": c["text"],
+        "inactive.window.text.color": c["text"] + "a0",
+        "button.text.color": c["text"],
+        "disabled.text.color": c["text_dim"] + "a0",
+        "tooltip.text.color": c["text"],
+        "highlight.text.color": c["text"],
+        "link.color": c["link"],
+        "link.visited.color": c["secondary"],
+        "progress.indicator.text.color": c["text"],
+    }
+    out = []
+    for line in stock.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key in general:
+            line = f"{key}={general[key]}"
+        elif sep and key.endswith("color"):
+            # Widget text: the stock theme writes white at various strengths
+            # (kept, as the alpha byte) and a few greys and blues of its own.
+            if re.fullmatch(r"white|#ffffff([0-9a-f]{2})?", value, flags=re.I):
+                value = c["text"] + value[7:] if value.startswith("#") else c["text"]
+            else:
+                value = recolour_text(value, recolour, "focus")
+            line = f"{key}={value}"
+        elif key == "comment":
+            line = "comment=KvGnomeDark in the Noctalia palette (generated by kvantum-noctalia)"
+        elif key == "no_inactiveness":
+            # The stock theme flattens every widget of an unfocused window into
+            # the window colour. Hyprland already dims what is not focused.
+            line = "no_inactiveness=true"
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
+def main() -> int:
+    if not SOURCE.is_dir():
+        # Not an error: the templates are applied on machines without Kvantum too.
+        print(f"kvantum-noctalia: {SOURCE} not found (kvantum not installed); nothing to do")
+        return 0
+    if not COLORS.is_file():
+        print(f"kvantum-noctalia: {COLORS} missing; run: noctalia msg templates-apply", file=sys.stderr)
+        return 1
+    colors = load_colors()
+    recolour = Recolour(colors)
+    dest = CONFIG / NAME
+    dest.mkdir(parents=True, exist_ok=True)
+    svg = recolour_svg(SOURCE / f"{BASE}.svg", recolour)
+    config = build_config((SOURCE / f"{BASE}.kvconfig").read_text(), colors, recolour)
+    for path, text in ((dest / f"{NAME}.svg", svg), (dest / f"{NAME}.kvconfig", config)):
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(text)
+        tmp.replace(path)
+    # Kvantum's own "which theme" file; a real theme the user picked is kept.
+    selector = CONFIG / "kvantum.kvconfig"
+    if not selector.exists():
+        selector.write_text(f"[General]\ntheme={NAME}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

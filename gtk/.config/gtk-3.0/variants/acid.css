@@ -1,0 +1,57 @@
+/* ACID//HUD: GTK3 windows are liquid glass, like the GTK4 ones (see
+ * ../../gtk-4.0/variants/acid.css). What is still GTK3 here is mostly dialogs:
+ * the portal's file chooser (the "open file" of Vivaldi and Obsidian) and the
+ * passphrase prompt. Linked as ~/.config/gtk-3.0/theme.css by
+ * `dotfiles-theme acid` and imported by gtk.css after Noctalia's palette.
+ * hyprglass renders the glass behind those two (hypr/plugins.lua, preset
+ * acid_app); any other GTK3 app gets Hyprland's plain blur.
+ *
+ * GTK3 has no --window-bg-color to thin as GTK4 does, so the fills are set on
+ * the widgets that paint one. */
+
+window.background,
+window.background.csd,
+dialog.background,
+messagedialog.background {
+    background-color: alpha(@window_bg_color, 0.58);
+}
+
+/* Lists and the areas around them are see-through down to the window fill. */
+.view,
+treeview.view,
+iconview,
+list,
+scrolledwindow,
+viewport,
+stack,
+paned,
+filechooser,
+filechooser .view,
+filechooser actionbar,
+placesview {
+    background-color: transparent;
+}
+
+headerbar,
+.titlebar,
+headerbar:backdrop,
+.titlebar:backdrop {
+    background-color: transparent;
+    background-image: none;
+    box-shadow: none;
+}
+
+placessidebar,
+placessidebar list,
+.sidebar,
+.sidebar:backdrop {
+    background-color: alpha(@sidebar_bg_color, 0.35);
+}
+
+/* Selected rows keep a solid fill, or they vanish with the list behind them. */
+.view:selected,
+treeview.view:selected,
+iconview:selected,
+row:selected {
+    background-color: alpha(@accent_bg_color, 0.85);
+}
