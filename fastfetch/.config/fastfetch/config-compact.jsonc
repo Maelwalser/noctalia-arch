@@ -32,12 +32,12 @@
             "type": "custom",
             "format": "\u001b[36m{$1}\u001b[0m"
         },
-        { "type": "os", "key": "OS" },
+        { "type": "os", "key": "OS " },
         { "type": "kernel", "key": "KRN" },
-        { "type": "uptime", "key": "UP" },
+        { "type": "uptime", "key": "UP " },
         { "type": "packages", "key": "PKG", "format": "{pacman}" },
-        { "type": "shell", "key": "SH" },
-        { "type": "wm", "key": "WM", "format": "{pretty-name} {version}" },
+        { "type": "shell", "key": "SH " },
+        { "type": "wm", "key": "WM ", "format": "{pretty-name} {version}" },
         { "type": "terminal", "key": "TRM" },
         {
             "type": "command",

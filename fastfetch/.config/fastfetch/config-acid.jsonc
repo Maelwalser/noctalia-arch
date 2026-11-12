@@ -32,7 +32,7 @@
                 "at": "90",
                 "host": "white"
             },
-            "format": "{user-name}//{host-name}"
+            "format": "{#keys}{user-name}//{host-name}{#}"
         },
         {
             "type": "custom",
@@ -40,45 +40,45 @@
         },
         {
             "type": "os",
-            "key": "▍OS"
+            "key": "▍OS  "
         },
         {
             "type": "kernel",
-            "key": "▍KRN"
+            "key": "▍KRN "
         },
         {
             "type": "uptime",
-            "key": "▍UP"
+            "key": "▍UP  "
         },
         {
             "type": "packages",
-            "key": "▍PKG",
+            "key": "▍PKG ",
             "format": "{pacman}"
         },
         {
             "type": "shell",
-            "key": "▍SH"
+            "key": "▍SH  "
         },
         {
             "type": "wm",
-            "key": "▍WM",
+            "key": "▍WM  ",
             "format": "{pretty-name} {version}"
         },
         {
             "type": "de",
-            "key": "▍DE"
+            "key": "▍DE  "
         },
         {
             "type": "terminal",
-            "key": "▍TRM"
+            "key": "▍TRM "
         },
         {
             "type": "terminalfont",
-            "key": "▍FNT"
+            "key": "▍FNT "
         },
         {
             "type": "command",
-            "key": "▍EDT",
+            "key": "▍EDT ",
             "shell": "/bin/sh",
             "text": "echo \"${EDITOR:-not set}\""
         },
@@ -88,7 +88,7 @@
         },
         {
             "type": "cpu",
-            "key": "▍CPU",
+            "key": "▍CPU ",
             "format": "{name}"
         },
         {
@@ -105,11 +105,11 @@
         },
         {
             "type": "memory",
-            "key": "▍MEM"
+            "key": "▍MEM "
         },
         {
             "type": "disk",
-            "key": "▍DSK",
+            "key": "▍DSK ",
             "folders": "/",
             "format": "{size-used} / {size-total} ({size-percentage})"
         },

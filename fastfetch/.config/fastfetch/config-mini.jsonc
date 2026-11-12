@@ -22,10 +22,10 @@
             },
             "format": "{user-name}@{host-name}"
         },
-        { "type": "os", "key": "OS", "format": "{name}" },
+        { "type": "os", "key": "OS ", "format": "{name}" },
         { "type": "kernel", "key": "KRN", "format": "{release}" },
-        { "type": "uptime", "key": "UP" },
-        { "type": "shell", "key": "SH" },
+        { "type": "uptime", "key": "UP " },
+        { "type": "shell", "key": "SH " },
         { "type": "memory", "key": "MEM", "format": "{percentage} of {total}" }
     ]
 }
