@@ -14,10 +14,14 @@ local function render()
     ui.image({ path = path, width = 16, height = 14, fit = "contain" }),
     ui.label({ text = tag, color = "primary", fontFamily = common.monoFont(), fontSize = 13, baseline = "inkCentered" }),
   }))
-  barWidget.setTooltip(tag .. " · click: launcher")
+  common.tip(tag .. " · click: launcher")
 end
 
 function update()
   noctalia.setUpdateInterval(60000)
   render()
+end
+
+function onHover(inside)
+  common.hover(inside)
 end

@@ -13,12 +13,29 @@ local function device()
 end
 
 local dev = device()
-local last = -1
+local pct = nil
+local hovered = false
 
--- Re-render with this output's icon set once its scale is known.
-common.resolveIcons(function()
-  last = -1
-end)
+local function render()
+  if pct == nil then
+    return
+  end
+  barWidget.render(common.chip({
+    common.glow(hovered, function()
+      return ui.image({ path = common.icon("lum"), width = 18, height = 18, fit = "contain" })
+    end),
+    common.glow(hovered, function()
+      return common.readout(string.format("%03d", pct), "on_surface")
+    end),
+  }, noctalia.getConfig("tag") == true))
+  common.tip(string.format("Brightness: %d%%", pct))
+end
+
+function onHover(inside)
+  hovered = inside
+  common.hover(inside)
+  render()
+end
 
 function update()
   noctalia.setUpdateInterval(1000)
@@ -36,14 +53,13 @@ function update()
   if not cur or not max or max <= 0 then
     return
   end
-  local pct = math.floor(cur / max * 100 + 0.5)
-  if pct == last then
+  local now = math.floor(cur / max * 100 + 0.5)
+  if now == pct then
     return
   end
-  last = pct
-  barWidget.render(ui.row({ gap = 5, align = "center" }, {
-    ui.image({ path = common.icon("lum"), width = 18, height = 18, fit = "contain" }),
-    common.readout(string.format("%03d", pct), "on_surface"),
-  }))
-  barWidget.setTooltip(string.format("Brightness: %d%%", pct))
+  pct = now
+  render()
 end
+
+-- Swap in this output's icon set once its scale is known.
+common.resolveIcons(render)

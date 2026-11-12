@@ -12,6 +12,10 @@ hl.config({
         rounding = acid and 18 or 20, -- acid: the liquid-glass toast radius (noctalia/themes/acid.toml corner_radius_scale)
         rounding_power = 2,
 
+        -- Unfocused windows sit back a little, so the focused one reads first.
+        dim_inactive = true,
+        dim_strength = 0.12,
+
         -- ACID//HUD: wide soft shadow; hyprland.lua tints the active one acid
         -- for a glow. Classic: a tight dark one.
         shadow = acid and {
@@ -89,6 +93,29 @@ hl.layer_rule({
     no_anim = true,
     blur = false,
     order = 1,
+})
+-- The HUD's launcher (quickshell hud, Launcher.qml): the glass shapes on one
+-- layer, the text and icons on another, kept above it.
+hl.layer_rule({
+    name = "hud-launcher",
+    match = { namespace = "^hud-launcher$" },
+    no_anim = true,
+    blur = false,
+})
+hl.layer_rule({
+    name = "hud-launcher-glass",
+    match = { namespace = "^hud-launcher-glass$" },
+    no_anim = true,
+    blur = false,
+    order = 1,
+})
+-- The HUD's bar tooltips (quickshell hud, Tip.qml): glass, so no blur of
+-- Hyprland's own, and they appear in place.
+hl.layer_rule({
+    name = "hud-tooltip",
+    match = { namespace = "^hud-tooltip$" },
+    no_anim = true,
+    blur = false,
 })
 -- The unlock reveal (overlay layer, mapped only while locked and for the fold):
 -- it animates itself, and hyprglass blurs behind it (plugins.lua).

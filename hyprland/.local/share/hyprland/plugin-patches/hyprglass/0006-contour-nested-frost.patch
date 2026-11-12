@@ -1,0 +1,308 @@
+Contour: nested shapes as frosted sections (nested_frost).
+
+- hg.layer(..., { mask_nested = 0.15, nested_frost = 3.0 }): a nested shape
+  (a pill on the bar) is no longer a second lens with its own rim. The pane
+  keeps the outer outline's field right through it, and the shape's soft
+  coverage only frosts the backdrop there, by the given blur strength: a
+  blurred section of the same sheet. 0 (default) keeps the nested lens.
+
+diff --git a/README.md b/README.md
+index 184fae2..5d52e41 100644
+--- a/README.md
++++ b/README.md
+@@ -399,6 +399,7 @@ hg.layer("debug-panel", { exclude = true })
+ | `mask_nested` | float | Contour only: alpha above which content inside the traced shape is a nested shape with its own edge (`0`, the default, = none) |
+ | `mask_open` | string | Contour only: box edges (`top`, `bottom`, `left`, `right`, space separated) where the outline stays open (`""`, the default, = none) |
+ | `mask_join` | string | Contour only: namespace of a contour layer lying against this one's top or bottom edge; the outline opens where the two touch |
++| `nested_frost` | float | Contour only, with `mask_nested`: nested shapes are frosted sections of the pane instead of lenses on it: no edge, bend or highlight of their own, the backdrop blurred this much further inside them, in `blur_strength` units (`0`, the default, = lenses) |
+ | `open_frost` | float | Contour only, with `mask_open`: extra blur the glass grows into away from its open top or bottom edge, in `blur_strength` units (`0`, the default, = none) |
+ | `open_feather` | float | Logical px over which `open_frost` grows from nothing at the open edge (default `16`) |
+ | `mask_fillet` | float | Contour only, with `mask_open`: radius in logical px of the inner corners where the shape leaves its open top or bottom edge (`0`, the default, = square) |
+diff --git a/src/Contour.cpp b/src/Contour.cpp
+index b957753..7affcc8 100644
+--- a/src/Contour.cpp
++++ b/src/Contour.cpp
+@@ -291,6 +291,7 @@ bool CField::build(Render::CRenderContext& ctx, const SBuildKey& key, const SP<R
+             glUniform1i(uniforms.tex, 0);
+             glUniform2f(uniforms.fieldSize, fieldWidth, fieldHeight);
+             glUniform1f(uniforms.texelPx, divisor);
++            glUniform1f(uniforms.nestedFlat, key.nestedFlat ? 1.0f : 0.0f);
+         });
+     }
+ 
+diff --git a/src/Contour.hpp b/src/Contour.hpp
+index 36082d8..3a35e45 100644
+--- a/src/Contour.hpp
++++ b/src/Contour.hpp
+@@ -137,6 +137,9 @@ struct SBuildKey {
+     SPlan plan;
+     float threshold   = 0.0f; // mask_threshold, before the layer's fade
+     float nested      = 0.0f; // mask_nested, before the layer's fade; 0 = no nested shapes
++    // nested_frost: nested shapes are sections of the pane, not lenses on it. The field keeps
++    // the pane's own distance and gradient inside them and only marks where they are.
++    bool  nestedFlat  = false;
+     float scale       = 1.0f; // the monitor's, for the nested vote's window
+     bool  provisional = false; // built while the layer was still fading in
+     // Where the box sits in the framebuffer, only while part of it is off the screen: the
+diff --git a/src/GlassLayerSurface.cpp b/src/GlassLayerSurface.cpp
+index 234d6a1..1fc25b0 100644
+--- a/src/GlassLayerSurface.cpp
++++ b/src/GlassLayerSurface.cpp
+@@ -528,6 +528,27 @@ float CGlassLayerSurface::resolveMaskThreshold() const {
+     return threshold;
+ }
+ 
++bool CGlassLayerSurface::frostsOpenEdge() const {
++    const auto layerSurface = m_layerSurface.lock();
++    if (!layerSurface)
++        return false;
++
++    const auto& state   = *g_pGlobalState;
++    const auto  frostIt = state.layerNamespaceOpenFrost.find(layerSurface->m_namespace);
++    const auto  openIt  = state.layerNamespaceMaskOpen.find(layerSurface->m_namespace);
++    return frostIt != state.layerNamespaceOpenFrost.end() && frostIt->second > 0.0f && openIt != state.layerNamespaceMaskOpen.end() &&
++        (openIt->second & (Contour::EDGE_TOP | Contour::EDGE_BOTTOM)) != 0;
++}
++
++float CGlassLayerSurface::resolveNestedFrost() const {
++    if (const auto layerSurface = m_layerSurface.lock()) {
++        const auto it = g_pGlobalState->layerNamespaceNestedFrost.find(layerSurface->m_namespace);
++        if (it != g_pGlobalState->layerNamespaceNestedFrost.end() && resolveMaskNested() > 0.0f)
++            return std::min(it->second, Frost::BLUR_MAX);
++    }
++    return 0.0f;
++}
++
+ float CGlassLayerSurface::resolveMaskNested() const {
+     if (const auto layerSurface = m_layerSurface.lock()) {
+         const auto it = g_pGlobalState->layerNamespaceMaskNested.find(layerSurface->m_namespace);
+@@ -570,6 +591,7 @@ std::optional<Contour::SBuildKey> CGlassLayerSurface::contourBuildKey(PHLMONITOR
+         .plan        = *plan,
+         .threshold   = std::isfinite(maskThreshold) ? maskThreshold : 0.001f,
+         .nested      = std::isfinite(maskNested) ? maskNested : 0.0f,
++        .nestedFlat  = resolveNestedFrost() > 0.0f && !frostsOpenEdge(),
+         .scale       = scale,
+         .provisional = alpha < Contour::COMPLETE_ALPHA,
+         .boxX        = onScreen ? 0 : static_cast<int>(layerBox.x),
+@@ -762,9 +784,15 @@ bool CGlassLayerSurface::openFrost(Render::CRenderContext& ctx, PHLMONITOR monit
+     const auto& state   = *g_pGlobalState;
+     const auto  frostIt = state.layerNamespaceOpenFrost.find(layerSurface->m_namespace);
+     const auto  openIt  = state.layerNamespaceMaskOpen.find(layerSurface->m_namespace);
+-    const float setting = frostIt != state.layerNamespaceOpenFrost.end() ? std::min(frostIt->second, Frost::BLUR_MAX) : 0.0f;
+-    const int   edges   = openIt != state.layerNamespaceMaskOpen.end() ? openIt->second : 0;
+-    if (setting <= 0.0f || (edges & (Contour::EDGE_TOP | Contour::EDGE_BOTTOM)) == 0) {
++    const float openSetting = frostIt != state.layerNamespaceOpenFrost.end() ? std::min(frostIt->second, Frost::BLUR_MAX) : 0.0f;
++    const int   openEdges   = openIt != state.layerNamespaceMaskOpen.end() ? openIt->second : 0;
++    const bool  open        = frostsOpenEdge();
++    // nested_frost: the same frosted copy, shown inside the nested shapes only. A layer that
++    // is open_frost'ed as well keeps that: its nested shapes are then lenses, as without.
++    const float nestedSetting = open ? 0.0f : resolveNestedFrost();
++    const float setting       = open ? openSetting : nestedSetting;
++    const int   edges         = open ? openEdges : 0;
++    if (setting <= 0.0f) {
+         m_frost.reset();
+         return false;
+     }
+@@ -793,7 +821,7 @@ bool CGlassLayerSurface::openFrost(Render::CRenderContext& ctx, PHLMONITOR monit
+     const auto  featherIt = state.layerNamespaceOpenFeather.find(layerSurface->m_namespace);
+     // at least a pixel: 0 would frost right up to the edge
+     const float ramp      = std::max((featherIt != state.layerNamespaceOpenFeather.end() ? featherIt->second : OPEN_FEATHER_DEFAULT) * scale, 1.0f);
+-    frostInput = {m_frost.copy(), 1.0f, (edges & Contour::EDGE_TOP) ? ramp : 0.0f, (edges & Contour::EDGE_BOTTOM) ? ramp : 0.0f};
++    frostInput = {m_frost.copy(), 1.0f, (edges & Contour::EDGE_TOP) ? ramp : 0.0f, (edges & Contour::EDGE_BOTTOM) ? ramp : 0.0f, !open};
+     return true;
+ }
+ 
+diff --git a/src/GlassLayerSurface.hpp b/src/GlassLayerSurface.hpp
+index 47acdb8..24cb3b3 100644
+--- a/src/GlassLayerSurface.hpp
++++ b/src/GlassLayerSurface.hpp
+@@ -210,6 +210,10 @@ class CGlassLayerSurface {
+     [[nodiscard]] float resolveMaskThreshold() const;
+     // mask_nested for this layer: namespace entry, else 0 (no nested shapes).
+     [[nodiscard]] float resolveMaskNested() const;
++    // nested_frost for this layer, capped; 0 without mask_nested.
++    [[nodiscard]] float resolveNestedFrost() const;
++    // open_frost in effect on this layer: it takes the frosted copy, nested_frost stands down
++    [[nodiscard]] bool  frostsOpenEdge() const;
+ 
+     [[nodiscard]] bool           resolveThemeIsDark() const;
+     [[nodiscard]] std::string    resolvePresetName() const;
+diff --git a/src/GlassRenderer.cpp b/src/GlassRenderer.cpp
+index ae98bf2..73dd75f 100644
+--- a/src/GlassRenderer.cpp
++++ b/src/GlassRenderer.cpp
+@@ -644,6 +644,7 @@ void applyGlassEffect(Render::CRenderContext& ctx,
+         glUniform1i(uniforms.frostTex, FROST_TEXTURE_UNIT);
+         glUniform1f(uniforms.frostAmount, std::min(frost->amount, 1.0f));
+         glUniform2f(uniforms.frostRamp, frost->rampTop, frost->rampBottom);
++        glUniform1f(uniforms.frostNested, frost->nestedOnly ? 1.0f : 0.0f);
+     }
+ 
+     if (contoured) {
+diff --git a/src/GlassRenderer.hpp b/src/GlassRenderer.hpp
+index c3f1b5e..7ff0e28 100644
+--- a/src/GlassRenderer.hpp
++++ b/src/GlassRenderer.hpp
+@@ -221,6 +221,8 @@ struct SFrostInput {
+     // over this many px. 0: full right at that edge.
+     float                    rampTop    = 0.0f;
+     float                    rampBottom = 0.0f;
++    // Layers (nested_frost): only the nested shapes are frosted, the pane itself not at all.
++    bool                     nestedOnly = false;
+ };
+ 
+ // When mask is non-null (layers only), the shader composites the surface content
+diff --git a/src/Globals.hpp b/src/Globals.hpp
+index 412b058..44b914e 100644
+--- a/src/Globals.hpp
++++ b/src/Globals.hpp
+@@ -87,6 +87,9 @@ struct SGlobalState {
+     // Per-namespace open_frost and open_feather (namespace → extra blur away from the open
+     // edges, in blur_strength units, and the logical px it grows over from each of them)
+     std::unordered_map<std::string, float> layerNamespaceOpenFrost;
++    // Per-namespace nested_frost (namespace → extra blur inside nested shapes, which are then
++    // frosted sections of the pane instead of lenses on it)
++    std::unordered_map<std::string, float> layerNamespaceNestedFrost;
+     std::unordered_map<std::string, float> layerNamespaceOpenFeather;
+     // Per-namespace mask_fillet (namespace → logical px radius of the inner corners where the
+     // shape leaves an open top or bottom edge)
+diff --git a/src/PluginConfig.cpp b/src/PluginConfig.cpp
+index 20e7bf4..c491027 100644
+--- a/src/PluginConfig.cpp
++++ b/src/PluginConfig.cpp
+@@ -770,6 +770,7 @@ struct SPendingLayer {
+     float                         maskThreshold = -1.0f;
+     float                         maskFeather   = -1.0f;
+     float                         maskNested    = -1.0f;
++    float                         nestedFrost   = -1.0f;
+     int                           maskOpen      = 0;  // Contour::EDGE_* bits
+     std::string                   maskJoin;
+     float                         openFrost     = -1.0f;
+@@ -825,7 +826,7 @@ static std::optional<SLayerShape> readLuaLayerShape(lua_State* L, int tableIdx)
+ }
+ 
+ // What hyprglass.layer takes in its table; anything else is reported.
+-static constexpr std::array<std::string_view, 14> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "mask_nested", "mask_open", "mask_join", "mask_fillet", "open_frost", "open_feather", "edge_light", "live_resample", "mask_mode", "shape"};
++static constexpr std::array<std::string_view, 15> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "mask_nested", "nested_frost", "mask_open", "mask_join", "mask_fillet", "open_frost", "open_feather", "edge_light", "live_resample", "mask_mode", "shape"};
+ 
+ // mask_open = "top", "top bottom", ...: the box edges the outline runs on past. Nullopt for an unknown word.
+ static std::optional<int> parseMaskOpen(std::string_view value) {
+@@ -920,6 +921,13 @@ static int handleLuaLayer(lua_State* L) {
+             typeError("mask_nested", "a finite number, 0 or more");
+         lua_pop(L, 1);
+ 
++        lua_getfield(L, 2, "nested_frost");
++        if (const auto value = luaFiniteNumber(L, -1); value && *value >= 0.0)
++            entry.nestedFrost = static_cast<float>(*value);
++        else if (!lua_isnil(L, -1))
++            typeError("nested_frost", "a finite number, 0 or more");
++        lua_pop(L, 1);
++
+         lua_getfield(L, 2, "mask_open");
+         if (lua_type(L, -1) == LUA_TSTRING) {
+             if (const auto edges = parseMaskOpen(lua_tostring(L, -1)))
+@@ -1019,6 +1027,7 @@ static void resetLayerNamespaces() {
+     g_pGlobalState->layerNamespaceMaskOpen.clear();
+     g_pGlobalState->layerNamespaceMaskJoin.clear();
+     g_pGlobalState->layerNamespaceOpenFrost.clear();
++    g_pGlobalState->layerNamespaceNestedFrost.clear();
+     g_pGlobalState->layerNamespaceOpenFeather.clear();
+     g_pGlobalState->layerNamespaceEdgeLight.clear();
+     g_pGlobalState->layerNamespaceMaskFillet.clear();
+@@ -1047,6 +1056,8 @@ void commitPendingLayers() {
+                 g_pGlobalState->layerNamespaceMaskJoin[entry.ns] = entry.maskJoin;
+             if (entry.openFrost > 0.0f)
+                 g_pGlobalState->layerNamespaceOpenFrost[entry.ns] = entry.openFrost;
++            if (entry.nestedFrost > 0.0f)
++                g_pGlobalState->layerNamespaceNestedFrost[entry.ns] = entry.nestedFrost;
+             if (entry.openFeather >= 0.0f)
+                 g_pGlobalState->layerNamespaceOpenFeather[entry.ns] = entry.openFeather;
+             if (entry.maskFillet > 0.0f)
+diff --git a/src/ShaderManager.cpp b/src/ShaderManager.cpp
+index 25e7349..5cbb86b 100644
+--- a/src/ShaderManager.cpp
++++ b/src/ShaderManager.cpp
+@@ -93,6 +93,7 @@ bool CShaderManager::compileGlassProgram(SGlassProgram& glass, GlassFeatureMask
+     glassUniforms.frostTex              = glGetUniformLocation(program, "frostTex");
+     glassUniforms.frostAmount           = glGetUniformLocation(program, "frostAmount");
+     glassUniforms.frostRamp             = glGetUniformLocation(program, "frostRamp");
++    glassUniforms.frostNested           = glGetUniformLocation(program, "frostNested");
+     glassUniforms.contourTex            = glGetUniformLocation(program, "contourTex");
+     glassUniforms.contourUVScale        = glGetUniformLocation(program, "contourUVScale");
+     glassUniforms.contourReferencePx    = glGetUniformLocation(program, "contourReferencePx");
+@@ -175,6 +176,7 @@ bool CShaderManager::compileContourPrograms() {
+     pack.tex       = locate(m_contour.pack, "tex");
+     pack.fieldSize = locate(m_contour.pack, "fieldSize");
+     pack.texelPx   = locate(m_contour.pack, "texelPx");
++    pack.nestedFlat = locate(m_contour.pack, "nestedFlat");
+ 
+     return true;
+ }
+diff --git a/src/ShaderManager.hpp b/src/ShaderManager.hpp
+index 19d1e90..f8b2835 100644
+--- a/src/ShaderManager.hpp
++++ b/src/ShaderManager.hpp
+@@ -81,6 +81,7 @@ struct SGlassUniforms {
+     GLint frostTex    = -1;
+     GLint frostAmount = -1;
+     GLint frostRamp   = -1;
++    GLint frostNested = -1;
+ 
+     // GLASS_FEATURE_CONTOUR variant only.
+     GLint contourTex         = -1;
+@@ -116,7 +117,7 @@ struct SContourPrograms {
+         GLint tex = -1, fieldSize = -1, direction = -1, radius = -1, negHalfInvSigmaSq = -1;
+     } smoothUniforms;
+     struct {
+-        GLint tex = -1, fieldSize = -1, texelPx = -1;
++        GLint tex = -1, fieldSize = -1, texelPx = -1, nestedFlat = -1;
+     } packUniforms;
+ };
+ 
+diff --git a/src/Shaders.hpp b/src/Shaders.hpp
+index 9b09bc6..2e950db 100644
+--- a/src/Shaders.hpp
++++ b/src/Shaders.hpp
+@@ -140,6 +140,7 @@ const float FOCUS_LIGHT_REACH = 24.0;      // deeper, the light is under a third
+ #ifdef HYPRGLASS_FEATURE_FROST
+ uniform sampler2D frostTex;  // tex blurred further, at half its size: same UVs as tex
+ uniform float frostAmount;   // frost times its ease, > 0
++uniform float frostNested;   // layers (nested_frost): 1 = frost the nested shapes only
+ uniform vec2 frostRamp;      // layers (open_frost): px over which the frost grows from nothing at the
+                              // quad's top (x) and bottom (y) edge; 0 = full right at that edge
+ float frostMix = 0.0;        // frostAmount at this pixel, set first thing in main()
+@@ -451,6 +452,14 @@ void main() {
+     // 1 inside a nested shape (mask_nested): a lens laid on the pane, with a narrower edge
+     // and a rim that shows on its sides too, like the selected tab of an iOS 26 tab bar.
+     float nestedRim      = contourSample.a;
++#ifdef HYPRGLASS_FEATURE_FROST
++    // nested_frost: a nested shape is a frosted section of the pane, with no edge, bend or
++    // light of its own (the field carries the pane's own outline through it).
++    if (frostNested > 0.5) {
++        frostMix  = frostAmount * nestedRim;
++        nestedRim = 0.0;
++    }
++#endif
+     if (filletCut) {
+         // as far inside the outline as an edge the app draws itself would show
+         maskRamp = max(maskRamp, clamp(0.5 - cornerSdf - OUTLINE_INSET_PX, 0.0, 1.0));
+@@ -1233,6 +1242,7 @@ precision highp sampler2D;
+ uniform sampler2D tex;
+ uniform vec2 fieldSize;
+ uniform float texelPx;
++uniform float nestedFlat;    // nested_frost: keep the outline's field inside nested shapes
+ 
+ layout(location = 0) out vec4 fragColor;
+ 
+@@ -1244,6 +1254,11 @@ void main() {
+     vec2 right  = texelFetch(tex, clamp(p + ivec2(1, 0), ivec2(0), last), 0).rg;
+     vec2 above  = texelFetch(tex, clamp(p + ivec2(0, -1), ivec2(0), last), 0).rg;
+     vec2 below  = texelFetch(tex, clamp(p + ivec2(0, 1), ivec2(0), last), 0).rg;
++    if (nestedFlat > 0.5) {
++        // a: how far inside a nested shape, over one px across its edge
++        fragColor = vec4(centre.r, vec2(right.r - left.r, below.r - above.r) / (2.0 * texelPx), clamp(0.5 - centre.g, 0.0, 1.0));
++        return;
++    }
+     int c = centre.g < 0.0 ? 1 : 0;
+     fragColor = vec4(centre[c], vec2(right[c] - left[c], below[c] - above[c]) / (2.0 * texelPx), float(c));
+ }

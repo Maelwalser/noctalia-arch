@@ -107,6 +107,7 @@ local function render()
       state = "occupied"
     end
     local count = workspaces[id] or 0
+    local tip = string.format("Workspace %d · %d window%s", id, count, if count == 1 then "" else "s")
     table.insert(tiles, ui.image({
       key = "ws" .. id,
       path = tilePath(state, id),
@@ -116,7 +117,13 @@ local function render()
       onClick = function()
         focus(id)
       end,
-      tooltip = string.format("Workspace %d · %d window%s", id, count, if count == 1 then "" else "s"),
+      -- The glass tooltip (common.tip) instead of the node's own `tooltip`.
+      onHover = function(state)
+        if state == "true" then
+          common.tip(tip)
+        end
+        common.hover(state == "true")
+      end,
     }))
   end
   table.insert(tiles, ui.image({ path = dir .. "/cap-r.png", width = CAP_W, height = 20, fit = "contain" }))

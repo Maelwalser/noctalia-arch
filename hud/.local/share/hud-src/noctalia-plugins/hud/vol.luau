@@ -4,6 +4,7 @@
 local common = require("./common.luau")
 
 local level, muted = nil, false
+local hovered = false
 
 local function render()
   if not common.hasAssets() then
@@ -15,11 +16,15 @@ local function render()
   end
   -- 0 % shows the muted speaker in the normal colour; red is kept for a real mute.
   local icon = if muted then "mute" elseif level == 0 then "silent" else "vol"
-  barWidget.render(ui.row({ gap = 5, align = "center" }, {
-    ui.image({ path = common.icon(icon), width = 18, height = 18, fit = "contain" }),
-    common.readout(if muted then "MUT" else string.format("%03d", level), if muted then "error" else "on_surface"),
-  }))
-  barWidget.setTooltip(if muted then "Volume: muted" else string.format("Volume: %d%%", level))
+  barWidget.render(common.chip({
+    common.glow(hovered, function()
+      return ui.image({ path = common.icon(icon), width = 18, height = 18, fit = "contain" })
+    end),
+    common.glow(hovered, function()
+      return common.readout(if muted then "MUT" else string.format("%03d", level), if muted then "error" else "on_surface")
+    end),
+  }, noctalia.getConfig("tag") == true))
+  common.tip(if muted then "Volume: muted" else string.format("Volume: %d%%", level))
 end
 
 local refresh = common.coalesced({ "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@" }, function(r)
@@ -33,6 +38,12 @@ local refresh = common.coalesced({ "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"
     render()
   end
 end)
+
+function onHover(inside)
+  hovered = inside
+  common.hover(inside)
+  render()
+end
 
 if noctalia.commandExists("pactl") then
   noctalia.runStream("pactl subscribe", function(line)

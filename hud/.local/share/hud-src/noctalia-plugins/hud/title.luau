@@ -51,11 +51,11 @@ local function render()
   end
   drawn = key
   if title == "" or maxWidth < MIN_WIDTH then
-    barWidget.setTooltip("")
+    common.tip("")
     barWidget.render(ui.box({ width = 0, height = 0, fill = "on_surface/0.00" }))
     return
   end
-  barWidget.setTooltip(title)
+  common.tip(title)
   barWidget.render(ui.label({ text = title, color = "on_surface_variant", maxWidth = maxWidth, maxLines = 1 }))
 end
 
@@ -124,3 +124,7 @@ noctalia.runStream(
 )
 syncTitle()
 syncMedia()
+
+function onHover(inside)
+  common.hover(inside)
+end

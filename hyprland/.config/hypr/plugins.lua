@@ -108,7 +108,9 @@ if hl.plugin.hyprglass ~= nil then
         -- cannot know where a panel touches the rail on each frame of its
         -- slide; the outline does, so the line opens with the panel and runs
         -- on round its fillets without a break.
-        hg.layer("noctalia-bar-default", { preset = "acid_rail", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15, mask_join = "noctalia-attached-panel", edge_light = 0.55 })
+        -- nested_frost: the pills on the rail are blurred sections of the
+        -- same sheet, not lenses of their own with a rim (patch 0006).
+        hg.layer("noctalia-bar-default", { preset = "acid_rail", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15, nested_frost = 3.0, mask_join = "noctalia-attached-panel", edge_light = 0.55 })
         -- Panels attached to the bar (control centre, session, wallpaper): in
         -- Noctalia's "glass" transparency mode the panel box is a faint rounded
         -- fill the size of its layer, traced like the toasts. A panel is the
@@ -170,6 +172,28 @@ if hl.plugin.hyprglass ~= nil then
             dark = { tint_color = 0xdce6f007, contrast = 0.975 },
         })
         hg.layer("hud-glass", { preset = "acid_pane_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- The launcher (quickshell hud, Launcher.qml) opens over whatever is
+        -- on screen, so it is the toasts' glass a shade darker, dimmed further
+        -- over a bright window, to keep its text readable. The selected row
+        -- is a nested lens, as the capsules are on the bar's rail.
+        hg.preset("acid_launcher", {
+            inherits = "acid_clear",
+            blur_strength = 1.2,
+            blur_iterations = 3,
+            dark = { tint_color = 0x0b071270, brightness = 0.9, adaptive_dim = 0.35 },
+        })
+        hg.layer("hud-launcher-glass", { preset = "acid_launcher", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15 })
+        -- The bar's tooltips (quickshell hud, Tip.qml): the toasts' glass on a
+        -- shape a quarter of their height, so the bent edge is halved (as it
+        -- is for the bar's capsules) to leave a flat middle under the text,
+        -- which a bright window behind it dims a little to stay readable.
+        hg.preset("acid_tip", {
+            inherits = "acid_clear",
+            edge_thickness_px = 6,
+            edge_height = 4,
+            dark = { adaptive_dim = 0.3 },
+        })
+        hg.layer("hud-tooltip", { preset = "acid_tip", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
         -- The unlock reveal (quickshell hud, UnlockFold.qml): the lock scene
         -- parts as two frosted glass doors. The layer's alpha is the door's
         -- presence, and the feather turns it into the blur's strength. Plain

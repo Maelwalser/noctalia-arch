@@ -2,20 +2,26 @@
 # `hud-build` into ~/.local/share/hud/bar (derived from licensed stock art, so
 # they are not shipped with the plugin). Animation is frame swapping through
 # barWidget.render + noctalia.setUpdateInterval: the bar API has no transforms.
+#
+# hover_highlight = false on every widget (plugin_api 34): the bar's own hover
+# pill makes hyprglass trace a new glass pill around a bare ornament and does
+# not line up with the grouped pills. On hover the readouts make their text
+# and icons glow instead (common.luau glow); the ornaments show nothing.
 id = "mael/hud"
 name = "ACID//HUD"
 version = "1.0.0"
-plugin_api = 32
+plugin_api = 34
 author = "mael"
 license = "MIT"
 dependencies = []
 tags = ["theme", "decoration", "workspaces", "system"]
 icon = "hexagon"
-description = "Cyberpunk HUD bar: emblem, hazard tape, spinning ring, barcode, slanted workspace tiles and pixel readouts for volume, brightness, battery and notifications."
+description = "Cyberpunk HUD bar: emblem, hazard tape, spinning ring, barcode, slanted workspace tiles, clock and system panels, and pixel readouts for volume, brightness, battery and notifications."
 
 [[widget]]
 id = "emblem"
 entry = "emblem.luau"
+hover_highlight = false
 
   [widget.actions]
   left = "panel-toggle launcher"
@@ -24,6 +30,7 @@ entry = "emblem.luau"
 [[widget]]
 id = "hazard"
 entry = "hazard.luau"
+hover_highlight = false
 
   [[widget.setting]]
   key = "animate"
@@ -42,6 +49,7 @@ entry = "hazard.luau"
 [[widget]]
 id = "spinner"
 entry = "spinner.luau"
+hover_highlight = false
 
   [[widget.setting]]
   key = "animate"
@@ -56,10 +64,12 @@ entry = "spinner.luau"
 [[widget]]
 id = "barcode"
 entry = "barcode.luau"
+hover_highlight = false
 
 [[widget]]
 id = "workspaces"
 entry = "workspaces.luau"
+hover_highlight = false
 
   [widget.actions]
   middle = "none"
@@ -67,6 +77,14 @@ entry = "workspaces.luau"
 [[widget]]
 id = "vol"
 entry = "vol.luau"
+hover_highlight = false
+
+  # Draw the panel's acid tag in front of this readout (the first one in a pill).
+  [[widget.setting]]
+  key = "tag"
+  type = "bool"
+  label_key = "settings.tag.label"
+  default = false
 
   [widget.actions]
   left = "panel-toggle control-center audio"
@@ -77,6 +95,14 @@ entry = "vol.luau"
 [[widget]]
 id = "lum"
 entry = "lum.luau"
+hover_highlight = false
+
+  # Draw the panel's acid tag in front of this readout (the first one in a pill).
+  [[widget.setting]]
+  key = "tag"
+  type = "bool"
+  label_key = "settings.tag.label"
+  default = false
 
   [widget.actions]
   left = "panel-toggle control-center"
@@ -87,6 +113,14 @@ entry = "lum.luau"
 [[widget]]
 id = "pwr"
 entry = "pwr.luau"
+hover_highlight = false
+
+  # Draw the panel's acid tag in front of this readout (the first one in a pill).
+  [[widget.setting]]
+  key = "tag"
+  type = "bool"
+  label_key = "settings.tag.label"
+  default = false
 
   [widget.actions]
   left = "panel-toggle control-center power"
@@ -95,21 +129,64 @@ entry = "pwr.luau"
 [[widget]]
 id = "msg"
 entry = "msg.luau"
+hover_highlight = false
+
+  # Draw the panel's acid tag in front of this readout (the first one in a pill).
+  [[widget.setting]]
+  key = "tag"
+  type = "bool"
+  label_key = "settings.tag.label"
+  default = false
 
   [widget.actions]
   left = "panel-toggle control-center notifications"
   middle = "none"
 
 [[widget]]
-id = "tag"
-entry = "tag.luau"
+id = "clock"
+entry = "clock.luau"
+hover_highlight = false
+
+  # Noctalia clock format strings, as on the built-in clock widget.
+  [[widget.setting]]
+  key = "format"
+  type = "string"
+  label_key = "settings.format.label"
+  default = "{:%H:%M}"
+
+  [[widget.setting]]
+  key = "tooltip_format"
+  type = "string"
+  label_key = "settings.tooltip_format.label"
+  default = "{:%A %d %B %Y}"
 
   [widget.actions]
+  left = "panel-toggle control-center calendar"
+  middle = "none"
+
+[[widget]]
+id = "cc"
+entry = "cc.luau"
+hover_highlight = false
+
+  [widget.actions]
+  left = "panel-toggle control-center home"
+  right = "panel-toggle control-center home"
+  middle = "none"
+
+[[widget]]
+id = "sys"
+entry = "sys.luau"
+hover_highlight = false
+
+  [widget.actions]
+  left = "panel-toggle control-center system"
   middle = "none"
 
 [[widget]]
 id = "sep"
 entry = "sep.luau"
+hover_highlight = false
 
   [widget.actions]
   middle = "none"
@@ -117,6 +194,7 @@ entry = "sep.luau"
 [[widget]]
 id = "title"
 entry = "title.luau"
+hover_highlight = false
 
   # Logical px left of the title: bar margin, the widgets before it and the
   # lane spacing, without the media readout.
@@ -152,6 +230,7 @@ entry = "title.luau"
 [[widget]]
 id = "eq"
 entry = "eq.luau"
+hover_highlight = false
 
   # Noctalia streams PipeWire spectrum frames to onAudioSpectrum while this is on.
   [[widget.setting]]

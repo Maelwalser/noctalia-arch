@@ -365,11 +365,12 @@ Item {
     }
     Graph { side: 1; row: 2; stat: "swap"; glyph: ""; value: Math.round(SysStats.swap * 100) + "%" }
 
-    // The reticle's frames were baked over the scene under them (hud-build
-    // bake_reticle: one PNG strip, RETICLE_FRAMES side by side), so the box
-    // must land on the same physical pixels: whole pixels and an even size,
-    // as reticle_box computes them. The strip slides behind the box one
-    // frame per tick of the shared counter, so every copy shows the same one.
+    // The reticle's frames are the ring alone on a transparent ground
+    // (hud-build bake_reticle: one PNG strip, RETICLE_FRAMES side by side),
+    // finished at the box's physical size, so the box lands on whole pixels
+    // with an even size, as reticle_box computes them, and is drawn texel
+    // for texel. The strip slides behind the box one frame per tick of the
+    // shared counter, so every copy shows the same one.
     readonly property int reticleFrames: 45
     Item {
         id: reticle

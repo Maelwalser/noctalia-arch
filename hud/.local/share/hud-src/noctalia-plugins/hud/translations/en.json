@@ -7,6 +7,9 @@
     "gap": { "label": "Gap to the workspaces (px)" },
     "max_width": { "label": "Maximum width (px, 0 = fill)" },
     "title_reserve": { "label": "Space taken left of the title (px)" },
-    "media_reserve": { "label": "Space kept for the media readout (px)" }
+    "media_reserve": { "label": "Space kept for the media readout (px)" },
+    "tag": { "label": "Draw the panel tag in front" },
+    "format": { "label": "Time format" },
+    "tooltip_format": { "label": "Tooltip format" }
   }
 }

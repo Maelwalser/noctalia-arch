@@ -212,7 +212,9 @@ hl.bind("ALT + SHIFT + P", hl.dsp.exec_cmd("sioyek"), { description = "PDF reade
 
 hl.bind("SUPER + W", hl.dsp.exec_cmd("noctalia msg panel-toggle wallpaper"))
 hl.bind("SUPER + V", hl.dsp.exec_cmd("noctalia msg panel-toggle clipboard"), { description = "Clipboard history" })
-hl.bind("ALT + SPACE", hl.dsp.exec_cmd("noctalia msg panel-toggle launcher"), { description = "Launch apps" })
+-- The HUD's glass pill launcher (quickshell hud, Launcher.qml); Noctalia's own
+-- when the HUD is not running (classic theme).
+hl.bind("ALT + SPACE", hl.dsp.exec_cmd("qs -c hud ipc call launcher toggle || noctalia msg panel-toggle launcher"), { description = "Launch apps" })
 
 hl.bind("SUPER + SHIFT + S", hl.dsp.exec_cmd('grim -g "$(slurp)" - | wl-copy'))
 

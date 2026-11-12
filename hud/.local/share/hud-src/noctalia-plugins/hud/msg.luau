@@ -4,6 +4,7 @@
 local common = require("./common.luau")
 
 local dnd = nil
+local hovered = false
 
 local function render()
   if not common.hasAssets() then
@@ -13,11 +14,15 @@ local function render()
   if dnd == nil then
     return
   end
-  barWidget.render(ui.row({ gap = 5, align = "center" }, {
-    ui.image({ path = common.icon(if dnd then "bell-off" else "bell"), width = 18, height = 18, fit = "contain" }),
-    common.readout(if dnd then "DND" else "MSG", if dnd then "error" else "on_surface"),
-  }))
-  barWidget.setTooltip(if dnd then "Do Not Disturb · right click: off" else "Notifications · right click: Do Not Disturb")
+  barWidget.render(common.chip({
+    common.glow(hovered, function()
+      return ui.image({ path = common.icon(if dnd then "bell-off" else "bell"), width = 18, height = 18, fit = "contain" })
+    end),
+    common.glow(hovered, function()
+      return common.readout(if dnd then "DND" else "MSG", if dnd then "error" else "on_surface")
+    end),
+  }, noctalia.getConfig("tag") == true))
+  common.tip(if dnd then "Do Not Disturb · right click: off" else "Notifications · right click: Do Not Disturb")
 end
 
 local refresh = common.coalesced({ "noctalia", "msg", "notification-dnd-status" }, function(r)
@@ -26,6 +31,12 @@ local refresh = common.coalesced({ "noctalia", "msg", "notification-dnd-status" 
     render()
   end
 end)
+
+function onHover(inside)
+  hovered = inside
+  common.hover(inside)
+  render()
+end
 
 function onRightClick()
   noctalia.runAsync({ "noctalia", "msg", "notification-dnd-toggle" }, function()

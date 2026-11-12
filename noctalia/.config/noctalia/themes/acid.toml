@@ -108,9 +108,9 @@ color = "on_surface"               # values off-white ...
 icon_color = "primary"             # ... glyphs acid
 capsule = true
 capsule_radius = 12                # pills inside the pill rail
-capsule_fill = "#ffffff"           # nested glass: a light lozenge over the rail; hyprglass traces
-capsule_opacity = 0.12             # it (mask_nested in hypr/plugins.lua) and lights its rim itself,
-capsule_border = "#ffffff00"       # so no drawn border
+capsule_fill = "#ffffff"           # a faint lozenge over the rail; hyprglass traces it (mask_nested
+capsule_opacity = 0.08             # in hypr/plugins.lua) and frosts the rail there (nested_frost):
+capsule_border = "#ffffff00"       # a blurred section, no rim. Must stay above mask_nested.
 capsule_border_width = 0
 capsule_padding = 8
 auto_hide = false                  # v4 displayMode = always_visible
@@ -121,54 +121,37 @@ reserve_space = true
 start = [
   "hud_emblem",
   "hud_hazard",
-  "group:clk",
-  "group:sys",
+  "hud_clock",
+  "hud_sys",
   "media",
   "hud_title",
 ]
 center = ["hud_workspaces"]
-end = ["hud_eq", "tray", "group:ctl", "hud_spinner", "control-center"]
+end = ["hud_eq", "tray", "group:ctl", "hud_spinner", "hud_cc"]
 
-# Each panel opens with an acid tag (mael/hud:tag), like the overlay's section
-# headers, and hairline dividers (mael/hud:sep) split the readouts.
-[[bar.default.capsule_group]]
-id = "clk"
-members = ["hud_tag_clk", "clock"]
-fill = "#ffffff"
-opacity = 0.12
-border = "#ffffff00"
-radius = 12
-padding = 8
-widget_spacing = 8
-
-# System readouts share one panel as plain values (a sparkline is a dark box
-# on the glass; three graphs also overflow the start lane on the 1280 px laptop).
-[[bar.default.capsule_group]]
-id = "sys"
-members = ["hud_tag_sys", "cpu", "hud_sep", "temp", "hud_sep", "ram"]
-fill = "#ffffff"
-opacity = 0.12
-border = "#ffffff00"
-radius = 12
-padding = 8
-widget_spacing = 8
-
+# Each panel opens with an acid tag, like the overlay's section headers. The
+# clock and the system readouts are one widget per pill (one action each). The
+# controls share a pill but act separately. On hover a readout's text and icon
+# glow (mael/hud common.luau `glow`); no background highlight anywhere. Each
+# control is its own hover target up to 2 px from the pill's edge, hence
+# padding 2 here: 2 + the 6 inside the widget keeps the readouts 8 px in.
+# Hairline dividers (mael/hud:sep) sit between them.
 [[bar.default.capsule_group]]
 id = "ctl"
-members = ["hud_tag_ctl", "hud_msg", "hud_sep", "hud_vol", "hud_sep", "hud_lum", "hud_sep", "hud_pwr"]
+members = ["hud_msg", "hud_sep", "hud_vol", "hud_sep", "hud_lum", "hud_sep", "hud_pwr"]
 fill = "#ffffff"
-opacity = 0.12
+opacity = 0.08
 border = "#ffffff00"
 radius = 12
-padding = 8
-widget_spacing = 8
+padding = 2
+widget_spacing = 2
 
 # The 1280 px laptop panel has no room between the system panel and the
 # centred workspaces (about 10 px), so the window title and the media readout
 # (which would overlap the workspace row) only show on the ultrawides.
 [bar.default.monitor.laptop]
 match = "eDP-1"
-start = ["hud_emblem", "hud_hazard", "group:clk", "group:sys"]
+start = ["hud_emblem", "hud_hazard", "hud_clock", "hud_sys"]
 
 [bar.default.dead_zone.actions]
 right = "panel-toggle control-center" # v4 rightClickAction = controlCenter
@@ -203,8 +186,10 @@ type = "mael/hud:workspaces"
 capsule = false
 
 # Pixel-icon readouts with Departure Mono values replace the built-in glyphs.
+# The first readout in the control pill carries the pill's tag.
 [widget.hud_msg]
 type = "mael/hud:msg"
+tag = true
 
 [widget.hud_vol]
 type = "mael/hud:vol"
@@ -215,49 +200,24 @@ type = "mael/hud:lum"
 [widget.hud_pwr]
 type = "mael/hud:pwr"
 
-[widget.hud_tag_clk]
-type = "mael/hud:tag"
-
-[widget.hud_tag_sys]
-type = "mael/hud:tag"
-
-[widget.hud_tag_ctl]
-type = "mael/hud:tag"
-
+# A divider is not a target: no tooltip, and the pointer falls through to the bar.
 [widget.hud_sep]
 type = "mael/hud:sep"
+interactive = false
 
-[widget.clock]
+# Clock and system pills: the widget is the whole pill (no capsule padding), so
+# the whole pill is the hover target for its glow.
+[widget.hud_clock]
+type = "mael/hud:clock"
+capsule_padding = 0
 format = "{:%H:%M}"
-font_family = "Departure Mono"     # the HUD readout face
 tooltip_format = "{:%A %d %B %Y}" # the date lives here, on the overlay and on the lockscreen
 
-[widget.cpu]
-stat = "cpu_usage"
-visualization = "none"
-show_glyph = false
-custom_label = "CPU"
-label_min_width = 26
-font_family = "Departure Mono"     # the HUD readout face, as on the mael/hud widgets
-font_scale = 0.88
-
-[widget.temp]
-stat = "cpu_temp"
-show_glyph = false
-custom_label = "TMP"
-label_min_width = 34
-font_family = "Departure Mono"     # the HUD readout face, as on the mael/hud widgets
-font_scale = 0.88
-visualization = "none"
-
-[widget.ram]
-stat = "ram_pct"
-show_glyph = false
-custom_label = "MEM"
-label_min_width = 30
-font_family = "Departure Mono"     # the HUD readout face, as on the mael/hud widgets
-font_scale = 0.88
-visualization = "none"
+# CPU load, CPU temperature and memory as plain values (a sparkline is a dark
+# box on the glass; three graphs also overflow the start lane on the 1280 px laptop).
+[widget.hud_sys]
+type = "mael/hud:sys"
+capsule_padding = 0
 
 [widget.media]
 artist_first = true
@@ -273,8 +233,11 @@ hide_passive = false
 hidden = []
 pinned = []
 
-[widget.control-center]
-custom_image = "/home/mael/.local/share/hud/bar/control-center.png" # 32 px copy for the 16 px button (hud-build)
+# Control-centre button (hud-build's 32 px glyph drawn at 16 px). Like the clock
+# pill, the widget is the whole pill and glows on hover.
+[widget.hud_cc]
+type = "mael/hud:cc"
+capsule_padding = 0
 
 # ── Desktop widgets ───────────────────────────────────────────────────────────
 # The ACID//HUD Quickshell overlay (quickshell/.config/quickshell/hud) draws the

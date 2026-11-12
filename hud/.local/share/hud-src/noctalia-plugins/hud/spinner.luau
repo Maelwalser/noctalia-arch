@@ -50,4 +50,8 @@ function update()
   }))
 end
 
-barWidget.setTooltip("HUD overlay · click to toggle")
+common.tip("HUD overlay · click to toggle")
+
+function onHover(inside)
+  common.hover(inside)
+end
