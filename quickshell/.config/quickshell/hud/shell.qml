@@ -160,7 +160,7 @@ ShellRoot {
     // The app launcher (Alt+Space): `qs -c hud ipc call launcher toggle`.
     Launcher {}
 
-    // The stack overview (SUPER + Tab): `qs -c hud ipc call overview toggle`.
+    // The stack overview (ALT + Tab): `qs -c hud ipc call overview toggle`.
     Overview {}
 
     // Glass tooltips for the bar's HUD widgets: `qs -c hud ipc call tip put/drop`.

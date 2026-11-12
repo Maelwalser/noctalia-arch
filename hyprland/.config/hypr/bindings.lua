@@ -266,6 +266,13 @@ local function switcher_open()
     return #hl.get_layers({ namespace = SWITCHER_NAMESPACE }) > 0
 end
 
+-- The HUD's stack overview (quickshell hud, Overview.qml).
+local OVERVIEW_NAMESPACE = "hud-overview"
+
+local function overview_open()
+    return #hl.get_layers({ namespace = OVERVIEW_NAMESPACE }) > 0
+end
+
 -- Fullscreen or maximized: the other windows are out of sight, so show the
 -- carousel. Windows stacked in front of each other: just focus the next
 -- one and raise it. Tiled side by side: everything is already on screen,
@@ -283,18 +290,13 @@ local function switch_window(forward)
     end
 end
 
--- Overview: the HUD's stack overview (quickshell hud, Overview.qml). The
--- view draws back from the window that has the focus, which stays in the
--- middle and in use, to show what is around it: the rest of its workspace
--- and the workspaces above and below. It follows the focus; the same key
--- goes back in. Noctalia's carousel of every window when the HUD is not
--- running (classic theme); no "hold", so that one stays open until a window
--- is picked or it is dismissed.
-hl.bind("SUPER + Tab", hl.dsp.exec_cmd("qs -c hud ipc call overview toggle || noctalia msg window-switcher all"), { description = "Overview of workspaces and windows" })
-
-hl.bind("ALT + Tab", function()
-    switch_window(true)
-end)
+-- ALT + Tab is the HUD's stack overview, on every layout: the view draws
+-- back from the window that has the focus, which stays in the middle and in
+-- use, to show what is around it, the rest of its workspace and the
+-- workspaces above and below. It follows the focus; the same key goes back
+-- in. Noctalia's carousel of every window when the HUD is not running
+-- (classic theme).
+hl.bind("ALT + Tab", hl.dsp.exec_cmd("qs -c hud ipc call overview toggle || noctalia msg window-switcher all"), { description = "Overview of workspaces and windows" })
 
 hl.bind("ALT + SHIFT + Tab", function()
     if not switcher_open() then
@@ -422,7 +424,37 @@ end
 
 hl.bind("ALT + h", function() focus_sideways("l") end)
 hl.bind("ALT + l", function() focus_sideways("r") end)
+-- The stack overview (ALT + Tab) shows the workspaces that have windows as
+-- rows above each other, whatever their layout. While it is up, ALT + J/K
+-- past the bottom or top window goes to the row below or above on every
+-- layout, not only on a strip, and skips the empty workspaces between,
+-- which have no row.
+local function overview_row(down)
+    local ws = hl.get_active_workspace()
+    if not ws or not ws.monitor then
+        return nil
+    end
+    local best
+    for _, other in ipairs(hl.get_workspaces()) do
+        if other.id > 0 and other.windows > 0 and other.monitor and other.monitor.name == ws.monitor.name then
+            if down and other.id > ws.id and (not best or other.id < best)
+                or not down and other.id < ws.id and (not best or other.id > best) then
+                best = other.id
+            end
+        end
+    end
+    return best
+end
+
 local function focus_vertical(down)
+    local win = hl.get_active_window()
+    if overview_open() and (not win or (not win.floating and not column_neighbour(win, down))) then
+        local row = overview_row(down)
+        if row then
+            hl.dispatch(hl.dsp.focus({ workspace = tostring(row) }))
+        end
+        return
+    end
     if leaves_strip(down) then
         hl.dispatch(hl.dsp.focus({ workspace = stack_workspace(down) }))
     else

@@ -11,7 +11,7 @@ import Quickshell.Widgets
 // in sight: its neighbours along the strip, and the workspaces above and
 // below, in the order ALT + J/K steps through them (hyprland/bindings.lua).
 // A row is a workspace drawn to scale, as live thumbnails, every window
-// where Hyprland has it. `qs -c hud ipc call overview toggle` (SUPER + Tab).
+// where Hyprland has it. `qs -c hud ipc call overview toggle` (ALT + Tab).
 //
 // It is a way of looking at the desktop, not a picker: it never takes the
 // keyboard. The window in the middle is typed into as ever (its thumbnail is
@@ -19,9 +19,8 @@ import Quickshell.Widgets
 // wherever they move it. A click on another window gives it the focus; a
 // click on the one in the middle, or beside the windows, goes back in.
 //
-// It is one camera move. Everything drawn to scale lives in the world, which
-// is the overview as it rests. `z` runs from 0 (the desktop) to 1 (the
-// overview) and scales the world about the one point that keeps the screen
+// It is one camera move. The world is the overview as it rests. `z` runs
+// from 0 (the desktop) to 1 (the overview) and scales the world about the one point that keeps the screen
 // frame of the anchor row, the workspace on show, on the screen's own edges
 // at z = 0: there every thumbnail of that workspace lies exactly on its
 // window, so the first frame is the desktop itself. Behind the world the
@@ -29,9 +28,10 @@ import Quickshell.Widgets
 // only the thumbnails are left of them, and it blurs and darkens as they
 // recede. Leaving runs the same move backwards.
 //
-// A row is { id, cols, tiles }: `cols` are the columns left to right, each
-// { x, w, wins }, a window { top, x, y, w, h, row, col, win } in fractions of
-// the screen; `tiles` is every window of the row. Only workspaces with a
+// A row is { id, origin, cols, tiles }: `cols` are the columns left to right,
+// each { x, w, wins }, a window { top, x, y, w, h, sx, row, col, win } in
+// fractions of the screen (`sx` is x from `origin`, the row's first column);
+// `tiles` is every window of the row. Only workspaces with a
 // window on them get a row. The thumbnails are one flat list keyed by the
 // window itself (`tops`, a ScriptModel), each looking its place up in `geo`,
 // so a new layout moves them instead of making them anew.
@@ -86,7 +86,7 @@ Scope {
     // the room under the bar. All that is drawn takes its place from panX
     // and panY as they glide, never from where they are going, so the world
     // moves as one.
-    readonly property real aimX: screenW / 2 - (curWin ? curWin.x + curWin.w / 2 : 0.5) * viewW
+    readonly property real aimX: screenW / 2 - (curWin ? curWin.sx + curWin.w / 2 : 0.5) * viewW
     readonly property real aimY: (screenH + barH) / 2 - selRow * rowPitch - (curWin ? curWin.y + curWin.h / 2 : 0.5) * thumbH
     property real panX: aimX
     property real panY: aimY
@@ -98,7 +98,11 @@ Scope {
         enabled: overview.settled
         NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic }
     }
-    readonly property int glide: 220
+    // How long a move takes. A window that only changes its size or place
+    // (it is being resized, a neighbour opened) is kept up with, a step
+    // behind at most; the view going over to another window travels.
+    property bool quick: false
+    readonly property int glide: quick ? 50 : 170
     // A row's screen frame, in the world.
     function frameY(r) {
         return panY + r * rowPitch;
@@ -106,7 +110,7 @@ Scope {
     // The selection's box, from its row's frame. It glides in step with the
     // world, which moves the other way: the ring stays in the middle while
     // the windows pass under it.
-    property real selX: (curWin?.x ?? 0) * viewW
+    property real selX: (curWin?.sx ?? 0) * viewW
     property real selY: selRow * rowPitch + (curWin?.y ?? 0) * thumbH
     property real selW: (curWin?.w ?? 1) * viewW
     property real selH: (curWin?.h ?? 1) * thumbH
@@ -122,7 +126,7 @@ Scope {
     // forward a little as it fades in.
     readonly property real zoomK: 1 / zoomOut
     readonly property real camScale: anchor >= 0 ? Math.pow(zoomK, 1 - z) : 1 + 0.08 * (1 - z)
-    readonly property real camX: anchor >= 0 ? panX * zoomK / (zoomK - 1) : screenW / 2
+    readonly property real camX: anchor >= 0 ? (panX - rows[anchor].origin * viewW) * zoomK / (zoomK - 1) : screenW / 2
     readonly property real camY: anchor >= 0 ? frameY(anchor) * zoomK / (zoomK - 1) : screenH / 2
     // The world drawn through the camera. The thumbnails are placed with
     // these instead of being scaled with the rest: scaled up they would show
@@ -182,15 +186,22 @@ Scope {
             floats.sort((a, b) => a.x - b.x);
             for (const g of floats)
                 cols.push({ x: g.x, w: g.w, wins: [g] });
+            // Along the row a window is placed from the first column of its
+            // workspace, not from the edge of the screen: a strip that
+            // scrolls under the screen, as it does whenever the focus moves
+            // along it, then leaves every thumbnail where it is, and the
+            // rows above and below do not shift to make up for it.
+            const origin = tiled.length ? tiled[0].x : 0;
             const tiles = [];
             cols.forEach((c, ci) => c.wins.forEach((g, wi) => {
+                g.sx = g.x - origin;
                 g.row = out.length;
                 g.col = ci;
                 g.win = wi;
                 tiles.push(g);
             }));
             if (tiles.length)
-                out.push({ id: ws.id, cols: cols, tiles: tiles });
+                out.push({ id: ws.id, origin: origin, cols: cols, tiles: tiles });
         }
         // The same layout again (Hyprland reports every window afresh on
         // each refetch): nothing to lay out.
@@ -226,10 +237,18 @@ Scope {
         if (!mon || phase === "leaving")
             return;
         anchorId = mon.activeWorkspace?.id ?? -1;
-        select(Hyprland.activeToplevel?.address ?? "", anchorId);
+        select(pinned || (Hyprland.activeToplevel?.address ?? ""), anchorId);
     }
+    // For review (`pick`): a window held in the middle whatever has the focus.
+    property string pinned: ""
+
     // Put the selection on a window by address, else on a workspace's row.
     function select(addr, id) {
+        const before = curWin?.top?.address ?? "";
+        selectAt(addr, id);
+        quick = (curWin?.top?.address ?? "") === before;
+    }
+    function selectAt(addr, id) {
         const g = addr ? geo[addr] : null;
         if (g) {
             selRow = g.row;
@@ -319,10 +338,10 @@ Scope {
             for (let i = 0; i < tiles.count && !waits; ++i)
                 waits = tiles.itemAt(i)?.waits ?? false;
             // At least two ticks: the fresh positions are in by then.
-            if (overview.armed >= 32 && (!waits || overview.armed >= 220)) {
+            if (overview.armed >= 32 && (!waits || overview.armed >= 160)) {
                 overview.phase = "open";
                 overview.settled = true;
-                zoom.go(1, 320);
+                zoom.go(1, 260);
             }
         }
     }
@@ -353,13 +372,14 @@ Scope {
         if (phase !== "open")
             return;
         phase = "leaving";
-        zoom.go(0, 240);
+        zoom.go(0, 200);
     }
     function shut() {
         zoom.stop();
         relayout.stop();
         refetch.stop();
         phase = "closed";
+        pinned = "";
         z = 0;
         // The rows hold the windows themselves: let go of them.
         rows = [];
@@ -406,15 +426,24 @@ Scope {
     }
     Timer {
         id: relayout
-        interval: 30
+        interval: 8
         onTriggered: {
             if (overview.shown)
                 overview.rebuild();
         }
     }
+    // A window that is resized says nothing of it, and neither does a strip
+    // whose columns change width: while the overview is up Hyprland is asked
+    // where the windows are, every few frames, so the thumbnails keep up.
+    Timer {
+        interval: 40
+        repeat: true
+        running: overview.live
+        onTriggered: Hyprland.refreshToplevels()
+    }
     Timer {
         id: refetch
-        interval: 60
+        interval: 16
         onTriggered: {
             Hyprland.refreshWorkspaces();
             Hyprland.refreshToplevels();
@@ -472,7 +501,8 @@ Scope {
             overview.z = at;
         }
         function pick(address: string): void {
-            overview.select(address.replace(/^0x/, ""), -1);
+            overview.pinned = address.replace(/^0x/, "");
+            overview.follow();
         }
         function state(): string {
             const g = overview.curWin;
@@ -553,38 +583,6 @@ Scope {
                 onClicked: overview.leave()
             }
 
-            // What lies under the windows, scaled as the world is.
-            Item {
-                id: world
-                width: parent.width
-                height: parent.height
-                transformOrigin: Item.TopLeft
-                scale: overview.camScale
-                x: overview.camX * (1 - overview.camScale)
-                y: overview.camY * (1 - overview.camScale)
-                opacity: overview.anchor >= 0 ? 1 : overview.z
-
-                // The screen of each row: what of its strip is in sight on
-                // that workspace. It shows around the windows and between.
-                Repeater {
-                    model: overview.rows
-                    Rectangle {
-                        required property int index
-                        readonly property bool current: index === overview.selRow
-                        x: overview.panX - 6
-                        y: overview.frameY(index) - 6
-                        width: overview.viewW + 12
-                        height: overview.thumbH + 12
-                        radius: 14
-                        opacity: overview.chrome
-                        color: Qt.rgba(1, 1, 1, current ? 0.05 : 0.025)
-                        border.width: 1
-                        border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, current ? 0.5 : 0.22)
-                        antialiasing: true
-                    }
-                }
-            }
-
             // The windows.
             Repeater {
                 id: tiles
@@ -599,7 +597,34 @@ Scope {
                     }
                     readonly property int rowAt: g?.row ?? 0
                     readonly property bool current: !!g && rowAt === overview.selRow && g.col === overview.selCol && g.win === overview.selWin
-                    readonly property var toplevel: modelData?.wayland ?? null
+                    // A capture that was asked for too early (a window that
+                    // has only just opened) or that broke off (some windows
+                    // on a resize) never starts again by itself: while there
+                    // is no picture it is asked for anew, less and less often
+                    // for a window that has none to give (out of sight).
+                    property int tries: 0
+                    property bool asking: true
+                    readonly property var toplevel: {
+                        tries;
+                        return modelData?.wayland ?? null;
+                    }
+                    Timer {
+                        interval: Math.min(2400, 80 * Math.pow(2, tile.tries))
+                        repeat: true
+                        running: overview.shown && !!tile.g && !shot.hasContent
+                        onTriggered: {
+                            tile.asking = false;
+                            again.restart();
+                        }
+                    }
+                    Timer {
+                        id: again
+                        interval: 40
+                        onTriggered: {
+                            ++tile.tries;
+                            tile.asking = true;
+                        }
+                    }
                     readonly property string icon: Quickshell.iconPath(DesktopEntries.heuristicLookup(toplevel?.appId ?? "")?.icon
                         ?? toplevel?.appId ?? "", "application-x-executable")
                     // On the screen of the workspace the move starts from:
@@ -609,14 +634,14 @@ Scope {
                     visible: !!g
                     // Its place in its row: this is what glides when the
                     // layout changes; the world and the camera come on top.
-                    property real lx: (g?.x ?? 0) * overview.viewW
+                    property real lx: (g?.sx ?? 0) * overview.viewW
                     property real ly: (g?.y ?? 0) * overview.thumbH
                     property real lw: Math.max(8, (g?.w ?? 0) * overview.viewW)
                     property real lh: Math.max(8, (g?.h ?? 0) * overview.thumbH)
-                    Behavior on lx { enabled: overview.settled; NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic } }
-                    Behavior on ly { enabled: overview.settled; NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic } }
-                    Behavior on lw { enabled: overview.settled; NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic } }
-                    Behavior on lh { enabled: overview.settled; NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic } }
+                    Behavior on lx { enabled: overview.settled; NumberAnimation { duration: 50; easing.type: Easing.OutCubic } }
+                    Behavior on ly { enabled: overview.settled; NumberAnimation { duration: 50; easing.type: Easing.OutCubic } }
+                    Behavior on lw { enabled: overview.settled; NumberAnimation { duration: 50; easing.type: Easing.OutCubic } }
+                    Behavior on lh { enabled: overview.settled; NumberAnimation { duration: 50; easing.type: Easing.OutCubic } }
                     x: overview.camPx(overview.panX + lx)
                     y: overview.camPy(overview.frameY(rowAt) + ly)
                     width: lw * overview.camScale
@@ -645,8 +670,14 @@ Scope {
                         ScreencopyView {
                             id: shot
                             anchors.fill: parent
-                            captureSource: overview.shown ? tile.toplevel : null
+                            captureSource: overview.shown && tile.asking ? tile.toplevel : null
                             live: true
+                            // A picture again: the next loss is asked after
+                            // as promptly as the first.
+                            onHasContentChanged: {
+                                if (hasContent)
+                                    tile.tries = 0;
+                            }
                         }
                         Timer {
                             interval: 500
@@ -671,6 +702,10 @@ Scope {
                             visible: !shot.hasContent && !!grab
                             source: visible ? grab.url : ""
                             cache: false
+                            // Taken at another size, perhaps: cut, not stretched.
+                            fillMode: Image.PreserveAspectCrop
+                            horizontalAlignment: Image.AlignLeft
+                            verticalAlignment: Image.AlignTop
                         }
                         // Never seen: a card with its icon and title.
                         Column {
@@ -707,15 +742,6 @@ Scope {
                             opacity: (tile.current ? 0 : hover.containsMouse ? 0.1 : 0.34) * overview.chrome
                         }
                     }
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: clipped.radius
-                        color: "transparent"
-                        opacity: overview.chrome
-                        border.width: 1
-                        border.color: Qt.rgba(0.86, 0.9, 0.94, 0.2)
-                        antialiasing: true
-                    }
                     MouseArea {
                         id: hover
                         anchors.fill: parent
@@ -732,19 +758,20 @@ Scope {
                 width: parent.width
                 height: parent.height
                 transformOrigin: Item.TopLeft
-                scale: world.scale
-                x: world.x
-                y: world.y
-                opacity: world.opacity * overview.chrome
+                scale: overview.camScale
+                x: overview.camX * (1 - overview.camScale)
+                y: overview.camY * (1 - overview.camScale)
+                opacity: (overview.anchor >= 0 ? 1 : overview.z) * overview.chrome
 
-                // Each row's workspace, at the corner of its screen.
+                // Each row's workspace, at the corner of its screen. The
+                // windows themselves show where a row is: no frame around it.
                 Repeater {
                     model: overview.rows
                     Text {
                         required property var modelData
                         required property int index
-                        x: overview.panX - 6
-                        y: overview.frameY(index) - 6 - height - 3
+                        x: overview.panX
+                        y: overview.frameY(index) - height - 4
                         text: String(modelData.id).padStart(2, "0")
                         color: index === overview.selRow ? Theme.primary : Theme.fgDim
                         renderType: Text.CurveRendering
