@@ -11,7 +11,8 @@
   "model": "fable",
   "statusLine": {
     "type": "command",
-    "command": "bash \"$HOME/.claude/statusline-command.sh\""
+    "command": "bash \"$HOME/.claude/statusline-command.sh\"",
+    "refreshInterval": 2
   },
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": false,
@@ -77,6 +78,80 @@
       "**Primary use of Claude Code**: personal dotfiles and Arch/Hyprland desktop configuration (systemctl, stow, hyprctl, gpg/pass activity), plus general software development",
       "**Trusted repo**: /home/mael/dotfiles with remote github.com:Maelwalser/noctalia-arch. This remote is PUBLIC, so only this repo's own dotfiles work belongs there; content ported, repointed, or first read from outside this session's repo is not its own work. Visibility never clears secrets or personal data (GPG material, pass entries, tokens) into the repo",
       "**Org-specific CLIs**: None configured — locally routine non-standard tools observed here are stow, systemctl (user units), hyprctl, pass, gpg/gpgconf, and the personal qwc / qwc-tools commands seen in shell history"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/statusline-task-hook.sh\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/statusline-task-hook.sh\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/statusline-task-hook.sh\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/statusline-task-hook.sh\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/statusline-task-hook.sh\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/statusline-task-hook.sh\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
