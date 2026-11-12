@@ -7,27 +7,86 @@
 #   claude-shot snap [-w [CLASS]] [out]  screenshot the monitor (-w: one window), print the path
 #   claude-shot status                   the hidden monitor and the windows on it
 #   claude-shot stop                     close those windows and remove the monitor
+#   claude-shot list                     every hidden CLAUDE* monitor, its windows and owners
 #
 # The hidden monitor is a Hyprland headless output named CLAUDE, placed far
 # from the real layout so the cursor can never wander onto it. Layer-shell
 # clients (bar, wallpaper, HUD) spawn on it as well, so a plain snap shows the
 # whole desktop as it would look on a real screen.
 #
-# Env: CLAUDE_SHOT_RES (1920x1080@60), CLAUDE_SHOT_SCALE (1),
+# A hidden monitor is not free: the compositor, the bar and the HUD render it
+# like a real one for as long as it exists. So `start` records the Claude Code
+# session it was called from and leaves a watcher behind that runs `stop` once
+# every session that used the monitor has exited; `list` shows what is left.
+# Sessions that would get in each other's way take a monitor of their own with
+# CLAUDE_SHOT_NAME instead of creating one by hand.
+#
+# Env: CLAUDE_SHOT_NAME (CLAUDE; CLAUDE + capitals or digits, e.g. CLAUDEBAR),
+#      CLAUDE_SHOT_POS (far right of the layout), CLAUDE_SHOT_RES (1920x1080@60),
+#      CLAUDE_SHOT_SCALE (1),
 #      CLAUDE_SHOT_DIR (${TMPDIR:-/tmp}/claude-shot),
 #      CLAUDE_SHOT_TIMEOUT seconds to wait for the window on start (15).
 # Needs: Hyprland >= 0.55 (Lua config, `hyprctl eval`), grim, jq.
 set -euo pipefail
 
-OUT="CLAUDE"
-WS="claude"
+OUT="${CLAUDE_SHOT_NAME:-CLAUDE}"
+WS="${OUT,,}"
 RES="${CLAUDE_SHOT_RES:-1920x1080@60}"
 SCALE="${CLAUDE_SHOT_SCALE:-1}"
-POS="20000x0"
+RUN="${XDG_RUNTIME_DIR:-/tmp}/claude-shot"
+OWNERS="$RUN/$OUT.owners"
 DIR="${CLAUDE_SHOT_DIR:-${TMPDIR:-/tmp}/claude-shot}"
 TIMEOUT="${CLAUDE_SHOT_TIMEOUT:-15}"
 
 die() { echo "claude-shot: $*" >&2; exit 1; }
+
+[[ "$OUT" =~ ^CLAUDE[A-Z0-9]*$ ]] || die "CLAUDE_SHOT_NAME must be CLAUDE followed by capitals or digits"
+if [[ -n "${CLAUDE_SHOT_POS:-}" ]]; then
+    POS="$CLAUDE_SHOT_POS"
+elif [[ "$OUT" == "CLAUDE" ]]; then
+    POS="20000x0"
+else
+    # Named monitors get a slot of their own, well apart from each other.
+    POS="$((24000 + $(printf %s "$OUT" | cksum | cut -d' ' -f1) % 16 * 4000))x0"
+fi
+
+# The Claude Code session this was called from: the nearest ancestor process
+# named claude. Empty when run by hand.
+owner_pid() {
+    local pid=$$ comm
+    while [[ "$pid" -gt 1 ]]; do
+        comm=$(cat "/proc/$pid/comm" 2>/dev/null) || return 0
+        if [[ "$comm" == "claude" ]]; then
+            echo "$pid"
+            return 0
+        fi
+        pid=$(awk '{ print $4 }' "/proc/$pid/stat" 2>/dev/null) || return 0
+    done
+}
+
+# Owners of monitor $1 that are still running, one pid per line.
+live_owners() {
+    local pid
+    [[ -r "$RUN/$1.owners" ]] || return 0
+    sort -u "$RUN/$1.owners" | while read -r pid; do
+        [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == "claude" ]] && echo "$pid"
+    done
+    return 0
+}
+
+# Record the calling session and make sure one watcher waits for the monitor's
+# owners to exit. Run by hand there is no session to wait for: no watcher.
+claim() {
+    local owner watcher
+    owner=$(owner_pid)
+    [[ -n "$owner" ]] || return 0
+    mkdir -p "$RUN"
+    echo "$owner" >>"$OWNERS"
+    watcher=$(cat "$RUN/$OUT.watcher" 2>/dev/null || true)
+    if [[ -z "$watcher" ]] || ! kill -0 "$watcher" 2>/dev/null; then
+        CLAUDE_SHOT_NAME="$OUT" setsid -f "$0" _watch >/dev/null 2>&1 </dev/null
+    fi
+}
 
 # `hyprctl eval` answers "ok", or "error: ..." with the Lua error.
 hypr_eval() {
@@ -69,6 +128,7 @@ start)
     [[ -n "$cmd" ]] || die 'usage: claude-shot start "<command>"'
     [[ "$cmd" != *"]==]"* ]] || die "command must not contain ]==]"
     ensure_output
+    claim
     before=$(clients | jq -r .address | sort)
     # The Lua long bracket passes the command through untouched; "silent"
     # keeps keyboard focus and the active workspace where they are.
@@ -121,7 +181,37 @@ status)
         echo "monitor $OUT: not present"
     fi
     ;;
+list)
+    names=$(hyprctl monitors all -j | jq -r '.[] | select(.name | test("^(CLAUDE|HEADLESS-)")) | .name')
+    [[ -n "$names" ]] || { echo "no hidden monitors"; exit 0; }
+    while read -r name; do
+        windows=$(hyprctl clients -j | jq --arg o "$name" --argjson mons "$(hyprctl monitors all -j)" \
+            '[.[] | select(.monitor == ($mons[] | select(.name == $o) | .id))] | length')
+        owners=$(live_owners "$name" | tr '\n' ' ')
+        if [[ -n "$owners" ]]; then
+            note="in use by claude pid ${owners% }"
+        elif [[ -r "$RUN/$name.owners" ]]; then
+            note="LEFTOVER: its sessions have exited (CLAUDE_SHOT_NAME=$name claude-shot stop)"
+        else
+            note="not made by claude-shot: owner unknown"
+        fi
+        echo "monitor $name: $windows window(s), $note"
+    done <<<"$names"
+    ;;
+_watch)
+    # Left behind by `start`: remove the monitor once no session that used it
+    # is running any more.
+    mkdir -p "$RUN"
+    echo $$ >"$RUN/$OUT.watcher"
+    while have_output && [[ -n "$(live_owners "$OUT")" ]]; do
+        sleep 10
+    done
+    rm -f "$RUN/$OUT.watcher"
+    have_output && exec "$0" stop
+    rm -f "$OWNERS"
+    ;;
 stop)
+    rm -f "$OWNERS"
     have_output || { echo "monitor $OUT: not present, nothing to stop"; exit 0; }
     hypr_eval "for _, w in ipairs(hl.get_windows()) do
     if w.workspace.name == '$WS' then hl.dispatch(hl.dsp.window.close({ window = w })) end
@@ -139,7 +229,7 @@ end"
     hyprctl output remove "$OUT" >/dev/null
     ;;
 *)
-    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
