@@ -1042,6 +1042,7 @@ def build_lock(colors: dict[str, str]) -> None:
         (d / stale).unlink(missing_ok=True)
     for stale in d.glob("reticle-*.gif"):  # the GIF steppers the strips replaced
         stale.unlink()
+    LOCK_BACKDROP_STAMP.write_text(lock_backdrop_key())
     print(f"lock: {len(lock_outputs())} reticle strips, scenes, backdrop")
 
 
@@ -1136,7 +1137,8 @@ def apply_lock_layout(layout: str | None) -> bool:
 def lock_sync(colors: dict[str, str]) -> None:
     """Bring the lock and the bar up to the monitors that are connected now:
     render the lock art of one LOCK_OUTPUTS does not list, add its widgets to
-    the layout, and build the bar's device-resolution sets for a new scale."""
+    the layout, and build the bar's device-resolution sets for a new scale.
+    Also re-render the lock art when the wallpaper under it has changed."""
     try:
         acid = (STATE / "dotfiles/theme").read_text().strip() != "classic"
     except OSError:
@@ -1166,7 +1168,12 @@ def lock_sync(colors: dict[str, str]) -> None:
     except OSError:
         current = None
     scales = [sc for sc in output_scales() if not (OUT / "bar/ws" / f"{sc:g}").is_dir()]
-    if not new and layout == current and not scales:
+    backdrops = lock_backdrop_key()
+    try:
+        repaint = LOCK_BACKDROP_STAMP.read_text() != backdrops
+    except OSError:
+        repaint = True
+    if not new and layout == current and not scales and not repaint:
         return
     if session_locked():
         # Restarting Noctalia would take the lock surface down with it; the
@@ -1176,8 +1183,16 @@ def lock_sync(colors: dict[str, str]) -> None:
     for key, (w, h, scale) in new.items():
         render_lock_output(colors, key, w, h, scale)
         print(f"lock: art for {key} ({w}x{h} @{scale:g})")
-    if new:
-        bump_overlay_version(colors)  # the overlay looked for this art when the monitor appeared
+    if repaint:
+        # The wallpaper is baked into every scene, so all of them go again.
+        for key, (w, h, scale) in lock_outputs().items():
+            if key not in new:
+                render_lock_output(colors, key, w, h, scale)
+        render_lock_backdrop(colors, OUT / "lock" / "backdrop.png")
+        LOCK_BACKDROP_STAMP.write_text(backdrops)
+        print("lock: art rebuilt on the current wallpaper")
+    if new or repaint:
+        bump_overlay_version(colors)  # the overlay holds the old art (or none, for a new monitor)
         LOCK_AUTO.parent.mkdir(parents=True, exist_ok=True)
         with staged(LOCK_AUTO) as tmp:
             Path(tmp).write_text(json.dumps(auto, indent=2) + "\n")
@@ -1190,20 +1205,59 @@ def lock_sync(colors: dict[str, str]) -> None:
             subprocess.run(["noctalia", "msg", "config-reload"], capture_output=True)
 
 
+def shown_wallpapers() -> dict[str, Path]:
+    """What Noctalia shows right now on each connected output, by lock key.
+    Asked from Noctalia itself rather than read from its state file, which is
+    keyed by connector and may not be written yet when its wallpaper hook
+    runs. Asked once per run."""
+    global _shown_wallpapers
+    if _shown_wallpapers is None:
+        _shown_wallpapers = {}
+        for mon in connected_outputs() if noctalia_running() else ():
+            try:
+                got = subprocess.run(["noctalia", "msg", "wallpaper-get", mon["name"]],
+                                     capture_output=True, text=True, timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if got.returncode == 0 and got.stdout.strip():
+                _shown_wallpapers.setdefault(lock_key(mon), Path(got.stdout.strip()))
+    return _shown_wallpapers
+
+
+_shown_wallpapers: dict[str, Path] | None = None
+
+
 def lock_backdrop_image(output: str) -> Path | None:
-    """The picture Noctalia shows on `output` (from its state file), when it is
-    the user's own rather than a HUD render: the lock scene is then built on
-    it, so the lock matches the desktop. None means the HUD world."""
-    state = Path(os.environ.get("XDG_STATE_HOME") or HOME / ".local/state") / "noctalia/settings.toml"
-    try:
-        wallpaper = tomllib.loads(state.read_text()).get("wallpaper", {})
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-    chosen = wallpaper.get("monitors", {}).get(output) or wallpaper.get("last") or {}
-    path = Path(chosen.get("path", "")).expanduser()
+    """The picture Noctalia shows on `output` (a lock key; "" for no output in
+    particular), when it is the user's own rather than a HUD render: the lock
+    scene is then built on it, so the lock matches the desktop. None means the
+    HUD world. An output that is not connected takes the picture of one that
+    is, else the last one Noctalia's state file records."""
+    shown = shown_wallpapers()
+    path = shown.get(output) or next(iter(shown.values()), None)
+    if path is None:
+        state = Path(os.environ.get("XDG_STATE_HOME") or HOME / ".local/state") / "noctalia/settings.toml"
+        try:
+            wallpaper = tomllib.loads(state.read_text()).get("wallpaper", {})
+        except (OSError, tomllib.TOMLDecodeError):
+            return None
+        path = Path((wallpaper.get("last") or {}).get("path", "")).expanduser()
     if not path.is_file() or path.is_relative_to(WALLPAPERS):
         return None
     return path
+
+
+# What the lock art on disk was built on, to tell when a wallpaper change has
+# left it behind (`--lock-sync`, from Noctalia's wallpaper_changed hook).
+LOCK_BACKDROP_STAMP = CACHE / "lock-backdrop.stamp"
+
+
+def lock_backdrop_key() -> str:
+    """The picture under each output's lock scene and under backdrop.png, with
+    its mtime: a file replaced under the same name counts as a change."""
+    def ident(image: Path | None) -> list | None:
+        return [str(image), image.stat().st_mtime_ns] if image else None
+    return json.dumps({name: ident(lock_backdrop_image(name)) for name in ("", *lock_outputs())}, sort_keys=True)
 
 
 def lock_scene(colors: dict[str, str], w: int, h: int, image: Path | None = None) -> list[str]:
@@ -2074,7 +2128,8 @@ def main() -> None:
     ap.add_argument("--lock-layout", action="store_true",
                     help="print the [lockscreen_widgets] TOML for noctalia's themes/acid.toml and exit")
     ap.add_argument("--lock-sync", action="store_true",
-                    help="set the lock and the bar up for a connected monitor that is new to the theme")
+                    help="set the lock and the bar up for a connected monitor that is new to the theme, "
+                         "and rebuild the lock art after a wallpaper change")
     ap.add_argument("--shaders", action="store_true", help="compile the overlay shaders and exit")
     ap.add_argument("--plymouth", action="store_true",
                     help="render the boot splash theme and exit (hud-boot installs it)")
