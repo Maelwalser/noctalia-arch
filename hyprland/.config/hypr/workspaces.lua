@@ -54,6 +54,51 @@ local function apply_layout()
     end
 end
 
+-- A headless output must not lie next to a real one: ALT + H/L at the end of
+-- a workspace would cross onto it, and the focus would be on a screen nobody
+-- sees (the window just left looks deselected, the next terminal opens out
+-- of sight). An output without a monitor rule is placed right beside the
+-- laptop panel, and a reload drops the rules made at runtime, which is how
+-- claude-shot places its own. So every headless output is given a rule here,
+-- on each load and whenever one appears: as it is now, mode and scale
+-- included, but far off to the right if it is anywhere near.
+local HIDDEN_X = 20000 -- logical px; real outputs end long before
+local HIDDEN_PITCH = 6000
+
+local function park_headless()
+    local free = HIDDEN_X
+    local near = {}
+    for _, mon in ipairs(hl.get_monitors()) do
+        if is_headless(mon.name) then
+            if mon.x >= HIDDEN_X then
+                free = math.max(free, mon.x + HIDDEN_PITCH)
+                near[#near + 1] = { mon = mon, x = mon.x, y = mon.y }
+            else
+                near[#near + 1] = { mon = mon }
+            end
+        end
+    end
+    for _, slot in ipairs(near) do
+        local mon = slot.mon
+        if not slot.x then
+            slot.x, slot.y = free, 0
+            free = free + HIDDEN_PITCH
+        end
+        hl.monitor({
+            output = mon.name,
+            mode = string.format("%dx%d@%.2f", mon.width, mon.height, mon.refresh_rate),
+            position = string.format("%dx%d", slot.x, slot.y),
+            scale = mon.scale,
+        })
+    end
+end
+
+local function on_monitors_changed()
+    park_headless()
+    apply_layout()
+end
+
+park_headless()
 apply_layout()
-hl.on("monitor.added", apply_layout)
+hl.on("monitor.added", on_monitors_changed)
 hl.on("monitor.removed", apply_layout)
