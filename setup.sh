@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly DOTFILES_ROOT="$(cd "$(dirname "$0")" && pwd)"
 readonly TARGET="$HOME"
-readonly PACKAGES=(btop claude eza fastfetch ghostty git gnupg gtk hud hyprland neovim noctalia npm obsidian qt6ct quickshell sioyek theme tmux vivaldi zsh)
+readonly PACKAGES=(btop claude eza fastfetch ghostty git gnupg gtk hud hyprland mpv neovim noctalia npm obsidian qt6ct quickshell sioyek theme tmux vivaldi zsh)
 
 # Desktop theme: acid (ACID//HUD) or classic. Defaults to the one already
 # chosen on this machine, else acid. Switch later with `dotfiles-theme <name>`.

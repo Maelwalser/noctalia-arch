@@ -39,6 +39,7 @@ gtk/.config/gtk-3.0/noctalia.css
 gtk/.config/gtk-4.0/noctalia.css
 qt6ct/.config/qt6ct/colors/
 btop/.config/btop/themes/
+mpv/.config/mpv/noctalia.conf
 
 # Active-theme links made by `dotfiles-theme` (theme/.local/bin): they point at
 # the committed variants and differ per machine. Folded stow dirs put some of

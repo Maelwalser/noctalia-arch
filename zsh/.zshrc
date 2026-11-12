@@ -30,6 +30,13 @@ export EDITOR='nvim'
 export VISUAL='nvim'
 export SUDO_EDITOR='nvim'
 
+# Palette files Noctalia renders from its templates. bat and delta use the
+# terminal's own 16 colours, which already follow the palette.
+export BAT_THEME=ansi
+[[ -f ~/.config/fzf/noctalia.opts ]] && export FZF_DEFAULT_OPTS_FILE="$HOME/.config/fzf/noctalia.opts"
+[[ -f ~/.config/lazygit/noctalia.yml ]] \
+  && export LG_CONFIG_FILE="$HOME/.config/lazygit/config.yml,$HOME/.config/lazygit/noctalia.yml"
+
 # Secrets from `pass`, loaded on demand. `pass show` costs ~175 ms because it
 # spawns gpg and round-trips through keyboxd, so running it at every prompt made
 # it two thirds of shell startup. Nothing needs the key until an AI tool asks

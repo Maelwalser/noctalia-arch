@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Recolour Papirus' folder icons into the Papirus-Noctalia icon theme.
+
+papirus-folders only switches between its preset colours and needs root to
+relink /usr/share/icons. This writes a small user theme instead
+(~/.local/share/icons/Papirus-Noctalia, inheriting Papirus-Dark) that holds
+only the places icons, taken from Papirus' blue set with its three blues
+swapped for the colours in ~/.config/papirus-noctalia/colors.conf (rendered by
+Noctalia from templates/folders.conf). Noctalia runs it on every palette
+change; it is safe to run by hand.
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+HOME = Path.home()
+SOURCE = Path("/usr/share/icons/Papirus")
+COLORS = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config") / "papirus-noctalia/colors.conf"
+DEST = Path(os.environ.get("XDG_DATA_HOME") or HOME / ".local/share") / "icons/Papirus-Noctalia"
+# Papirus' blue set: folder front, folder back, glyph drawn on the front.
+BLUES = {"front": "#5294e2", "back": "#4877b1", "glyph": "#1d344f"}
+BLUE_NAME = re.compile(r"-blue(-|\.svg$)")
+
+
+def load_colors() -> dict[str, str]:
+    colors = {}
+    for line in COLORS.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        if sep and not key.startswith("#"):
+            colors[key.strip()] = value.strip()
+    missing = [k for k in BLUES if not re.fullmatch(r"#[0-9a-fA-F]{6}", colors.get(k, ""))]
+    if missing:
+        sys.exit(f"papirus-noctalia: {COLORS} lacks a #rrggbb value for: {', '.join(missing)}")
+    return colors
+
+
+def recolour(svg: str, colors: dict[str, str]) -> str:
+    table = {blue: colors[key] for key, blue in BLUES.items()}
+    return re.sub("|".join(table), lambda m: table[m.group(0).lower()], svg, flags=re.IGNORECASE)
+
+
+def main() -> None:
+    if not SOURCE.is_dir():
+        sys.exit(f"papirus-noctalia: {SOURCE} missing (pacman -S papirus-icon-theme)")
+    colors = load_colors()
+    # Built beside the live theme and renamed over it, so an app never sees half a set.
+    staging = DEST.with_name(DEST.name + ".new")
+    shutil.rmtree(staging, ignore_errors=True)
+    sections, count = [], 0
+    for places in sorted(SOURCE.glob("*x*/places")):
+        size_dir = places.parent
+        if size_dir.is_symlink() or places.is_symlink():
+            continue  # @2x and 96/128 px only link to the real sizes
+        size = size_dir.name.split("x")[0]
+        out = staging / size_dir.name / "places"
+        out.mkdir(parents=True)
+        for icon in places.iterdir():
+            # Every name that ends up at a blue file (folder.svg -> folder-blue.svg, ...).
+            target = icon.resolve()
+            if target.is_file() and BLUE_NAME.search(target.name):
+                (out / icon.name).write_text(recolour(target.read_text(), colors))
+                count += 1
+        sections.append((size_dir.name, size))
+    if not count:
+        sys.exit(f"papirus-noctalia: no blue folder icons under {SOURCE}")
+    index = ["[Icon Theme]", "Name=Papirus-Noctalia",
+             "Comment=Papirus-Dark with folders in the Noctalia palette",
+             "Inherits=Papirus-Dark,hicolor", "Example=folder",
+             "Directories=" + ",".join(f"{d}/places" for d, _ in sections), ""]
+    for d, size in sections:
+        index += [f"[{d}/places]", "Context=Places", f"Size={size}", "Type=Fixed", ""]
+    (staging / "index.theme").write_text("\n".join(index))
+    shutil.rmtree(DEST, ignore_errors=True)
+    staging.rename(DEST)
+    print(f"papirus-noctalia: {count} icons in {DEST}")
+    # GTK caches icons per theme name: switching away and back makes running
+    # apps load the new files.
+    if shutil.which("gsettings"):
+        key = ["org.gnome.desktop.interface", "icon-theme"]
+        subprocess.run(["gsettings", "set", *key, "Papirus-Dark"], check=False)
+        subprocess.run(["gsettings", "set", *key, DEST.name], check=False)
+
+
+if __name__ == "__main__":
+    main()

@@ -4,6 +4,7 @@ adw-gtk-theme
 alsa-utils
 base
 base-devel
+bat
 bear
 bind
 bluez
@@ -23,6 +24,7 @@ gdb
 ghostscript
 ghostty
 git
+git-delta
 github-cli
 git-lfs
 gnome-keyring
@@ -53,6 +55,7 @@ ninja
 noctalia
 nodejs
 npm
+noto-fonts-emoji
 obsidian
 openbsd-netcat
 openssh

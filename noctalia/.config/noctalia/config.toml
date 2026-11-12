@@ -138,6 +138,31 @@ input_path = "templates/btop.theme"
 output_path = "$XDG_CONFIG_HOME/btop/themes/noctalia.theme"
 post_hook = "bash /usr/share/noctalia/assets/templates/btop/apply.sh"
 
+# Palette files for tools that have no built-in template. Each tool reads its
+# file on start (see zsh/.zshrc, git/.gitconfig, mpv/.config/mpv/mpv.conf).
+[theme.templates.user.lazygit]
+input_path = "templates/lazygit.yml"
+output_path = "$XDG_CONFIG_HOME/lazygit/noctalia.yml"
+
+[theme.templates.user.fzf]
+input_path = "templates/fzf.opts"
+output_path = "$XDG_CONFIG_HOME/fzf/noctalia.opts"
+
+[theme.templates.user.delta]
+input_path = "templates/delta.gitconfig"
+output_path = "$XDG_CONFIG_HOME/git/noctalia-delta.gitconfig"
+
+[theme.templates.user.mpv]
+input_path = "templates/mpv.conf"
+output_path = "$XDG_CONFIG_HOME/mpv/noctalia.conf"
+
+# Folder icons: papirus-noctalia recolours Papirus' folders into the
+# Papirus-Noctalia icon theme in ~/.local/share/icons.
+[theme.templates.user.folders]
+input_path = "templates/folders.conf"
+output_path = "$XDG_CONFIG_HOME/papirus-noctalia/colors.conf"
+post_hook = "papirus-noctalia"
+
 # ── Wallpaper ─────────────────────────────────────────────────────────────────
 
 [wallpaper]
