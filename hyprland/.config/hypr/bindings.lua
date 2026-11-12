@@ -28,11 +28,9 @@ local LAYOUT_NAMES = { dwindle = "Dwindle", master = "Master stack", scrolling =
 
 local function set_layout(name)
     hl.config({ general = { layout = name } })
-    -- On the strip the workspaces are a stack (ALT + J/K below), so they
-    -- slide vertically there; otherwise sideways, as looknfeel.lua has them.
-    local style = name == "scrolling" and "slidefadevert" or "slidefade"
-    hl.animation({ leaf = "workspacesIn", enabled = true, speed = 1.3, bezier = "wsSlide", style = style .. " 12%" })
-    hl.animation({ leaf = "workspacesOut", enabled = true, speed = 1.3, bezier = "wsSlide", style = style .. " 20%" })
+    -- The strip pans, the other layouts snap: windows and workspaces move
+    -- differently on it (motion.lua).
+    require("motion").apply(name)
     hl.exec_cmd("gdbus call --session --dest org.freedesktop.Notifications"
         .. " --object-path /org/freedesktop/Notifications"
         .. " --method org.freedesktop.Notifications.Notify"

@@ -5,7 +5,7 @@
   appearance.json; `dotfiles-theme classic` puts the previous theme back.
 
   Palette from noctalia/.config/noctalia/palettes/acid-hud.json; keep in sync
-  by hand. 12 px corners are the radius of the capsules inside the bar rail
+  by hand; the green is its terminal green. 12 px corners are the radius of the capsules inside the bar rail
   and of the Vivaldi tabs; 18 px (modals) is the toast and window rounding.
   Fonts are left to the appearance settings: readability wins in the editor.
 ================================================================================
@@ -22,6 +22,8 @@
   --hud-surface-high: #241a33;
   --hud-outline: #4a3a62;
   --hud-outline-bright: #6a5a84;
+  /* Dimmest tone that still carries text: 4.8:1 on --hud-black. */
+  --hud-faint: #84779e;
   --hud-bone: #efe7f4;
   --hud-bone-dim: #cfc2da;
   --hud-grey: #8f86a0;
@@ -34,11 +36,13 @@
   --hud-blue-bright: #a8b0ff;
   --hud-cyan: #72c8d8;
   --hud-cyan-bright: #9ee0ec;
+  --hud-green: #4fd1b5;
+  --hud-green-bright: #7fe8d4;
 
   /* Accent: acid (HSL of #ef5fc6). The appearance setting, when set, wins. */
-  --accent-h: 72;
-  --accent-s: 100%;
-  --accent-l: 56%;
+  --accent-h: 317;
+  --accent-s: 82%;
+  --accent-l: 65%;
 
   /* ── Surfaces ────────────────────────────────────────────────────────── */
   --background-primary: var(--hud-black);
@@ -52,17 +56,17 @@
   --background-modifier-active-hover: rgba(239, 95, 198, 0.12);
   --background-modifier-form-field: var(--hud-black-deep);
   --background-modifier-box-shadow: rgba(0, 0, 0, 0.6);
-  --background-modifier-cover: rgba(5, 5, 6, 0.75);
+  --background-modifier-cover: rgba(6, 3, 9, 0.75);
   --background-modifier-success: #0b2e2a;
   --background-modifier-error: #3d0c18;
-  --background-modifier-error-rgb: 61, 15, 12;
+  --background-modifier-error-rgb: 61, 12, 24;
   --background-modifier-error-hover: #5a1222;
   --background-modifier-message: var(--hud-surface);
 
   /* ── Text ────────────────────────────────────────────────────────────── */
   --text-normal: var(--hud-bone);
   --text-muted: var(--hud-grey-warm);
-  --text-faint: var(--hud-outline-bright);
+  --text-faint: var(--hud-faint);
   --text-accent: var(--hud-acid);
   --text-accent-hover: var(--hud-acid-bright);
   --text-on-accent: var(--hud-black);
@@ -70,10 +74,12 @@
   --text-error: var(--hud-red);
   --text-error-hover: var(--hud-red-bright);
   --text-warning: var(--hud-yellow);
-  --text-success: var(--hud-acid);
-  --text-selection: #146b60;
-  --text-highlight-bg: rgba(255, 210, 30, 0.35);
-  --text-highlight-bg-active: rgba(255, 210, 30, 0.6);
+  --text-success: var(--hud-green);
+  /* Selection is the palette blue, not acid: selected links, tags and inline
+     code are acid themselves and would sink into an acid selection. */
+  --text-selection: rgba(127, 140, 255, 0.32);
+  --text-highlight-bg: rgba(255, 163, 94, 0.3);
+  --text-highlight-bg-active: rgba(255, 163, 94, 0.55);
 
   /* ── Interactive ─────────────────────────────────────────────────────── */
   --interactive-normal: var(--hud-surface);
@@ -81,25 +87,25 @@
   --interactive-accent: var(--hud-acid);
   --interactive-accent-hsl: var(--accent-h), var(--accent-s), var(--accent-l);
   --interactive-accent-hover: var(--hud-acid-bright);
-  --interactive-success: var(--hud-acid);
+  --interactive-success: var(--hud-green);
 
   /* ── Extended colours (callouts, graph, tags) ────────────────────────── */
   --color-red: var(--hud-red);
-  --color-red-rgb: 255, 59, 48;
+  --color-red-rgb: 255, 77, 94;
   --color-orange: var(--hud-yellow);
-  --color-orange-rgb: 255, 210, 30;
+  --color-orange-rgb: 255, 163, 94;
   --color-yellow: var(--hud-yellow-bright);
-  --color-yellow-rgb: 255, 227, 107;
-  --color-green: var(--hud-acid);
+  --color-yellow-rgb: 255, 196, 143;
+  --color-green: var(--hud-green);
   --color-green-rgb: 79, 209, 181;
   --color-cyan: var(--hud-cyan);
-  --color-cyan-rgb: 143, 211, 207;
+  --color-cyan-rgb: 114, 200, 216;
   --color-blue: var(--hud-blue-bright);
-  --color-blue-rgb: 166, 179, 198;
-  --color-purple: var(--hud-bone-dim);
-  --color-purple-rgb: 200, 196, 188;
-  --color-pink: var(--hud-grey-warm);
-  --color-pink-rgb: 163, 163, 156;
+  --color-blue-rgb: 168, 176, 255;
+  --color-purple: var(--hud-blue);
+  --color-purple-rgb: 127, 140, 255;
+  --color-pink: var(--hud-acid);
+  --color-pink-rgb: 239, 95, 198;
   --color-base-00: var(--hud-black-deep);
   --color-base-05: var(--hud-black);
   --color-base-10: var(--hud-black);
@@ -180,12 +186,15 @@
   /* ── Editor elements ─────────────────────────────────────────────────── */
   --link-color: var(--hud-acid);
   --link-color-hover: var(--hud-acid-bright);
-  --link-decoration: none;
+  /* Underlined, so a link is not told from tags and inline code by colour
+     alone; the rule below keeps the line quieter than the text. */
+  --link-decoration: underline;
   --link-decoration-hover: underline;
+  --link-decoration-thickness: 1px;
   --link-external-color: var(--hud-cyan);
   --link-external-color-hover: var(--hud-cyan-bright);
   --link-unresolved-color: var(--hud-grey);
-  --link-unresolved-opacity: 0.8;
+  --link-unresolved-opacity: 1;
   --link-unresolved-decoration-style: dashed;
   --tag-color: var(--hud-acid);
   --tag-color-hover: var(--hud-black);
@@ -199,7 +208,7 @@
   --blockquote-color: var(--hud-bone-dim);
   --hr-color: var(--hud-outline);
   --hr-thickness: 1px;
-  --list-marker-color: var(--hud-acid-dim);
+  --list-marker-color: var(--hud-acid);
   --table-border-color: var(--hud-outline);
   --table-header-background: var(--hud-surface);
   --table-header-background-hover: var(--hud-surface-high);
@@ -223,7 +232,7 @@
   --code-background: var(--hud-black-deep);
   --code-radius: 12px;
   --code-normal: var(--hud-bone);
-  --code-comment: #7a6a94;
+  --code-comment: var(--hud-faint);
   --code-function: var(--hud-acid);
   --code-important: var(--hud-red);
   --code-keyword: var(--hud-bone-dim);
@@ -262,22 +271,48 @@
   padding: 0.1em 0.4em;
 }
 
-/* Code blocks get a faint outline instead of a filled block. */
-.markdown-rendered pre,
-.cm-s-obsidian .HyperMD-codeblock {
+/* Internal links: the underline sits a little below the text and at half
+   strength, so a paragraph full of links stays a paragraph. */
+.markdown-rendered a.internal-link,
+.cm-s-obsidian span.cm-hmd-internal-link {
+  text-decoration-color: rgba(239, 95, 198, 0.45);
+  text-underline-offset: 0.2em;
+}
+.markdown-rendered a.internal-link.is-unresolved,
+.cm-s-obsidian span.cm-hmd-internal-link .is-unresolved {
+  text-decoration-color: var(--hud-outline-bright);
+}
+
+/* Code blocks get a faint outline instead of a filled block. In the editor
+   every line is its own box and Obsidian zeroes their border widths, so the
+   outline there is drawn with inset shadows, which also cost no layout. */
+.markdown-rendered pre {
   border: 1px solid var(--hud-outline);
+}
+.cm-s-obsidian .HyperMD-codeblock {
+  box-shadow:
+    inset 1px 0 0 var(--hud-outline),
+    inset -1px 0 0 var(--hud-outline);
 }
 .cm-s-obsidian .HyperMD-codeblock-begin {
   border-radius: 12px 12px 0 0;
-  border-bottom: none;
+  box-shadow:
+    inset 1px 0 0 var(--hud-outline),
+    inset -1px 0 0 var(--hud-outline),
+    inset 0 1px 0 var(--hud-outline);
 }
 .cm-s-obsidian .HyperMD-codeblock-end {
   border-radius: 0 0 12px 12px;
-  border-top: none;
+  box-shadow:
+    inset 1px 0 0 var(--hud-outline),
+    inset -1px 0 0 var(--hud-outline),
+    inset 0 -1px 0 var(--hud-outline);
 }
-.cm-s-obsidian .HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) {
-  border-top: none;
-  border-bottom: none;
+
+/* Callouts close as tightly as they open: the last paragraph's own margin
+   would otherwise double the padding under the text. */
+.callout-content > :last-child {
+  margin-bottom: 0;
 }
 
 /* Active tab: acid underline, same mark as the Vivaldi tab. */
@@ -291,10 +326,10 @@
   border-left-color: var(--hud-acid);
 }
 .cm-s-obsidian .cm-active.cm-line {
-  background-color: rgba(22, 22, 27, 0.6);
+  background-color: rgba(26, 18, 38, 0.55);
 }
 
-/* Highlights: ==mark== is a warning-yellow HUD strip. */
+/* Highlights: ==mark== is an amber HUD strip. */
 .markdown-rendered mark,
 .cm-s-obsidian span.cm-highlight {
   color: var(--hud-bone);
