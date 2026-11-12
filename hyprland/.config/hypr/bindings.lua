@@ -342,6 +342,12 @@ local function move_window(dx, dy, direction)
 
     -- Tiled: let the layout handle it, which preserves the window's size.
     if not win.floating then
+        -- On the strip a sideways move would drop the window into the column
+        -- next to it. Swap the two columns instead: stacking is SUPER + J's.
+        if dy == 0 and on_strip() then
+            hl.dispatch(hl.dsp.layout("swapcol " .. direction))
+            return
+        end
         hl.dispatch(hl.dsp.window.move({ direction = direction }))
         return
     end
