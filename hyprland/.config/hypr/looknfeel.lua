@@ -40,6 +40,11 @@ hl.config({
     },
 
     misc = {
+        -- Plain black until Noctalia has drawn: without this the stock Hyprland
+        -- wallpaper and splash line flash between the boot splash and the lock.
+        disable_hyprland_logo = true,
+        disable_splash_rendering = true,
+        background_color = "rgb(000000)",
         -- ACID//HUD: keep rendering the desktop under the (opaque) lock surface,
         -- so the hud-unlock layer beneath it keeps getting frame callbacks and
         -- its copy of the lock screen stays fresh until the unlock frame.

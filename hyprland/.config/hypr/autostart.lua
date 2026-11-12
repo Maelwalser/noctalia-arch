@@ -5,7 +5,10 @@ hl.on("hyprland.start", function()
     if require("dotfiles_theme") == "acid" then
         hl.exec_cmd("$HOME/.local/bin/hud-overlay start")  -- Hyprland's PATH has no ~/.local/bin
     end
-    hl.exec_cmd("sleep 1 && noctalia msg session lock")
+    -- Lock the moment Noctalia answers on its socket (it exits non-zero until
+    -- then) instead of after a fixed second of visible desktop. Gives up after
+    -- ~10 s so a Noctalia that never starts does not leave a loop behind.
+    hl.exec_cmd("i=0; until noctalia msg session lock >/dev/null 2>&1; do i=$((i+1)); [ $i -ge 200 ] && break; sleep 0.05; done")
 end)
 
 -- ACID//HUD: a monitor the theme has not seen yet gets its lock art, its lock
