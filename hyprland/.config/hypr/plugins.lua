@@ -103,8 +103,27 @@ if hl.plugin.hyprglass ~= nil then
         hg.layer("noctalia-bar-default", { preset = "acid_rail", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_nested = 0.15 })
         -- Panels attached to the bar (control centre, session, wallpaper): in
         -- Noctalia's "glass" transparency mode the panel box is a faint rounded
-        -- fill (alpha ~0.08) the size of its layer, so the toast settings fit.
-        hg.layer("noctalia-attached-panel", { preset = "acid_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- fill the size of its layer, traced like the toasts. The glass is the
+        -- desktop panes' (wide lens rim), frosted: a panel opens over whatever
+        -- is on screen, and through the panes' clear glass a terminal's text
+        -- stays readable right behind the panel's own. Three times their blur
+        -- melts it into soft light. The rim lights are well above the panes'
+        -- too: those get their edge light from the HUD (PaneLight), a panel
+        -- only has the plugin's, and it has to read over bright windows.
+        -- The cards inside are Noctalia's own fills (62 % at the least, no
+        -- option for less), so they stay darker insets on the sheet;
+        -- mask_nested does not light them through a fill that dense.
+        hg.preset("acid_panel", {
+            inherits = "acid_pane",
+            blur_strength = 1.5,
+            blur_iterations = 3,
+            fresnel_strength = 0.6,
+            specular_strength = 1.0,
+            bevel_strength = 0.8,
+            bevel_size = 2.5,
+            dark = { tint_color = 0xdce6f00c, contrast = 0.975 },
+        })
+        hg.layer("noctalia-attached-panel", { preset = "acid_panel", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
         -- The desktop overlay's panes (quickshell hud, GlassScene.qml): faint
         -- rounded fills on their own layer, so each gets its own rim; the
         -- overlay's text stays on hud-overlay, which is not listed. Big panes
@@ -175,5 +194,27 @@ if hl.plugin.hyprglass ~= nil then
         })
         hl.window_rule({ match = { class = "^com\\.mitchellh\\.ghostty$" }, tag = "+hyprglass_enabled" })
         hl.window_rule({ match = { class = "^com\\.mitchellh\\.ghostty$" }, tag = "+hyprglass_preset_acid_term" })
+        -- Noctalia's Settings window is the desktop panes' glass, frosted: it
+        -- is full of small text, which clear glass leaves unreadable over the
+        -- wallpaper's neon signs, so the blur is about twice the panes'.
+        -- Noctalia's translucent mode (themes/acid.toml) still lays an 80 %
+        -- surface fill over the whole window, with no option for less: the
+        -- opacity rule thins it to ~64 % so the glass shows. Lower, and the
+        -- text and accent buttons, which the rule fades with it, wash out.
+        -- The fill also covers the rim, so the edge lights are set above the
+        -- panes' to read through it.
+        hg.preset("acid_settings", {
+            inherits = "acid_pane",
+            blur_strength = 1.0,
+            fresnel_strength = 0.35,
+            specular_strength = 0.9,
+            bevel_strength = 0.4,
+            focus_light = 0.5,
+            dark = { tint_color = 0xdce6f007, brightness = 1.2, contrast = 1.0, saturation = 1.15 },
+        })
+        local settings = { class = "^dev\\.noctalia\\.Noctalia$" }
+        hl.window_rule({ match = settings, tag = "+hyprglass_enabled" })
+        hl.window_rule({ match = settings, tag = "+hyprglass_preset_acid_settings" })
+        hl.window_rule({ match = settings, opacity = "0.8 override" })
     end
 end

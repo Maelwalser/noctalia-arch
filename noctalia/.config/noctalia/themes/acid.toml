@@ -9,6 +9,9 @@ corner_radius_scale = 2.25              # ACID//HUD: 18 px liquid-glass corners 
 # the lockscreen's password field and power buttons use (no per-widget option).
 # Terminal and editor fonts are configured elsewhere and stay JetBrainsMono.
 font_family = "Departure Mono"
+# The Settings window is liquid glass as well: translucent here, and hyprglass
+# renders the window (hypr/plugins.lua).
+settings_window_translucent = true
 
 # Panels (control centre, session, wallpaper) are liquid glass too (hyprglass):
 # translucent cards, no shadow, the rim comes from the plugin.
