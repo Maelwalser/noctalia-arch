@@ -124,6 +124,16 @@ hl.layer_rule({
     blur = false,
     order = 1,
 })
+-- The HUD's stack overview (quickshell hud, Overview.qml): it animates
+-- itself, and lies under the bar (order = 1, as for hud-glass), which stays
+-- where it is while the windows draw back.
+hl.layer_rule({
+    name = "hud-overview",
+    match = { namespace = "^hud-overview$" },
+    no_anim = true,
+    blur = false,
+    order = 1,
+})
 -- The HUD's bar tooltips (quickshell hud, Tip.qml): glass, so no blur of
 -- Hyprland's own, and they appear in place.
 hl.layer_rule({

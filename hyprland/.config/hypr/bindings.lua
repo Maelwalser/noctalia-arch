@@ -283,10 +283,14 @@ local function switch_window(forward)
     end
 end
 
--- Overview: the same carousel of window snapshots with every window on every
--- workspace in it, whatever the layout. No "hold": it stays open until a
--- window is picked or it is dismissed.
-hl.bind("SUPER + Tab", hl.dsp.exec_cmd("noctalia msg window-switcher all"), { description = "Overview of all windows" })
+-- Overview: the HUD's stack overview (quickshell hud, Overview.qml). The
+-- view draws back from the window that has the focus, which stays in the
+-- middle and in use, to show what is around it: the rest of its workspace
+-- and the workspaces above and below. It follows the focus; the same key
+-- goes back in. Noctalia's carousel of every window when the HUD is not
+-- running (classic theme); no "hold", so that one stays open until a window
+-- is picked or it is dismissed.
+hl.bind("SUPER + Tab", hl.dsp.exec_cmd("qs -c hud ipc call overview toggle || noctalia msg window-switcher all"), { description = "Overview of workspaces and windows" })
 
 hl.bind("ALT + Tab", function()
     switch_window(true)

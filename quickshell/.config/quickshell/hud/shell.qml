@@ -21,7 +21,8 @@ import Quickshell.Hyprland
 // bar's spinner): the process, and with it the lock's doors and readouts,
 // stays. Not persisted: every start shows the desktop scene. (Not `show`:
 // `qs ipc` takes that for its own subcommand and lists the targets instead.)
-// Launcher.qml is the app launcher, on its own two layers.
+// Launcher.qml is the app launcher, on its own two layers, and Overview.qml
+// the overview of the workspaces and their windows, on one.
 ShellRoot {
     id: shell
 
@@ -128,6 +129,9 @@ ShellRoot {
 
     // The app launcher (Alt+Space): `qs -c hud ipc call launcher toggle`.
     Launcher {}
+
+    // The stack overview (SUPER + Tab): `qs -c hud ipc call overview toggle`.
+    Overview {}
 
     // Glass tooltips for the bar's HUD widgets: `qs -c hud ipc call tip put/drop`.
     Tip {}
