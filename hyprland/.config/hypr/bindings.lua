@@ -154,8 +154,58 @@ hl.bind("ALT + F", function()
     end
 end, { description = "Maximize window" })
 
-hl.bind("SUPER + mouse_down", strip("move +col"), { description = "Scroll the window strip forward" })
-hl.bind("SUPER + mouse_up", strip("move -col"), { description = "Scroll the window strip back" })
+-- The strip against the screen: whether it runs off it on the side `forward`
+-- names (a tiled window is cut off by that edge or lies beyond it), whether
+-- any column is on screen, and its last window on that side.
+local function strip_extent(forward)
+    local ws = hl.get_active_workspace()
+    local mon = ws and ws.monitor
+    if not mon then
+        return false, true, nil
+    end
+    -- mon.width is the mode in physical pixels, window geometry is logical.
+    local left, right = mon.x, mon.x + mon.width / mon.scale
+    local beyond, on_screen, last = false, false, nil
+    for _, win in ipairs(hl.get_workspace_windows(ws.id)) do
+        if not win.hidden and not win.floating then
+            if forward and win.at.x + win.size.x > right or not forward and win.at.x < left then
+                beyond = true
+            end
+            -- By half its width at least: the gap of a column that is out of
+            -- sight reaches a pixel into the screen.
+            local shown = math.min(win.at.x + win.size.x, right) - math.max(win.at.x, left)
+            if shown * 2 >= math.min(win.size.x, right - left) then
+                on_screen = true
+            end
+            if not last or forward and win.at.x > last.at.x or not forward and win.at.x < last.at.x then
+                last = win
+            end
+        end
+    end
+    return beyond, on_screen, last
+end
+
+-- The layout slides the strip a column whether or not one is there: past the
+-- last column the screen is left empty and nothing has the focus. So the
+-- strip only slides towards columns that are out of sight, and should a
+-- slide carry every column off the screen all the same (the step is counted
+-- from the focused column, not from the screen), the last column is focused,
+-- which brings the strip back to it.
+local function slide_strip(forward)
+    return function()
+        if not on_strip() or not strip_extent(forward) then
+            return
+        end
+        hl.dispatch(hl.dsp.layout(forward and "move +col" or "move -col"))
+        local _, on_screen, last = strip_extent(forward)
+        if not on_screen and last then
+            hl.dispatch(hl.dsp.focus({ window = last }))
+        end
+    end
+end
+
+hl.bind("SUPER + mouse_down", slide_strip(true), { description = "Scroll the window strip forward" })
+hl.bind("SUPER + mouse_up", slide_strip(false), { description = "Scroll the window strip back" })
 hl.bind("SUPER + R", strip("colresize +conf"), { description = "Cycle column width" })
 hl.bind("SUPER + A", strip("fit all"), { description = "Fit all columns on screen" })
 hl.bind("SUPER + SHIFT + A", strip("colresize all 0.5"), { description = "Reset column widths" })
