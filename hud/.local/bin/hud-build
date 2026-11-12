@@ -930,24 +930,15 @@ def reticle_box(w: int, h: int, scale: float) -> tuple[int, int, int]:
 
 
 def bake_reticle(ring: Path, size: int, dst: Path) -> None:
-    """The reticle's frames, side by side in one PNG strip: the acid ring as
-    a stepper (8° every 0.4 s, 18 s per turn; the overlay's LockWidgets.qml
-    shows one frame at a time, RETICLE_FRAMES there). The frames are the ring
-    alone on a transparent ground, so the scene shows through whatever lies
-    under the box (frames baked over a crop of the scene showed a column of
-    the neighbouring frame's scene at the left edge whenever the clipped
-    strip landed a pixel off). `ring` is oversized, so the rotation is
-    smoothed when each frame is finished at `size`. (A strip, not a GIF: Qt's
-    GIF player crashed the overlay with an endless recursion while stepping
-    frames.)"""
-    frames = 45
-    frame_args: list[str] = []
-    for i in range(frames):
-        frame_args += ["(", str(ring), "-background", "none", "-virtual-pixel", "transparent",
-                       "-distort", "SRT", f"{i * 8:.3f}",
-                       "-filter", "Lanczos", "-resize", f"{size}x{size}!", ")"]
+    """The reticle's ring alone on a transparent ground, at twice the box's
+    physical size: the overlay's LockWidgets.qml turns it continuously and
+    renders it at that size before halving it, so the thin circles stay
+    antialiased at every angle (turned at the box's own size they came out
+    soft, and straight from a larger texture they crawled). `ring` is
+    oversized, so this is one clean Lanczos reduction."""
     with staged(dst) as tmp:
-        run("magick", *frame_args, "-background", "none", "+append", "-depth", "8", f"PNG32:{tmp}")
+        run("magick", ring, "-background", "none", "-filter", "Lanczos",
+            "-resize", f"{size * 2}x{size * 2}!", "-depth", "8", f"PNG32:{tmp}")
 
 
 def build_shaders() -> None:
@@ -1026,7 +1017,7 @@ def render_lock_output(colors: dict[str, str], name: str, w: int, h: int, scale:
     d.mkdir(parents=True, exist_ok=True)
     static = d / f"static-{name}.png"
     render_lock_static(colors, w, h, scale, static, lock_backdrop_image(name))
-    # The reticle is drawn over this output's scene, at 4x for the rotation.
+    # The reticle's ring, tinted at 4x and finished at 2x (bake_reticle).
     _, _, size = reticle_box(w, h, scale)
     with tempfile.TemporaryDirectory(prefix="hud-lock-") as td:
         ring = Path(td) / f"ring-{name}.png"
@@ -1045,7 +1036,7 @@ def build_lock(colors: dict[str, str]) -> None:
     for stale in d.glob("reticle-*.gif"):  # the GIF steppers the strips replaced
         stale.unlink()
     LOCK_BACKDROP_STAMP.write_text(lock_backdrop_key())
-    print(f"lock: {len(lock_outputs())} reticle strips, scenes, backdrop")
+    print(f"lock: {len(lock_outputs())} reticles, scenes, backdrop")
 
 
 def drop_lock_tables(path: Path) -> None:

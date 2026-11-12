@@ -2,7 +2,7 @@ import QtQuick
 import Quickshell
 
 // The lock screen's live readouts: the hero time, the seconds beside it,
-// the numeric date and ISO week under the ruler, and the stepping reticle
+// the numeric date and ISO week under the ruler, and the turning reticle
 // by the SYS//LOCKED plate, and the six telemetry graphs in the cards at the
 // sides (with a copy of the empty password field for the closing doors). The static lock art (hud-build) frames them, so
 // they sit where its LOCK_* spec puts them, in the same units: u = 1/800 of
@@ -34,7 +34,7 @@ Item {
 
     readonly property real u: height / 800
     readonly property real dpr: screen ? screen.devicePixelRatio : 1
-    // All copies share one clock and one reticle counter (LockClock.qml),
+    // All copies share one clock and one reticle angle (LockClock.qml),
     // and everything is placed on whole device pixels, so the copy in the
     // fold's snapshot and the window above the lock rasterise alike.
     readonly property SystemClock clock: LockClock.clock
@@ -365,31 +365,39 @@ Item {
     }
     Graph { side: 1; row: 2; stat: "swap"; glyph: ""; value: Math.round(SysStats.swap * 100) + "%" }
 
-    // The reticle's frames are the ring alone on a transparent ground
-    // (hud-build bake_reticle: one PNG strip, RETICLE_FRAMES side by side),
-    // finished at the box's physical size, so the box lands on whole pixels
-    // with an even size, as reticle_box computes them, and is drawn texel
-    // for texel. The strip slides behind the box one frame per tick of the
-    // shared counter, so every copy shows the same one.
-    readonly property int reticleFrames: 45
+    // The reticle is the ring alone on a transparent ground (hud-build
+    // bake_reticle), turning continuously. Its box lands on whole pixels
+    // with an even size, as reticle_box computes them. The ring is baked at
+    // twice that size and turned in a layer of that size, which is then
+    // halved onto the box: supersampled, so the thin circles neither blur
+    // nor crawl as they turn. The angle is the shared clock's, read every
+    // frame, so every copy shows the same one.
     Item {
         id: reticle
         readonly property real k: root.u * root.dpr
         readonly property int size: 2 * Math.round(26 * k / 2)
         readonly property int px: Math.round(root.width * root.dpr / 2 - 134 * k - size / 2)
         readonly property int py: Math.round(112 * k - size / 2)
+        property real angle: LockClock.reticleAngle()
         x: px / root.dpr
         y: py / root.dpr
         width: size / root.dpr
         height: size / root.dpr
-        clip: true
         Backing { anchors.fill: parent; visible: root.backed }
-        Image {
-            x: -(LockClock.reticleTick % root.reticleFrames) * reticle.width
-            width: root.reticleFrames * reticle.width
-            height: reticle.height
-            source: root.sceneName ? "file://" + Theme.home + "/.local/share/hud/lock/reticle-" + root.sceneName + ".png?v=" + Theme.version : ""
-            smooth: false
+        Item {
+            anchors.fill: parent
+            layer.enabled: true
+            layer.textureSize: Qt.size(2 * reticle.size, 2 * reticle.size)
+            layer.smooth: true
+            Image {
+                anchors.fill: parent
+                source: root.sceneName ? "file://" + Theme.home + "/.local/share/hud/lock/reticle-" + root.sceneName + ".png?v=" + Theme.version : ""
+                rotation: reticle.angle
+            }
+        }
+        FrameAnimation {
+            running: root.active && root.visible
+            onTriggered: reticle.angle = LockClock.reticleAngle()
         }
     }
 
