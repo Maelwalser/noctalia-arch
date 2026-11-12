@@ -180,6 +180,20 @@ hl.bind("ALT + SHIFT + l", function() move_window(FLOAT_STEP, 0, "r") end, { rep
 hl.bind("ALT + SHIFT + k", function() move_window(0, -FLOAT_STEP, "u") end, { repeating = true })
 hl.bind("ALT + SHIFT + j", function() move_window(0, FLOAT_STEP, "d") end, { repeating = true })
 
+-- --- Mouse: move and resize ---
+-- SUPER rather than ALT, the keyboard's window modifier: apps use Alt+click
+-- themselves (ghostty moves the prompt cursor, Vivaldi saves links), nothing
+-- uses Super+click. Works anywhere on the window, no need to aim for an edge.
+--   SUPER + left drag    move (a tiled window is re-tiled where it is dropped)
+--   SUPER + right drag   resize from the corner nearest the cursor
+--   SUPER + SHIFT + left drag   resize too: a right-button drag is awkward on
+--                               the touchpad
+-- Without a modifier, dragging a window border or the gap next to it resizes
+-- (general.resize_on_border in input.lua).
+hl.bind("SUPER + mouse:272", hl.dsp.window.drag(), { mouse = true, description = "Move window" })
+hl.bind("SUPER + mouse:273", hl.dsp.window.resize(), { mouse = true, description = "Resize window" })
+hl.bind("SUPER + SHIFT + mouse:272", hl.dsp.window.resize(), { mouse = true, description = "Resize window" })
+
 -- Move focus with ALT + HJKL
 hl.bind("ALT + h", hl.dsp.focus({ direction = "l" }))
 hl.bind("ALT + l", hl.dsp.focus({ direction = "r" }))
