@@ -382,9 +382,55 @@ end
 
 hl.bind("ALT + SHIFT + h", function() move_window(-FLOAT_STEP, 0, "l") end, { repeating = true })
 hl.bind("ALT + SHIFT + l", function() move_window(FLOAT_STEP, 0, "r") end, { repeating = true })
+-- A window that fills the screen (maximized, or a column of the full width)
+-- and is taken to another strip stays that size. Left to itself the strip
+-- gives a newcomer the default width, so it would arrive as half a screen
+-- beside one of the windows already there, and puts it at the end. It is
+-- also set between them, as many columns on its left as on its right, so
+-- that what was there goes out to both sides and the strip stays centred on
+-- the screen.
+local function fills_screen(win)
+    local mon = hl.get_active_workspace().monitor
+    return win.fullscreen ~= 0 or (mon ~= nil and win.size.x > 0.9 * mon.width / mon.scale)
+end
+
+local function settle_arrival(address)
+    local win = hl.get_active_window()
+    if not win or win.address ~= address or win.floating or not on_strip() then
+        return
+    end
+    if not fills_screen(win) then
+        hl.dispatch(hl.dsp.layout("colresize 1.0"))
+        -- `at` and `size` are already where the windows are heading.
+        win = hl.get_active_window()
+    end
+    local left, right = {}, {}
+    for _, other in ipairs(hl.get_workspace_windows(hl.get_active_workspace().id)) do
+        if other.address ~= win.address and not other.hidden and not other.floating then
+            if other.at.x < win.at.x then
+                left[other.at.x] = true
+            elseif other.at.x > win.at.x then
+                right[other.at.x] = true
+            end
+        end
+    end
+    local balance = 0
+    for _ in pairs(left) do balance = balance + 1 end
+    for _ in pairs(right) do balance = balance - 1 end
+    local direction = balance > 0 and "l" or "r"
+    for _ = 1, math.floor(math.abs(balance) / 2) do
+        hl.dispatch(hl.dsp.layout("swapcol " .. direction))
+    end
+end
+
 local function move_vertical(down)
-    if hl.get_active_window() and leaves_strip(down) then
+    local win = hl.get_active_window()
+    if win and leaves_strip(down) then
+        local full = not win.floating and fills_screen(win)
         hl.dispatch(hl.dsp.window.move({ workspace = stack_workspace(down) }))
+        if full then
+            settle_arrival(win.address)
+        end
     else
         move_window(0, down and FLOAT_STEP or -FLOAT_STEP, down and "d" or "u")
     end
