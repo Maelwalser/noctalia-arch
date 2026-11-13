@@ -46,8 +46,13 @@
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/desktop/state/ViewHitTester.hpp>
 #include <hyprland/src/desktop/state/ViewState.hpp>
+#include <hyprland/src/desktop/view/LayerSurface.hpp>
+#include <hyprland/src/desktop/view/Popup.hpp>
+#include <hyprland/src/desktop/view/Subsurface.hpp>
 #include <hyprland/src/desktop/view/WLSurface.hpp>
 #include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/desktop/view/window/WindowBackend.hpp>
+#include <hyprland/src/desktop/view/window/WindowEffectsController.hpp>
 #include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/layout/algorithm/Algorithm.hpp>
@@ -61,6 +66,8 @@
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/pointer/PointerManager.hpp>
 #include <hyprland/src/pointer/PointerTransformer.hpp>
+#include <hyprland/src/protocols/core/Compositor.hpp>
+#include <hyprland/src/protocols/core/Subcompositor.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
@@ -81,6 +88,7 @@ extern "C" {
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -126,6 +134,24 @@ namespace {
         double          ease  = 0; // what is left of a change of the columns, run out over a few frames
     };
 
+    // The scene geometry of a view at this instant. Everything in logical
+    // pixels; `world` is the plane the rows lie in: x as on the monitor and y
+    // running down through the rows.
+    struct SGeom {
+        Vector2D pos;       // monitor origin
+        double   W = 0, H = 0;
+        double   top = 0;   // reserved at the top (the bar)
+        double   Hu  = 0;   // height of a row: the monitor less its reserved bands
+        double   P   = 0;   // from one row to the next, when they are stacked
+        Vector2D pitch;     // from one row's origin to the next
+        double   s   = 1;   // scale now
+        Vector2D C;         // the screen point the camera looks through
+        Vector2D cam;       // the world point seen there now
+        int      active = 0;
+        int      n      = 0;
+        std::vector<double> shift; // per row: added to the x of its windows now
+    };
+
     // One zoomed monitor.
     struct SView {
         PHLMONITORREF   mon;
@@ -144,7 +170,25 @@ namespace {
         std::vector<SStrip>          strips;
         std::vector<PHLLSREF>        hud; // desktop HUD layers the view faded out
         bool                         undimmed = false; // the rows' windows have their dim taken off
+
+        // The frame as the last step left it: what is drawn, what the
+        // pointer is mapped through and where a change to a window shows.
+        // `rows` above are its rows.
+        bool                  framed = false;
+        SGeom                 geom;
+        std::vector<Vector2D> at;    // per row: where its monitor origin lands on the screen
+        std::vector<char>     drawn; // per row: in sight
     };
+
+    // Only what a change touches is drawn again (see "Damage"). Off, every
+    // frame of the view is the whole monitor: for comparing the two.
+    bool g_precise = true;
+
+    // What the frames of the views came to since stats() last asked.
+    struct {
+        uint64_t frames = 0;
+        double   pixels = 0; // drawn through the damage, summed over the frames
+    } g_stats;
 
     std::vector<UP<SView>> g_views;
     int                    g_buttons = 0;
@@ -159,24 +203,6 @@ namespace {
 
     SP<Pointer::CPointerTransformer> g_transformer;
     std::vector<CHyprSignalListener> g_listeners;
-
-    // The scene geometry of a view at this instant. Everything in logical
-    // pixels; `world` is the plane the rows lie in: x as on the monitor and y
-    // running down through the rows.
-    struct SGeom {
-        Vector2D pos;       // monitor origin
-        double   W = 0, H = 0;
-        double   top = 0;   // reserved at the top (the bar)
-        double   Hu  = 0;   // height of a row: the monitor less its reserved bands
-        double   P   = 0;   // from one row to the next, when they are stacked
-        Vector2D pitch;     // from one row's origin to the next
-        double   s   = 1;   // scale now
-        Vector2D C;         // the screen point the camera looks through
-        Vector2D cam;       // the world point seen there now
-        int      active = 0;
-        int      n      = 0;
-        std::vector<double> shift; // per row: added to the x of its windows now
-    };
 
     double easeOut(double t) {
         t = std::clamp(t, 0.0, 1.0);
@@ -445,8 +471,10 @@ namespace {
         for (auto const& w : Desktop::viewState()->windows()) {
             if (!w || !w->mapped() || !w->m_workspace || rowIndex(rows, w->m_workspace) < 0)
                 continue;
-            if (w->presentation().dimPercent() != 0.F)
+            if (w->presentation().dimPercent() != 0.F) {
                 w->presentation().warpDimPercent(0.F);
+                g_pHyprRenderer->damageWindow(w); // where the view shows it (hkDamageWindow)
+            }
         }
         view.undimmed = true;
     }
@@ -570,6 +598,7 @@ namespace {
                     break;
             }
         }
+        const auto WERE = v.rows;
         v.rows.assign(ROWS.begin(), ROWS.end());
 
         // Hyprland goes over every window after a move or a change of
@@ -616,17 +645,42 @@ namespace {
         const bool WAS = v.animating;
         v.animating    = ZOOMING || moving || EASING;
         v.settled      = WAS && !v.animating;
+
+        // The frame this step makes. Rows that are drawn somewhere else than
+        // in the frame before, or other rows, are a new picture of the whole
+        // monitor; anything less is told by what changed (see "Damage").
+        const auto            FRAME = geomOf(v, mon, ROWS);
+        std::vector<Vector2D> at;
+        std::vector<char>     drawn;
+        for (int r = 0; r < FRAME.n; ++r) {
+            const Vector2D O  = FRAME.pitch * r + Vector2D{FRAME.shift[r], 0.0};
+            const Vector2D AT = {FRAME.C.x + (O.x - FRAME.cam.x) * FRAME.s, FRAME.C.y + (O.y - FRAME.top - FRAME.cam.y) * FRAME.s};
+            at.emplace_back(AT);
+            // Not when wholly above or below the screen.
+            drawn.emplace_back(!(AT.y + (FRAME.top + FRAME.Hu) * FRAME.s < 0 || AT.y + FRAME.top * FRAME.s > FRAME.H));
+        }
+        const bool SAME = v.framed && v.geom.s == FRAME.s && v.geom.pos == FRAME.pos && v.geom.W == FRAME.W && v.geom.H == FRAME.H && v.at == at && v.drawn == drawn &&
+            std::ranges::equal(WERE, v.rows, [](const PHLWORKSPACEREF& a, const PHLWORKSPACEREF& b) { return a.lock() == b.lock(); });
+        v.geom   = FRAME;
+        v.at     = std::move(at);
+        v.drawn  = std::move(drawn);
+        v.framed = true;
+        if (!SAME)
+            damage(v);
     }
 
     // ── Rendering ────────────────────────────────────────────────────────────
 
     // The pass culls what an opaque window covers and what lies off the
     // monitor, both judged where the windows really are, not where the view
-    // draws them. This element turns that off for the frame and has it drawn
-    // in full.
+    // draws them. This element turns that off for the frame.
     class CZoomMarker : public IPassElement {
       public:
-        std::vector<UP<IPassElement>> draw(Render::CRenderContext&) override {
+        std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override {
+            ++g_stats.frames;
+            if (const auto MON = ctx.m_data.pMonitor.lock()) {
+                ctx.m_data.damage.copy().intersect(CBox{{}, MON->m_transformedSize}).forEachRect([](const auto& r) { g_stats.pixels += sc<double>(r.x2 - r.x1) * (r.y2 - r.y1); });
+            }
             return {};
         }
         bool needsLiveBlur(Render::CRenderContext&) override {
@@ -648,26 +702,37 @@ namespace {
             return true;
         }
         bool requiresFullDamage(Render::CRenderContext&) override {
-            return true;
+            return !g_precise;
         }
     };
 
-    // Everything in a pass is drawn through the frame's damage, cut to the
-    // element's box where the window really is and only then moved by the
-    // modifiers: nothing at all for a column that is off the monitor, half of
-    // one that is half off it. This element stands before the windows of a
-    // row and, when the pass reaches it, widens the damage of every element
-    // up to the row's end to the whole plane, so each is cut to its own box
-    // and nothing else. What is damaged on the output is not touched.
+    // Everything in a pass is drawn through the frame's damage, and the pass
+    // hands every element the same region, in the pixels of the output. The
+    // elements do not agree on what it means under the modifiers: a surface
+    // cuts it to its own box where the window really is and only then moves
+    // the result (nothing at all for a column that is off the monitor, half
+    // of one that is half off it, and the wrong part of any other), while a
+    // border or a shadow cuts where it is drawn.
+    //
+    // This element stands before the windows of a row and, when the pass
+    // reaches it, gives each element up to the row's end the damage in the
+    // space it cuts in: for a surface, the damage taken back through the
+    // row's modifiers. What is damaged on the output is not touched.
     class CZoomRow : public IPassElement {
       public:
-        explicit CZoomRow(bool begin) : m_begin(begin) {}
+        CZoomRow() = default; // the end of a row
+        CZoomRow(double scale, const Vector2D& move) : m_begin(true), m_scale(scale), m_move(move) {}
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override {
-            if (!m_begin)
+            if (!m_begin || m_scale <= 0.0)
                 return {};
 
-            static const CRegion PLANE{CBox{-100000, -100000, 200000, 200000}};
+            // Two pixels over: the way back does not land on whole pixels.
+            const CRegion& SEEN = ctx.m_data.damage;
+            const CRegion  REAL = SEEN.copy().translate(-m_move).scale(sc<float>(1.0 / m_scale)).expand(2);
+            // For the kinds that cut either way, by what they are asked to draw.
+            const CRegion  BOTH = REAL.copy().add(SEEN);
+
             for (auto* pass : {ctx.m_currentPass, &ctx.m_pass}) {
                 if (!pass)
                     continue;
@@ -678,7 +743,13 @@ namespace {
                 for (auto it = std::next(self); it != elements.end(); ++it) {
                     if (const auto END = dynamic_cast<CZoomRow*>(it->element.get()); END && !END->m_begin)
                         break;
-                    it->elementDamage = PLANE;
+                    switch (it->element->type()) {
+                        case EK_SURFACE: it->elementDamage = REAL; break;
+                        case EK_TEXTURE:
+                        case EK_TEXTURE_MATTE:
+                        case EK_RECT: it->elementDamage = BOTH; break;
+                        default: break; // drawn where it is seen: as the pass gave it
+                    }
                 }
                 break;
             }
@@ -701,7 +772,9 @@ namespace {
         }
 
       private:
-        bool m_begin;
+        bool     m_begin = false;
+        double   m_scale = 1.0;
+        Vector2D m_move;
     };
 
     using tRenderWindows = void (*)(void*, Render::CRenderContext&, PHLMONITOR, PHLWORKSPACE, const steady_tp&, Render::eSceneMode);
@@ -723,10 +796,9 @@ namespace {
         if (!VIEW || VIEW->z <= 0.0)
             return false;
 
-        const auto ROWS = rowsOf(mon);
-        if (ROWS.empty())
+        if (!VIEW->framed || VIEW->rows.empty())
             return false;
-        const auto   G     = geomOf(*VIEW, mon, ROWS);
+        const auto&  G     = VIEW->geom;
         const double SCALE = mon->m_scale;
 
         Render::IHyprRenderer::addPassElement(ctx, makeUnique<CZoomMarker>());
@@ -736,24 +808,23 @@ namespace {
         shade.color = CHyprColor(0, 0, 0, DIM * VIEW->z);
         Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRectPassElement>(shade));
 
-        for (int r = 0; r < G.n; ++r) {
-            // Where the row's top-left corner (its monitor origin) lands on the screen.
-            const Vector2D O  = G.pitch * r + Vector2D{G.shift[r], 0.0};
-            const Vector2D AT = {G.C.x + (O.x - G.cam.x) * G.s, G.C.y + (O.y - G.top - G.cam.y) * G.s};
-            if (AT.y + (G.top + G.Hu) * G.s < 0 || AT.y + G.top * G.s > G.H)
-                continue; // wholly above or below the screen
+        for (size_t r = 0; r < VIEW->rows.size(); ++r) {
+            const auto ROW = VIEW->rows[r].lock();
+            if (!ROW || !VIEW->drawn[r])
+                continue;
 
+            const Vector2D MOVE = VIEW->at[r] * SCALE;
             Render::SRenderModifData modif;
             modif.modifs.emplace_back(Render::SRenderModifData::RMOD_TYPE_SCALE, sc<float>(G.s));
-            modif.modifs.emplace_back(Render::SRenderModifData::RMOD_TYPE_TRANSLATE, Vector2D{AT.x * SCALE, AT.y * SCALE});
+            modif.modifs.emplace_back(Render::SRenderModifData::RMOD_TYPE_TRANSLATE, MOVE);
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRendererHintsPassElement>(CRendererHintsPassElement::SData{modif}));
-            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CZoomRow>(true));
+            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CZoomRow>(G.s, MOVE));
 
             // The scene of one workspace: its windows wherever they are laid
             // out, whether or not the workspace is the one shown.
-            callWindows(Fullscreen::controller()->hasFullscreen(ROWS[r]), self, ctx, mon, ROWS[r], now, Render::eSceneMode::WORKSPACE_WINDOWS);
+            callWindows(Fullscreen::controller()->hasFullscreen(ROW), self, ctx, mon, ROW, now, Render::eSceneMode::WORKSPACE_WINDOWS);
 
-            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CZoomRow>(false));
+            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CZoomRow>());
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRendererHintsPassElement>(CRendererHintsPassElement::SData{Render::SRenderModifData{}}));
         }
         return true;
@@ -791,10 +862,16 @@ namespace {
         auto scaled  = data;
         scaled.round = sc<int>(std::round(data.round * modif.combinedScale()));
 
-        const auto SAVED = modif;
-        modif            = {};
+        // The draw is cut by the damage it is handed, which is where the
+        // window is seen; what it does besides goes by the context's.
+        const auto SAVED  = modif;
+        const auto DAMAGE = ctx.m_data.damage;
+        modif             = {};
+        if (data.damage)
+            ctx.m_data.damage = *data.damage;
         (*rc<tTextureWithBlur>(g_hookTextureWithBlur->m_original))(self, ctx, tex, drawn, scaled);
-        modif = SAVED;
+        ctx.m_data.damage = DAMAGE;
+        modif             = SAVED;
     }
 
     // ── Pointer ──────────────────────────────────────────────────────────────
@@ -821,10 +898,10 @@ namespace {
             if (MON->m_activeSpecialWorkspace || g_pSessionLockManager->isSessionLocked())
                 return m;
 
-            const auto ROWS = rowsOf(MON);
-            if (ROWS.empty())
+            // Through the frame that is on the screen.
+            if (!v->framed || v->rows.empty())
                 return m;
-            const auto     G     = geomOf(*v, MON, ROWS);
+            const auto&    G     = v->geom;
             const Vector2D WORLD = (raw - G.pos - G.C) / G.s + G.cam;
 
             m.zoomed = true;
@@ -832,8 +909,12 @@ namespace {
 
             int        row    = -1;
             const auto LOCKED = v->locked.lock();
-            if (LOCKED)
-                row = rowIndex(ROWS, LOCKED);
+            if (LOCKED) {
+                for (size_t i = 0; i < v->rows.size(); ++i) {
+                    if (v->rows[i].lock() == LOCKED)
+                        row = sc<int>(i);
+                }
+            }
             if (row < 0) {
                 const int AT = sc<int>(std::floor(WORLD.y / G.P));
                 if (AT >= 0 && AT < G.n && WORLD.y - AT * G.P < G.Hu)
@@ -842,7 +923,9 @@ namespace {
             if (row < 0)
                 return m; // between the rows or past them: no window there
 
-            m.row = ROWS[row];
+            m.row = v->rows[row].lock();
+            if (!m.row)
+                return m;
             m.out = G.pos + WORLD - G.pitch * row + Vector2D{-G.shift[row], G.top};
             return m;
         }
@@ -953,36 +1036,333 @@ namespace {
     // ── Damage ───────────────────────────────────────────────────────────────
 
     // Hyprland damages a surface where it really is, and not at all when that
-    // is off the monitor or on a workspace not shown. In the view every such
-    // window is in sight somewhere else: any change redraws the monitor.
+    // is on a workspace not shown. In the view the window is seen somewhere
+    // else, at another size: a change to it is damage there, the box it has
+    // in its row put through the row's place in the frame. So a terminal
+    // that prints redraws its own picture in the view and nothing else.
+    //
+    // Layers are drawn as they are and Hyprland's damage for them is right.
+    // What moves every row (the view drawing back, the camera, a row more or
+    // less) is damaged as a whole by step().
     using tDamageSurface = void (*)(void*, SP<CWLSurfaceResource>, double, double, double);
     using tDamageWindow  = void (*)(void*, PHLWINDOW, bool);
+    using tDamageBox     = void (*)(void*, const CBox&, bool);
+    using tCommitWindow  = void (*)(void*, bool);
+    using tCommitSub     = void (*)(void*);
+    using tCommitPopup   = void (*)(void*, bool);
 
     CFunctionHook* g_hookDamageSurface = nullptr;
     CFunctionHook* g_hookDamageWindow  = nullptr;
+    CFunctionHook* g_hookDamageBox     = nullptr;
+    CFunctionHook* g_hookCommitWindow  = nullptr;
+    CFunctionHook* g_hookCommitSub     = nullptr;
+    CFunctionHook* g_hookCommitPopup   = nullptr;
 
-    // The views a change to this window can be seen in: its monitor's, or all
-    // of them when it is not known whose surface changed.
-    void damageViews(const PHLWINDOW& window) {
-        const auto MON = window ? window->m_monitor.lock() : nullptr;
+    // Whose surface: a window's (its own, a subsurface's or a popup's), a
+    // layer's or the lock's (drawn as they are), or nobody's that is known.
+    struct SOwner {
+        PHLWINDOW window;
+        bool      asIs  = false;
+        bool      popup = false;
+    };
+
+    SOwner ownerOf(SP<CWLSurfaceResource> surface) {
+        // A subsurface is asked for the surface it hangs from, and that one
+        // again if it is a subsurface itself (the bound is against a ring).
+        for (int hop = 0; hop < 8 && surface; ++hop) {
+            const auto HLSURFACE = Desktop::View::CWLSurface::fromResource(surface);
+            const auto VIEW      = HLSURFACE ? HLSURFACE->view() : nullptr;
+            if (!VIEW)
+                return {};
+            switch (VIEW->type()) {
+                case Desktop::View::VIEW_TYPE_WINDOW: return {.window = Desktop::View::CWindow::fromView(VIEW)};
+                case Desktop::View::VIEW_TYPE_LAYER_SURFACE:
+                case Desktop::View::VIEW_TYPE_LOCK_SCREEN: return {.asIs = true};
+                case Desktop::View::VIEW_TYPE_POPUP: {
+                    const auto POPUP = Desktop::View::CPopup::fromView(VIEW);
+                    if (!POPUP)
+                        return {};
+                    if (const auto WINDOW = POPUP->windowOwner())
+                        return {.window = WINDOW, .popup = true};
+                    return {.asIs = POPUP->layerOwner() != nullptr};
+                }
+                case Desktop::View::VIEW_TYPE_SUBSURFACE: {
+                    if (!surface->m_role || surface->m_role->role() != SURFACE_ROLE_SUBSURFACE)
+                        return {};
+                    const auto SUB = sc<CSubsurfaceRole*>(surface->m_role.get())->m_subsurface.lock();
+                    surface        = SUB ? SUB->t1Parent() : nullptr;
+                    break;
+                }
+                default: return {};
+            }
+        }
+        return {};
+    }
+
+    // The view a window is a row of, and which row of its frame.
+    struct SSeen {
+        SView* view = nullptr;
+        int    row  = -1;
+    };
+
+    SSeen seenIn(const PHLWINDOW& window) {
+        if (!window || !window->m_workspace)
+            return {};
         for (auto const& v : g_views) {
-            if (!MON || v->mon.lock() == MON)
+            for (size_t r = 0; r < v->rows.size(); ++r) {
+                if (v->rows[r].lock() == window->m_workspace)
+                    return {v.get(), sc<int>(r)};
+            }
+        }
+        return {};
+    }
+
+    // Damages where the view shows a region of one of its rows; the region
+    // in global logical pixels, as the row's workspace has it. `blurred`:
+    // for what blurs the picture behind it as it is drawn (a floating
+    // window, a popup), which needs that picture drawn a blur's reach
+    // further out.
+    void damageSeen(SView& v, int row, const CRegion& region, bool blurred) {
+        const auto MON = v.mon.lock();
+        if (!MON || region.empty())
+            return;
+        if (!g_precise || !v.framed || row < 0 || row >= sc<int>(v.at.size())) {
+            g_pHyprRenderer->damageMonitor(MON);
+            return;
+        }
+        if (!v.drawn[row])
+            return;
+        // A floating window of the row over the region blurs it as well.
+        if (!blurred) {
+            const auto WORKSPACE = v.rows[row].lock();
+            for (auto const& w : Desktop::viewState()->windows()) {
+                if (!w || !w->mapped() || w->isHidden() || !w->isFloating() || w->m_workspace != WORKSPACE)
+                    continue;
+                if (!region.copy().intersect(w->getFullWindowBoundingBox()).empty()) {
+                    blurred = true;
+                    break;
+                }
+            }
+        }
+        CRegion seen = region.copy();
+        seen.translate(-MON->m_position).scale(sc<float>(MON->m_scale * v.geom.s)).translate(v.at[row] * MON->m_scale).expand(2);
+        if (blurred)
+            g_pHyprRenderer->expandBlurDamage(seen, 2.5F);
+        MON->addDamage(seen);
+    }
+
+    // IHyprRenderer::damageSurface, for the surface of a row's window: the
+    // same damage taken from the surface, put where the view shows it.
+    void damageSurfaceSeen(const SSeen& at, const SOwner& owner, SP<CWLSurfaceResource> surface, double x, double y, double scale) {
+        const auto HLSURFACE = Desktop::View::CWLSurface::fromResource(surface);
+        const auto MON       = at.view->mon.lock();
+        if (!HLSURFACE || !MON)
+            return;
+        const auto BOX = HLSURFACE->getSurfaceBoxGlobal();
+
+        // A client that waits for its frame callback gets one.
+        if (!surface->m_current.callbacks.empty() && BOX && !BOX->empty())
+            MON->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_NEEDS_FRAME);
+
+        CRegion region = HLSURFACE->computeDamage(BOX);
+        if (region.empty())
+            return;
+        if (scale != 1.0)
+            region.scale(sc<float>(scale));
+        region.translate({x, y});
+        damageSeen(*at.view, at.row, region, owner.popup || owner.window->isFloating());
+    }
+
+    void hkDamageSurface(void* self, SP<CWLSurfaceResource> surface, double x, double y, double scale) {
+        if (g_views.empty() || !surface) {
+            (*rc<tDamageSurface>(g_hookDamageSurface->m_original))(self, surface, x, y, scale);
+            return;
+        }
+        const auto OWNER = ownerOf(surface);
+        const auto AT    = OWNER.window ? seenIn(OWNER.window) : SSeen{};
+        if (AT.view && g_precise) {
+            // A floating window may reach onto the monitor beside: there it is as it is.
+            if (OWNER.window->isFloating() && !OWNER.popup) {
+                const auto DAMAGE = surface->m_current.damage.copy();
+                const auto BUFFER = surface->m_current.bufferDamage.copy();
+                damageSurfaceSeen(AT, OWNER, surface, x, y, scale);
+                // (Taking the damage uses it up: the same again for the other.)
+                surface->m_current.damage       = DAMAGE;
+                surface->m_current.bufferDamage = BUFFER;
+                (*rc<tDamageSurface>(g_hookDamageSurface->m_original))(self, surface, x, y, scale);
+                return;
+            }
+            damageSurfaceSeen(AT, OWNER, surface, x, y, scale);
+            return;
+        }
+        (*rc<tDamageSurface>(g_hookDamageSurface->m_original))(self, surface, x, y, scale);
+        if (OWNER.asIs || (OWNER.window && !AT.view))
+            return;
+        // A row's window with the whole monitor asked for, or a surface of
+        // nobody known: it may be seen anywhere.
+        for (auto const& v : g_views) {
+            if (!AT.view || AT.view == v.get())
                 damage(*v);
         }
     }
 
-    void hkDamageSurface(void* self, SP<CWLSurfaceResource> surface, double x, double y, double scale) {
-        (*rc<tDamageSurface>(g_hookDamageSurface->m_original))(self, surface, x, y, scale);
-        if (g_views.empty())
+    void hkDamageWindow(void* self, PHLWINDOW window, bool forceFull) {
+        const auto AT = g_views.empty() ? SSeen{} : seenIn(window);
+        if (!AT.view) {
+            (*rc<tDamageWindow>(g_hookDamageWindow->m_original))(self, window, forceFull);
             return;
-        const auto HLSURFACE = surface ? Desktop::View::CWLSurface::fromResource(surface) : nullptr;
-        damageViews(HLSURFACE ? Desktop::View::CWindow::fromView(HLSURFACE->view()) : nullptr);
+        }
+        // A workspace that slides or fades has its windows somewhere between.
+        if (const auto WORKSPACE = window->m_workspace; WORKSPACE->m_renderOffset->isBeingAnimated() || WORKSPACE->m_alpha->isBeingAnimated())
+            damage(*AT.view);
+        // As Hyprland takes the box, shadow and border included.
+        CBox box = window->getFullWindowBoundingBox();
+        box.translate(window->presentation().floatingOffset());
+        box = window->effects().transformBoxForDamage(box);
+        damageSeen(*AT.view, AT.row, CRegion{box}, window->isFloating());
+        if (window->isFloating() || !g_precise)
+            (*rc<tDamageWindow>(g_hookDamageWindow->m_original))(self, window, forceFull);
     }
 
-    void hkDamageWindow(void* self, PHLWINDOW window, bool forceFull) {
-        (*rc<tDamageWindow>(g_hookDamageWindow->m_original))(self, window, forceFull);
-        if (!g_views.empty())
-            damageViews(window);
+    // The surface whose commit Hyprland is working through, and whose it is
+    // (looked up when first asked).
+    using tCommitState = void (*)(void*, void*);
+
+    CFunctionHook* g_hookCommitState = nullptr;
+
+    struct {
+        CWLSurfaceResource* surface = nullptr;
+        bool                known   = false;
+        SOwner              owner;
+    } g_committing;
+
+    void hkCommitState(void* self, void* state) {
+        const auto OUTER = g_committing;
+        g_committing     = {.surface = rc<CWLSurfaceResource*>(self)};
+        (*rc<tCommitState>(g_hookCommitState->m_original))(self, state);
+        g_committing = OUTER;
+    }
+
+    // A box damaged by its place alone says nothing of what it belongs to.
+    // Inside a commit it is known: whatever is damaged then is the
+    // committing surface's (Hyprland damages the whole box of a surface that
+    // asks for blur behind it on each of its commits, which terminals do,
+    // shown or not). A row's window is damaged where the view has it and
+    // nowhere else, a layer's where it is.
+    //
+    // Outside a commit (a decoration, an animation, another plugin) the box
+    // may be any row's: every row has its windows at the same places, so it
+    // is damaged in each row that is drawn, and where it is.
+    void hkDamageBox(void* self, const CBox& box, bool skipFrameSchedule) {
+        if (g_views.empty() || skipFrameSchedule || !g_precise) {
+            (*rc<tDamageBox>(g_hookDamageBox->m_original))(self, box, skipFrameSchedule);
+            if (!g_precise && !skipFrameSchedule) {
+                for (auto const& v : g_views) {
+                    if (const auto MON = v->mon.lock(); MON && MON->logicalBox().overlaps(box))
+                        damage(*v);
+                }
+            }
+            return;
+        }
+
+        if (g_committing.surface) {
+            if (!g_committing.known) {
+                g_committing.owner = ownerOf(g_committing.surface->m_self.lock());
+                g_committing.known = true;
+            }
+            const auto& OWNER = g_committing.owner;
+            // Its own only if it lies by the window: a listener of the
+            // commit may damage what is somebody else's.
+            const bool OWN = !OWNER.window || OWNER.popup || OWNER.window->getFullWindowBoundingBox().expand(64).overlaps(box);
+            if ((OWNER.window || OWNER.asIs) && OWN) {
+                const auto AT       = OWNER.window ? seenIn(OWNER.window) : SSeen{};
+                const bool FLOATING = OWNER.window && OWNER.window->isFloating();
+                if (AT.view)
+                    damageSeen(*AT.view, AT.row, CRegion{box}, FLOATING || OWNER.popup);
+                // (A floating window may reach onto the monitor beside: there it is as it is.)
+                if (!AT.view || FLOATING)
+                    (*rc<tDamageBox>(g_hookDamageBox->m_original))(self, box, skipFrameSchedule);
+                return;
+            }
+        }
+
+        (*rc<tDamageBox>(g_hookDamageBox->m_original))(self, box, skipFrameSchedule);
+        const auto SAME = [&box](const CBox& other) {
+            return std::abs(other.x - box.x) <= 1 && std::abs(other.y - box.y) <= 1 && std::abs(other.w - box.w) <= 1 && std::abs(other.h - box.h) <= 1;
+        };
+        for (auto const& v : g_views) {
+            const auto MON = v->mon.lock();
+            if (!MON || !v->framed || !MON->logicalBox().overlaps(box))
+                continue;
+            // To the pixel the box of a layer: that layer, drawn as it is.
+            bool layer = false;
+            for (auto const& level : MON->m_layerSurfaceLayers) {
+                for (auto const& ref : level) {
+                    const auto ls = ref.lock();
+                    layer         = layer || (ls && SAME(CBox{ls->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT), ls->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT)}));
+                }
+            }
+            if (layer)
+                continue;
+            for (size_t r = 0; r < v->rows.size(); ++r)
+                damageSeen(*v, sc<int>(r), CRegion{box}, false);
+        }
+    }
+
+    // Hyprland drops the commit of a window whose workspace is not shown
+    // before it gets as far as damage. A row that is not the shown one is
+    // in sight all the same: its commits are damage here.
+    void commitUnshown(const SP<Desktop::View::CWLSurface>& hlSurface, const std::function<Vector2D()>& where, double scale) {
+        const auto SURFACE = hlSurface ? hlSurface->resource() : nullptr;
+        if (!SURFACE)
+            return;
+        const auto OWNER = ownerOf(SURFACE);
+        if (!OWNER.window || !OWNER.window->mapped() || OWNER.window->isHidden() || !OWNER.window->m_workspace || OWNER.window->m_workspace->visible())
+            return;
+        const auto AT = seenIn(OWNER.window);
+        if (!AT.view)
+            return;
+        if (!g_precise) {
+            damage(*AT.view);
+            return;
+        }
+        const auto pos   = where(); // asked only now: the surface is a mapped window's
+        const bool WAITS = !SURFACE->m_current.callbacks.empty();
+        const bool HAD   = !SURFACE->m_current.damage.empty() || !SURFACE->m_current.bufferDamage.empty();
+        damageSurfaceSeen(AT, OWNER, SURFACE, pos.x, pos.y, scale);
+        // Nothing new to show, but the client waits to be told a frame went
+        // out before it draws again: only a frame that is drawn tells the
+        // rows, so one is, of next to nothing.
+        if (WAITS && !HAD)
+            damageSeen(*AT.view, AT.row, CRegion{CBox{pos, Vector2D{1.0, 1.0}}}, false);
+    }
+
+    void hkCommitWindow(void* self, bool sync) {
+        // Held over the original: a commit may be the window's last.
+        const auto WINDOW = rc<Desktop::View::CWindow*>(self)->m_self.lock();
+        (*rc<tCommitWindow>(g_hookCommitWindow->m_original))(self, sync);
+        if (g_views.empty())
+            return;
+        if (WINDOW && WINDOW->mapped())
+            commitUnshown(WINDOW->wlSurface(), [&WINDOW] { return WINDOW->position(Desktop::View::IGeometric::GEOMETRIC_GOAL); }, 1.0 / WINDOW->backend().surfaceScale());
+    }
+
+    // Before the original: it drops the commit of an unshown window's
+    // surface untouched, and may destroy an orphaned popup.
+    void hkCommitSub(void* self) {
+        if (!g_views.empty()) {
+            const auto SUB = rc<Desktop::View::CSubsurface*>(self);
+            commitUnshown(SUB->wlSurface(), [SUB] { return SUB->coordsGlobal(); }, 1.0);
+        }
+        (*rc<tCommitSub>(g_hookCommitSub->m_original))(self);
+    }
+
+    void hkCommitPopup(void* self, bool ignoreSiblings) {
+        if (!g_views.empty()) {
+            const auto POPUP = rc<Desktop::View::CPopup*>(self);
+            commitUnshown(POPUP->wlSurface(), [POPUP] { return POPUP->coordsGlobal(); }, 1.0);
+        }
+        (*rc<tCommitPopup>(g_hookCommitPopup->m_original))(self, ignoreSiblings);
     }
 
     // ── Control ──────────────────────────────────────────────────────────────
@@ -1103,6 +1483,27 @@ namespace {
         return 4;
     }
 
+    // precise(on): whether only what changed is drawn again. For measuring
+    // one against the other; answers what it is now.
+    int luaPrecise(lua_State* L) {
+        if (lua_gettop(L) >= 1) {
+            g_precise = lua_toboolean(L, 1);
+            for (auto const& v : g_views)
+                damage(*v);
+        }
+        lua_pushboolean(L, g_precise);
+        return 1;
+    }
+
+    // stats(): frames the views drew since the last call, and the megapixels
+    // drawn through their damage in all of them. For measuring.
+    int luaStats(lua_State* L) {
+        lua_pushinteger(L, sc<lua_Integer>(g_stats.frames));
+        lua_pushnumber(L, g_stats.pixels / 1e6);
+        g_stats = {};
+        return 2;
+    }
+
     void onRenderStage(const Event::SRenderStageEvent& e) {
         if (g_views.empty() || !e.monitor)
             return;
@@ -1121,15 +1522,6 @@ namespace {
                 g_pInputManager->simulateMouseMovement(); // and the pointer is where it looks again
             }
         } else if (e.stage == RENDER_POST) {
-            // Hyprland tells only the windows of the shown workspace that a
-            // frame went out. The other rows are in sight too: without it
-            // their clients never draw again, and a window that was resized
-            // (its neighbour taken away, say) keeps its old picture.
-            const auto NOW = Time::steadyNow();
-            for (auto const& ws : rowsOf(e.monitor)) {
-                if (ws != e.monitor->m_activeWorkspace)
-                    g_pHyprRenderer->sendFrameEventsToWorkspace(e.monitor, ws, NOW);
-            }
             if (VIEW->animating)
                 g_pHyprRenderer->damageMonitor(e.monitor); // and so the next frame
             else if (VIEW->settled) {
@@ -1186,6 +1578,11 @@ namespace {
             "_ZN6Render2GL15CHyprOpenGLImpl29renderTextureWithBlurInternalERNS_14CRenderContextEN9Hyprutils6Memory14CSharedPointerINS_8ITextureEEERKNS4_4Math4CBoxERKNS1_18STextureRenderDataE";
         constexpr auto DAMAGE_SURFACE = "_ZN6Render13IHyprRenderer13damageSurfaceEN9Hyprutils6Memory14CSharedPointerI18CWLSurfaceResourceEEddd";
         constexpr auto DAMAGE_WINDOW  = "_ZN6Render13IHyprRenderer12damageWindowEN9Hyprutils6Memory14CSharedPointerIN7Desktop4View7CWindowEEEb";
+        constexpr auto DAMAGE_BOX     = "_ZN6Render13IHyprRenderer9damageBoxERKN9Hyprutils4Math4CBoxEb";
+        constexpr auto COMMIT_WINDOW  = "_ZN7Desktop4View7CWindow12commitWindowEb";
+        constexpr auto COMMIT_SUB     = "_ZN7Desktop4View11CSubsurface8onCommitEv";
+        constexpr auto COMMIT_POPUP   = "_ZN7Desktop4View6CPopup8onCommitEb";
+        constexpr auto COMMIT_STATE   = "_ZN18CWLSurfaceResource11commitStateER13SSurfaceState";
     }
 
     // A function of the Hyprland executable itself, by mangled name. The
@@ -1222,7 +1619,7 @@ namespace {
             HyprlandAPI::removeFunctionHook(PHANDLE, h);
         g_hooks.clear();
         g_hookWindows = g_hookWindowsFullscreen = g_hookWindowAt = g_hookLayerAt = g_hookLayerPopupAt = g_hookDamageSurface = g_hookDamageWindow = g_hookFullscreenWindow = g_hookMouseMove =
-            g_hookTextureWithBlur = nullptr;
+            g_hookTextureWithBlur = g_hookDamageBox = g_hookCommitWindow = g_hookCommitSub = g_hookCommitPopup = g_hookCommitState = nullptr;
     }
 }
 
@@ -1248,9 +1645,14 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_hookTextureWithBlur   = hook(Symbols::TEXTURE_WITH_BLUR, rc<void*>(&hkTextureWithBlur));
     g_hookDamageSurface     = hook(Symbols::DAMAGE_SURFACE, rc<void*>(&hkDamageSurface));
     g_hookDamageWindow      = hook(Symbols::DAMAGE_WINDOW, rc<void*>(&hkDamageWindow));
+    g_hookDamageBox         = hook(Symbols::DAMAGE_BOX, rc<void*>(&hkDamageBox));
+    g_hookCommitWindow      = hook(Symbols::COMMIT_WINDOW, rc<void*>(&hkCommitWindow));
+    g_hookCommitSub         = hook(Symbols::COMMIT_SUB, rc<void*>(&hkCommitSub));
+    g_hookCommitPopup       = hook(Symbols::COMMIT_POPUP, rc<void*>(&hkCommitPopup));
+    g_hookCommitState       = hook(Symbols::COMMIT_STATE, rc<void*>(&hkCommitState));
 
     g_ready = g_hookWindows && g_hookWindowsFullscreen && g_hookWindowAt && g_hookLayerAt && g_hookLayerPopupAt && g_hookFullscreenWindow && g_hookMouseMove && g_hookTextureWithBlur && g_hookDamageSurface &&
-        g_hookDamageWindow;
+        g_hookDamageWindow && g_hookDamageBox && g_hookCommitWindow && g_hookCommitSub && g_hookCommitPopup && g_hookCommitState;
     if (!g_ready) {
         // Half a set of hooks would draw the view without its input, or the other way round.
         unhookAll();
@@ -1289,6 +1691,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "close", luaClose);
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "active", luaActive);
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "probe", luaProbe);
+    HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "precise", luaPrecise);
+    HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "stats", luaStats);
 
     return {"stackzoom", "Zoomed-out work view of a monitor's workspaces, with live windows", "mael", "1.0"};
 }
