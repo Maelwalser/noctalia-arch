@@ -38,6 +38,10 @@ if hl.plugin.confined_floats ~= nil then
     })
 end
 
+-- stackzoom: the zoomed-out work view on ALT + Tab (bindings.lua). Our own,
+-- from hyprland/.local/share/hyprland/plugin-local/stackzoom.
+load("stackzoom.so")
+
 -- hyprglass: Liquid Glass (blur, edge refraction, specular rim) on layers.
 -- https://github.com/hyprnux/hyprglass
 -- ACID//HUD only: the notification toasts and the bar rail become clear glass.
@@ -235,6 +239,26 @@ if hl.plugin.hyprglass ~= nil then
         })
         hl.window_rule({ match = { class = "^com\\.mitchellh\\.ghostty$" }, tag = "+hyprglass_enabled" })
         hl.window_rule({ match = { class = "^com\\.mitchellh\\.ghostty$" }, tag = "+hyprglass_preset_acid_term" })
+        -- GTK4 / libadwaita apps (Nautilus, zenity dialogs) are the terminal's
+        -- glass, frosted: their window fill is thinned in
+        -- gtk/.config/gtk-4.0/variants/acid.css, and file lists are small
+        -- text over whatever is behind, so the blur is well above the
+        -- terminal's and bright backdrops are dimmed further.
+        hg.preset("acid_app", {
+            inherits = "acid_term",
+            blur_strength = 1.0,
+            blur_iterations = 3,
+            dark = {
+                tint_color = 0x0b071250,
+                brightness = 0.9,
+                adaptive_dim = 0.45,
+            },
+        })
+        -- The same for what is still GTK3: the portal's file chooser and the
+        -- passphrase prompt (gtk/.config/gtk-3.0/variants/acid.css).
+        local gtk_apps = { class = "^(org\\.gnome\\..+|zenity|xdg-desktop-portal-gtk|gcr-prompter|pinentry.*)$" }
+        hl.window_rule({ match = gtk_apps, tag = "+hyprglass_enabled" })
+        hl.window_rule({ match = gtk_apps, tag = "+hyprglass_preset_acid_app" })
         -- Noctalia's Settings window is the desktop panes' glass, frosted: it
         -- is full of small text, which clear glass leaves unreadable over the
         -- wallpaper's neon signs, so the blur is about twice the panes'.

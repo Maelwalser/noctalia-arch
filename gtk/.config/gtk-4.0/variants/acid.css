@@ -1,0 +1,15 @@
+/* ACID//HUD: GTK4 / libadwaita windows are liquid glass, like the terminal.
+ * Linked as ~/.config/gtk-4.0/theme.css by `dotfiles-theme acid` and imported
+ * by gtk.css after Noctalia's palette (noctalia.css), whose colours it thins.
+ * hyprglass renders the glass behind the listed apps (hypr/plugins.lua,
+ * preset acid_app); any other GTK4 app gets Hyprland's plain blur. */
+
+:root {
+    --window-bg-color: alpha(@window_bg_color, 0.58);
+    --view-bg-color: alpha(@view_bg_color, 0);
+    --headerbar-bg-color: alpha(@headerbar_bg_color, 0);
+    --headerbar-backdrop-color: alpha(@headerbar_bg_color, 0);
+    --sidebar-bg-color: alpha(@sidebar_bg_color, 0.35);
+    --sidebar-backdrop-color: alpha(@sidebar_bg_color, 0.35);
+    --secondary-sidebar-bg-color: alpha(@secondary_sidebar_bg_color, 0.2);
+}

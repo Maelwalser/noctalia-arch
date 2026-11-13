@@ -1,0 +1,150 @@
+Window glass follows the renderer's modifier.
+
+A view that draws windows somewhere else and smaller than they are (the
+stackzoom plugin's zoomed-out view of the workspaces) does it through
+SRenderModifData, inside the monitor's own frame. Any render with a modifier
+counted as foreign and got no glass at all, and the glass knew only the
+window's real box.
+
+- RenderGuards::isForeignTarget(): the capture and other-framebuffer part of
+  isForeignRender(). renderPass() asks that one, so a modifier alone no longer
+  turns the glass off; everything else keeps the full check.
+- renderPass() puts the box through ctx.m_data.renderModif. The corner radius
+  stays as it is: Hyprland draws the border and clips the surface with the
+  full radius under a modifier too, and a pane with a scaled one showed its
+  corners outside the border's curve.
+- Under a modifier the pane's alpha leaves out the workspace's: a row that is
+  not the shown workspace has alpha 0 there, and its terminals lost their
+  glass body until the row was selected.
+- The cached sample is taken again whenever the box it is drawn at changes
+  under a modifier: what lies behind the pane changes with it, and nothing the
+  cache watches knows.
+- Frost coverage is still measured where the windows are.
+
+diff --git a/src/GlassDecoration.cpp b/src/GlassDecoration.cpp
+index d80b5ea..c0b1675 100644
+--- a/src/GlassDecoration.cpp
++++ b/src/GlassDecoration.cpp
+@@ -482,7 +482,8 @@ void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monito
+     // Belt and braces: draw() already refuses to queue a pass element for a foreign
+     // render, but a caller that reaches renderPass() during one anyway must not sample
+     // the foreign framebuffer into this decoration's persistent background cache.
+-    if (RenderGuards::isForeignRender(ctx))
++    // (A modifier alone is not that here: see isForeignTarget().)
++    if (RenderGuards::isForeignTarget(ctx))
+         return;
+ 
+     auto& shaderManager = g_pGlobalState->shaderManager;
+@@ -506,7 +507,24 @@ void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monito
+     if (monitor)
+         Diagnostics::recordWindowGlassDraw(monitor->m_id);
+ 
+-    const CBox windowBox = *optBox;
++    // A view that draws the windows somewhere else and smaller (a zoomed-out
++    // view of the workspaces) says so through the renderer's modifier, which
++    // every Hyprland element is drawn through. The glass samples and draws in
++    // framebuffer pixels of its own, so it follows by hand: the pane lies
++    // where the window is drawn, not where the window is.
++    CBox  windowBox      = *optBox;
++    const bool modified  = ctx.m_data.renderModif.enabled && !ctx.m_data.renderModif.modifs.empty();
++    if (modified) {
++        ctx.m_data.renderModif.applyToBox(windowBox);
++        windowBox.round();
++        if (windowBox.w < 1.0 || windowBox.h < 1.0)
++            return;
++    }
++    // What lies behind the pane changes with the place it is drawn at, and
++    // nothing the cache watches (geometry, scene generation) knows of that.
++    const bool redrawnElsewhere = modified != m_lastDrawModified || (modified && windowBox != m_lastDrawBox);
++    m_lastDrawModified          = modified;
++    m_lastDrawBox               = windowBox;
+ 
+     // Every non-discarded frame needs this regardless of cache hit/miss: a
+     // cache-hit frame has no sampleBackground()/blurBackground() call for it
+@@ -522,6 +540,9 @@ void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monito
+     // Hyprland renders internal-fullscreen windows unrounded (dontRound), we need to
+     // match, or the glass would show rounded gaps at the screen corners
+     const bool fsUnrounded = Fullscreen::controller()->getFullscreenModes(window).internal == Fullscreen::FSMODE_FULLSCREEN;
++    // Not scaled with a render modifier: Hyprland draws the window's border
++    // and clips its surface with the full radius there too, and a pane with
++    // a smaller one shows its corners outside the border's curve.
+     float cornerRadius  = fsUnrounded ? 0.0f : window->presentation().rounding() * monitorScale;
+     float roundingPower = window->presentation().roundingPower();
+ 
+@@ -541,7 +562,10 @@ void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monito
+     // more translucent — revealing more glass — and shouldn't wash out the
+     // glass pane itself. Rebuild the fade-only alpha from its components.
+     float glassAlpha = window->presentation().alpha().getTotalWithout(Desktop::View::WINDOW_ALPHA_ACTIVE);
+-    if (const auto workspace = window->m_workspace; workspace && !(window->m_state & Desktop::View::WINDOW_STATE_PINNED))
++    // A workspace drawn through a modifier is in sight whatever its own alpha
++    // says: a row of a zoomed-out view that is not the shown workspace has
++    // alpha 0, and its panes would lose their body until the row is selected.
++    if (const auto workspace = window->m_workspace; workspace && !modified && !(window->m_state & Desktop::View::WINDOW_STATE_PINNED))
+         glassAlpha *= workspace->m_alpha->value();
+ 
+     // A fullscreen window shows no edge, like Hyprland draws it no border.
+@@ -566,7 +590,7 @@ void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monito
+ 
+     const MONITORID monitorId = monitor ? monitor->m_id : -1; // -1 mirrors Hyprland's own MONITOR_INVALID
+ 
+-    if (!wantsBackgroundResample(ctx, monitor, windowBox, xray)) {
++    if (!redrawnElsewhere && !wantsBackgroundResample(ctx, monitor, windowBox, xray)) {
+         // Background unchanged since the last real sample — reuse it, skip
+         // the most expensive GPU work (blit + blur passes) entirely.
+         Diagnostics::recordWindowCacheHit(monitorId);
+@@ -633,7 +657,7 @@ void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monito
+     const float                frostSetting = (xray || fsUnrounded) ? 0.0f : frostFor(resolveContext);
+     if (frostSetting > 0.0f || m_frost.active()) {
+         const float target =
+-            frostSetting > 0.0f ? frostSetting * Frost::amountForCoverage(Frost::coveredFraction(window, monitor, windowBox)) : 0.0f;
++            frostSetting > 0.0f ? frostSetting * Frost::amountForCoverage(Frost::coveredFraction(window, monitor, *optBox)) : 0.0f;
+ 
+         // A window spanning two monitors gets a different target on each: it snaps on a
+         // monitor change, or it would ease between them and never settle.
+diff --git a/src/GlassDecoration.hpp b/src/GlassDecoration.hpp
+index 4ffddd5..35a184e 100644
+--- a/src/GlassDecoration.hpp
++++ b/src/GlassDecoration.hpp
+@@ -84,6 +84,10 @@ class CGlassDecoration : public IHyprWindowDecoration {
+     // Window background cache state.
+     bool m_hasCachedSample = false;
+     bool m_backgroundDirty = false;
++    // The box the pane was last drawn at and whether a render modifier had
++    // moved it there (renderPass()).
++    CBox m_lastDrawBox;
++    bool m_lastDrawModified = false;
+     // The cached sample came from the x-ray snapshot: switching x-ray on or off
+     // must not reuse a sample of the other.
+     bool m_cachedFromSnapshot = false;
+diff --git a/src/RenderGuards.hpp b/src/RenderGuards.hpp
+index 7959dc1..aa749d7 100644
+--- a/src/RenderGuards.hpp
++++ b/src/RenderGuards.hpp
+@@ -18,15 +18,25 @@ namespace RenderGuards {
+ // currentFB) into an isolated buffer, so only m_renderingCapture identifies it;
+ // glassing it would write our per-window caches and the x-ray snapshot from
+ // content the live frame must not inherit.
+-[[nodiscard]] inline bool isForeignRender(Render::CRenderContext& ctx) {
++// isForeignTarget() is the part of it that holds for a modifier too: a view
++// that draws the windows of the monitor's own frame smaller and elsewhere (a
++// zoomed-out view of the workspaces) renders into the frame itself, and its
++// windows keep their glass (CGlassDecoration::renderPass() follows the modifier).
++[[nodiscard]] inline bool isForeignTarget(Render::CRenderContext& ctx) {
+     if (ctx.m_renderingCapture)
+         return true;
+ 
+     const auto& renderData = ctx.m_data;
+ 
+-    if (renderData.mainFB && renderData.currentFB != renderData.mainFB)
++    return renderData.mainFB && renderData.currentFB != renderData.mainFB;
++}
++
++[[nodiscard]] inline bool isForeignRender(Render::CRenderContext& ctx) {
++    if (isForeignTarget(ctx))
+         return true;
+ 
++    const auto& renderData = ctx.m_data;
++
+     return renderData.renderModif.enabled && !renderData.renderModif.modifs.empty();
+ }
+ 

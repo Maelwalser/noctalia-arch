@@ -13,7 +13,7 @@
 # zsh, fastfetch, Neovim and the Claude Code status line read it directly;
 # Claude Code's settings.json gets its theme keys rewritten. Apps without
 # conditionals get a `theme.*` link to the committed variant (Noctalia,
-# Ghostty, tmux, sioyek, eza, Vivaldi). Obsidian gets the ACID HUD theme linked
+# Ghostty, tmux, sioyek, eza, GTK4, Vivaldi). Obsidian gets the ACID HUD theme linked
 # into every vault and selected in appearance.json. Noctalia's GUI state
 # (palette, wallpapers, lockscreen layout) beats its config, so each theme
 # keeps its own copy of that state.
@@ -246,8 +246,9 @@ apply() {
   link "$CONFIG/ghostty/theme.conf" "$DOTFILES/ghostty/.config/ghostty/variants/$to.conf"
   link "$CONFIG/tmux/theme.conf" "$DOTFILES/tmux/.config/tmux/variants/$to.conf"
   link "$CONFIG/sioyek/prefs_user.config" "$DOTFILES/sioyek/.config/sioyek/variants/$to.config"
-  # GTK3 apps read it when they start (gtk.css imports it after the palette):
-  # mostly the portal's file chooser and the passphrase prompt.
+  # GTK4 apps read it when they start (gtk.css imports it after the palette).
+  link "$CONFIG/gtk-4.0/theme.css" "$DOTFILES/gtk/.config/gtk-4.0/variants/$to.css"
+  # GTK3 the same way: mostly the portal's file chooser and the passphrase prompt.
   link "$CONFIG/gtk-3.0/theme.css" "$DOTFILES/gtk/.config/gtk-3.0/variants/$to.css"
   # eza reads its theme file on every run; classic is eza's own defaults. Only
   # a link is removed, so a theme.yml the user wrote themselves is kept.

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Region screenshot to the clipboard (SUPER + SHIFT + S, hypr/bindings.lua).
+#
+# slurp's own look is a grey veil with a white border. Under ACID//HUD the
+# selection takes the palette Noctalia renders to ~/.config/hud/colors.json:
+# the screen dims towards the surface colour, the region is a primary frame
+# with its size in the readout face. A toast confirms the copy, sent after the
+# capture so it is never in the picture.
+set -u
+
+readonly COLORS="${XDG_CONFIG_HOME:-$HOME/.config}/hud/colors.json"
+readonly THEME_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/theme"
+
+die() {
+  printf 'hud-shot: %s\n' "$*" >&2
+  exit 1
+}
+
+toast() {
+  gdbus call --session --dest org.freedesktop.Notifications \
+    --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.Notify \
+    -- hud-shot 0 camera-photo-symbolic "$1" "$2" '[]' '{}' -1 >/dev/null
+}
+
+# color <role>: the role's #rrggbb from the palette file, or nothing.
+color() {
+  local hex
+  hex=$(jq -r --arg k "$1" '.[$k] // empty' "$COLORS" 2>/dev/null)
+  [[ $hex =~ ^#[0-9a-fA-F]{6}$ ]] && printf '%s' "$hex"
+}
+
+style=()
+if [[ "$(cat "$THEME_FILE" 2>/dev/null)" != classic ]]; then
+  primary=$(color primary)
+  surface=$(color surface)
+  if [[ -n $primary && -n $surface ]]; then
+    style=(-b "${surface}73" -c "${primary}ff" -s "${primary}14" -B "${surface}cc"
+      -w 2 -d -F "Departure Mono")
+  fi
+fi
+
+# Escape cancels the selection: nothing to copy, nothing to report.
+geometry=$(slurp "${style[@]}") || exit 0
+
+grim -g "$geometry" - | wl-copy --type image/png
+status=("${PIPESTATUS[@]}")
+if ((status[0] != 0 || status[1] != 0)); then
+  toast "SCREENSHOT // FAILED" "grim could not capture the region"
+  die "capture failed (grim ${status[0]}, wl-copy ${status[1]})"
+fi
+
+size=${geometry#* }
+toast "SCREENSHOT // COPIED" "${size/x/ × } px, on the clipboard"

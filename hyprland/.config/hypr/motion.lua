@@ -11,6 +11,10 @@
 --                             between the strips stacked under each other
 local M = {}
 
+-- The gaps of every layout (looknfeel.lua sets them from here).
+M.GAPS_IN = 5
+M.GAPS_OUT = 8
+
 -- speed is in ds (1ds = 100ms), so speed = 3 -> 300ms. A spring takes its
 -- duration from its physics; `speed` is required all the same.
 
@@ -103,6 +107,15 @@ function M.apply(layout)
     animate("windowsMove", geometry)
     animate("workspacesIn", workspace, style_in)
     animate("workspacesOut", workspace, style_out)
+
+    -- Not motion, but it has to change at the same moment: the strip puts
+    -- gaps_in around every column, the two at its ends included, on top of
+    -- gaps_out, where the other layouts have gaps_out alone at the screen
+    -- edge. Left as it is, two windows side by side are 2 x gaps_in narrower
+    -- on the strip and visibly change size with every switch of layout. With
+    -- the difference taken off the sides they keep the same boxes.
+    local side = layout == "scrolling" and M.GAPS_OUT - M.GAPS_IN or M.GAPS_OUT
+    hl.config({ general = { gaps_out = { top = M.GAPS_OUT, right = side, bottom = M.GAPS_OUT, left = side } } })
 end
 
 return M

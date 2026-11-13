@@ -12,7 +12,9 @@
 -- from Hyprland's event socket and the player check from the session bus.
 local common = require("./common.luau")
 
-local MIN_WIDTH = 40 -- below this an ellipsized stub says nothing: draw nothing
+-- Below about twelve characters an ellipsized stub ("Con…") says nothing:
+-- draw nothing.
+local MIN_WIDTH = 96
 
 local myOutput = barWidget.outputName()
 local title = ""

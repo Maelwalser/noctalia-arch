@@ -120,18 +120,24 @@ setopt IGNORE_EOF
 
 # Plugins settings
 ZSH_VI_MODE_SET_CURSOR=false
-ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#6b5d5a,standout"
+# ACID//HUD: the palette's outline role (Noctalia's contrast-adjusted one), a
+# muted violet on the purple glass. Classic keeps its warm grey.
+if [[ "$_dotfiles_theme" == classic ]]; then
+  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#6b5d5a,standout"
+else
+  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#66557f"
+fi
 ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE="20"
+# LS_COLORS, the completion menu and the syntax highlighting, in the palette
+# (rendered by Noctalia from templates/zsh-colors.zsh). After oh-my-zsh: it
+# replaces the LS_COLORS and the highlighter styles that set up.
+[[ -f ~/.config/zsh/noctalia.zsh ]] && source ~/.config/zsh/noctalia.zsh
 ZSH_AUTOSUGGEST_USE_ASYNC=1
 
 
 export _ZO_DOCTOR=0
 
 # Tools
-# LS_COLORS, the completion menu and the syntax highlighting, in the palette
-# (rendered by Noctalia from templates/zsh-colors.zsh). After oh-my-zsh: it
-# replaces the LS_COLORS and the highlighter styles that set up.
-[[ -f ~/.config/zsh/noctalia.zsh ]] && source ~/.config/zsh/noctalia.zsh
 # `zoxide init` prints the same script every time, so run it only when zoxide
 # itself is newer than the cache rather than forking it on every startup.
 () {
@@ -185,7 +191,7 @@ tl() {
   fi
 
   local session
-  session=$(tmux ls -F '#S' | fzf --reverse --prompt="❌ Select Tmux Session > ")
+  session=$(tmux ls -F '#S' | fzf --reverse --prompt="SESSION // ")
   
   if [[ -n "$session" ]]; then
     tmux attach-session -t "$session"
@@ -201,16 +207,16 @@ tk() {
   fi
 
   local session
-  session=$(tmux ls -F '#S' | fzf --reverse --prompt="💀 KILL > ")
+  session=$(tmux ls -F '#S' | fzf --reverse --prompt="KILL // ")
 
   if [[ -n "$session" ]]; then
-    echo -n "💀 KILL $session? [y/N] "
+    echo -n "KILL // $session? [y/N] "
     read -r response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
       tmux kill-session -t "$session"
-      echo "$session KILLED ⚰️"
+      echo "KILL // $session terminated"
     else
-      echo "KILL aborted ᶻ 𝗓 𐰁"
+      echo "KILL // aborted"
     fi
   fi
 }

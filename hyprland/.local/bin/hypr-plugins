@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Build the third-party Hyprland plugins this config loads (plugins.lua) from
-# pinned commits, and install them into ~/.local/share/hyprland/plugins.
+# Build the Hyprland plugins this config loads (plugins.lua) and install them
+# into ~/.local/share/hyprland/plugins: the third-party ones from pinned
+# commits, our own from plugin-local/<name> (a Makefile that takes BUILD=).
 # hyprpm is not shipped by Arch's hyprland package, so this stands in for it.
 #
 # Plugins are compiled against Hyprland's internal headers: rerun this after
@@ -24,6 +25,15 @@ readonly PLUGINS=(
 readonly SRC="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugin-src"
 readonly OUT="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugins"
 readonly PATCHES="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugin-patches"
+readonly LOCAL="${XDG_DATA_HOME:-$HOME/.local/share}/hyprland/plugin-local"
+
+# Replace atomically: Hyprland may have the old file mapped.
+install_lib() {
+  local lib="${1##*/}"
+  install -m 755 "$1" "$OUT/.$lib.new"
+  mv -f "$OUT/.$lib.new" "$OUT/$lib"
+  echo "   installed $OUT/$lib"
+}
 
 for tool in git cmake pkg-config; do
   command -v "$tool" &>/dev/null || { echo "hypr-plugins: missing $tool" >&2; exit 1; }
@@ -56,11 +66,19 @@ for entry in "${PLUGINS[@]}"; do
     make -C "$dir" clean >/dev/null
     make -C "$dir" -j"$(nproc)"
   fi
-  lib="${built##*/}"
-  # Replace atomically: Hyprland may have the old file mapped.
-  install -m 755 "$dir/$built" "$OUT/.$lib.new"
-  mv -f "$OUT/.$lib.new" "$OUT/$lib"
-  echo "   installed $OUT/$lib"
+  install_lib "$dir/$built"
+done
+for dir in "$LOCAL"/*/; do
+  [[ -f "$dir/Makefile" ]] || continue
+  name="${dir%/}"
+  name="${name##*/}"
+  echo "── $name (local)"
+  # Built outside the source, which is the dotfiles repo; from nothing,
+  # objects do not track Hyprland header changes.
+  build="$SRC/$name.build"
+  rm -rf "$build"
+  make -C "$dir" BUILD="$build" -j"$(nproc)"
+  install_lib "$build/$name.so"
 done
 # The same path plugins.lua compares against.
 cp /usr/include/hyprland/src/version.h "$OUT/.built-for"

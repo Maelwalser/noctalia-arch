@@ -12,6 +12,11 @@
 hl.config({
     cursor = {
         no_hardware_cursors = false,
+        -- The pointer stays where it was put. By default a focus change by
+        -- key (ALT + H/J/K/L, the overview) carries it to the middle of the
+        -- newly focused window. With input.follow_mouse = 2 the focus does
+        -- not depend on where the pointer is, so nothing needs it there.
+        no_warps = true,
     },
 })
 

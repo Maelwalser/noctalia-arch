@@ -1,6 +1,6 @@
 --!nonstrict
 -- Battery cell drawn from boxes: four charge segments that chase upwards while
--- charging, red at or below 15 %. Hidden on machines without a battery.
+-- charging, amber at or below 30 % and red at or below 15 % on battery. Hidden on machines without a battery.
 local common = require("./common.luau")
 
 local function battery()
@@ -31,7 +31,8 @@ local function render()
     return
   end
   local low = cap <= 15 and status ~= "Charging"
-  local color = if low then "error" else "primary"
+  local warn = not low and cap <= 30 and status ~= "Charging"
+  local color = if low then "error" elseif warn then "tertiary" else "primary"
   local function cell()
     local segs = {}
     for i = 1, 4 do
@@ -45,7 +46,7 @@ local function render()
   barWidget.render(common.chip({
     common.glow(hovered, cell),
     common.glow(hovered, function()
-      return common.readout(string.format("%03d", cap), if low then "error" else "on_surface")
+      return common.readout(string.format("%03d", cap), if low then "error" elseif warn then "tertiary" else "on_surface")
     end),
   }, noctalia.getConfig("tag") == true))
   local states = { Charging = "charging", Discharging = "on battery", Full = "full", ["Not charging"] = "plugged in" }

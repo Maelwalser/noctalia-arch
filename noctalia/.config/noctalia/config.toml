@@ -156,6 +156,16 @@ output_path = "$XDG_CONFIG_HOME/git/noctalia-delta.gitconfig"
 input_path = "templates/mpv.conf"
 output_path = "$XDG_CONFIG_HOME/mpv/noctalia.conf"
 
+# imv and lazydocker read a single config file, so these two are the files
+# themselves, not palette fragments beside one.
+[theme.templates.user.imv]
+input_path = "templates/imv.config"
+output_path = "$XDG_CONFIG_HOME/imv/config"
+
+[theme.templates.user.lazydocker]
+input_path = "templates/lazydocker.yml"
+output_path = "$XDG_CONFIG_HOME/lazydocker/config.yml"
+
 # Qt widget shapes: kvantum-noctalia recolours a stock Kvantum theme into the
 # user theme Noctalia (~/.config/Kvantum/Noctalia), which qt6ct.conf selects.
 [theme.templates.user.kvantum]

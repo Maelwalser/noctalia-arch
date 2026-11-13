@@ -1,10 +1,11 @@
 local acid = require("dotfiles_theme") == "acid"
+local motion = require("motion")
 
 -- https://wiki.hypr.land/Configuring/Basics/Variables/
 hl.config({
     general = {
-        gaps_in = 5,
-        gaps_out = 8,
+        gaps_in = motion.GAPS_IN,
+        gaps_out = motion.GAPS_OUT, -- narrower at the sides on the strip (motion.lua)
     },
 
     decoration = {
@@ -36,6 +37,9 @@ hl.config({
             size = 3,
             passes = 2,
             vibrancy = 0.1696,
+            -- Context menus and popovers are blurred like the windows they
+            -- open from, instead of flat rectangles over the glass.
+            popups = true,
         },
     },
 
@@ -168,9 +172,23 @@ hl.curve("myBezier", { type = "bezier", points = { { 0.05, 0.9 }, { 0.1, 1.05 } 
 hl.animation({ leaf = "windows", enabled = true, speed = 3, bezier = "myBezier" })
 hl.animation({ leaf = "windowsOut", enabled = true, speed = 3, bezier = "default", style = "popin 80%" })
 
+-- The layout chosen with SUPER + S / ALT + SHIFT + F (bindings.lua) is not in
+-- this config, so a reload, which every save of a file here causes, would
+-- drop it for the default. It is kept in a file for the session and set
+-- again here.
+do
+    local f = io.open((os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hypr-layout", "r")
+    local kept = f and f:read("l")
+    if f then
+        f:close()
+    end
+    if kept == "dwindle" or kept == "master" or kept == "scrolling" then
+        hl.config({ general = { layout = kept } })
+    end
+end
+
 -- How windows travel and resize (windowsIn, windowsMove) and how workspaces
 -- change depends on the layout: motion.lua has both profiles.
-local motion = require("motion")
 motion.apply(hl.get_config("general.layout"))
 
 -- motion.lua overrides `workspacesIn`/`workspacesOut` only, so

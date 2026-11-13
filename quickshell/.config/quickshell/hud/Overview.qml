@@ -17,7 +17,9 @@ import Quickshell.Widgets
 // keyboard. The window in the middle is typed into as ever (its thumbnail is
 // live), every Hyprland binding works, and the view follows the focus
 // wherever they move it. A click on another window gives it the focus; a
-// click on the one in the middle, or beside the windows, goes back in.
+// click beside the windows goes back in. A click on the window in the middle
+// does nothing: a second click on a window just picked must not close the
+// view.
 //
 // It is one camera move. The world is the overview as it rests. `z` runs
 // from 0 (the desktop) to 1 (the overview) and scales the world about the one point that keeps the screen
@@ -35,14 +37,23 @@ import Quickshell.Widgets
 // window on them get a row. The thumbnails are one flat list keyed by the
 // window itself (`tops`, a ScriptModel), each looking its place up in `geo`,
 // so a new layout moves them instead of making them anew.
+//
+// The zoom and the travel from window to window are stepped against the
+// wall clock (`tick`), not by Qt's animations: their clock is advanced once
+// per frame by every window the HUD has on show, so with three of them a
+// 170 ms glide was over in three frames, a jump, and how fast it ran
+// depended on what else was up.
 Scope {
     id: overview
 
     // closed -> arming (mapped, held at z = 0 until the first frames of the
-    // thumbnails are in) -> open -> leaving (zooming back in) -> closed.
+    // thumbnails are in) -> open -> leaving (zooming back in) -> keeping
+    // (back on the desktop, drawing nothing: a still of every window is put
+    // by for the next time) -> closed.
     property string phase: "closed"
     readonly property bool shown: phase !== "closed"
     readonly property bool live: phase === "open"
+    readonly property bool going: phase === "leaving" || phase === "keeping"
     property real z: 0
     property var targetScreen: null
     property var rows: []
@@ -88,36 +99,125 @@ Scope {
     // moves as one.
     readonly property real aimX: screenW / 2 - (curWin ? curWin.sx + curWin.w / 2 : 0.5) * viewW
     readonly property real aimY: (screenH + barH) / 2 - selRow * rowPitch - (curWin ? curWin.y + curWin.h / 2 : 0.5) * thumbH
-    property real panX: aimX
-    property real panY: aimY
-    Behavior on panX {
-        enabled: overview.settled
-        NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic }
-    }
-    Behavior on panY {
-        enabled: overview.settled
-        NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic }
-    }
-    // How long a move takes. A window that only changes its size or place
-    // (it is being resized, a neighbour opened) is kept up with, a step
-    // behind at most; the view going over to another window travels.
-    property bool quick: false
-    readonly property int glide: quick ? 50 : 170
+    // The selection's box, from its row's frame. It glides in step with the
+    // world, which moves the other way: the ring stays in the middle while
+    // the windows pass under it.
+    readonly property real boxX: (curWin?.sx ?? 0) * viewW
+    readonly property real boxY: selRow * rowPitch + (curWin?.y ?? 0) * thumbH
+    readonly property real boxW: (curWin?.w ?? 1) * viewW
+    readonly property real boxH: (curWin?.h ?? 1) * thumbH
+    property real panX: 0
+    property real panY: 0
+    property real selX: 0
+    property real selY: 0
+    property real selW: 0
+    property real selH: 0
     // A row's screen frame, in the world.
     function frameY(r) {
         return panY + r * rowPitch;
     }
-    // The selection's box, from its row's frame. It glides in step with the
-    // world, which moves the other way: the ring stays in the middle while
-    // the windows pass under it.
-    property real selX: (curWin?.sx ?? 0) * viewW
-    property real selY: selRow * rowPitch + (curWin?.y ?? 0) * thumbH
-    property real selW: (curWin?.w ?? 1) * viewW
-    property real selH: (curWin?.h ?? 1) * thumbH
-    Behavior on selX { enabled: overview.settled; NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic } }
-    Behavior on selY { enabled: overview.settled; NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic } }
-    Behavior on selW { enabled: overview.settled; NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic } }
-    Behavior on selH { enabled: overview.settled; NumberAnimation { duration: overview.glide; easing.type: Easing.OutCubic } }
+
+    // The glide: one critically damped spring takes the world and the ring
+    // to where they belong. It starts from rest and keeps its speed when the
+    // aim changes under way, so a held ALT + L is one continuous pan, not a
+    // row of restarts, and it never overshoots. Going over to another window
+    // travels (settled in about 200 ms); a window that only changes its size
+    // or place (it is being resized, a neighbour opened) is kept up with.
+    readonly property var aims: [aimX, aimY, boxX, boxY, boxW, boxH]
+    onAimsChanged: {
+        if (settled)
+            gliding = true;
+        else
+            rest();
+    }
+    property var speeds: [0, 0, 0, 0, 0, 0]
+    property bool gliding: false
+    property bool travel: false
+    readonly property real travelRate: 40 // 1/s: the spring's natural frequency
+    readonly property real keepUpRate: 110
+    // The window the selection left, and how far the light has gone over
+    // from it to the new one (0..1).
+    property string faded: ""
+    property real fade: 1
+    function rest() {
+        panX = aimX;
+        panY = aimY;
+        selX = boxX;
+        selY = boxY;
+        selW = boxW;
+        selH = boxH;
+        speeds = [0, 0, 0, 0, 0, 0];
+        gliding = false;
+        travel = false;
+        fade = 1;
+    }
+    function glide(dt) {
+        const to = aims;
+        const at = [panX, panY, selX, selY, selW, selH];
+        const w = travel ? travelRate : keepUpRate;
+        const e = Math.exp(-w * dt);
+        let done = true;
+        for (let i = 0; i < 6; ++i) {
+            const d = at[i] - to[i];
+            const c = speeds[i] + w * d;
+            const nd = (d + c * dt) * e;
+            const nv = (speeds[i] - w * c * dt) * e;
+            // The last half pixel is not crawled over.
+            if (Math.abs(nd) < 0.4 && Math.abs(nv) < 24) {
+                at[i] = to[i];
+                speeds[i] = 0;
+            } else {
+                at[i] = to[i] + nd;
+                speeds[i] = nv;
+                done = false;
+            }
+        }
+        panX = at[0];
+        panY = at[1];
+        selX = at[2];
+        selY = at[3];
+        selW = at[4];
+        selH = at[5];
+        if (done) {
+            gliding = false;
+            travel = false;
+        }
+    }
+
+    // The zoom: z from where it is to `end`, eased out over `ms`.
+    property bool zooming: false
+    property real zFrom: 0
+    property real zTo: 0
+    property real zLen: 0.2
+    property real zAt: 0
+    function zoomTo(end, ms) {
+        zFrom = z;
+        zTo = end;
+        zLen = ms / 1000;
+        zAt = 0;
+        zooming = true;
+    }
+    function tick(dt) {
+        if (zooming) {
+            zAt += dt;
+            const p = Math.min(1, zAt / zLen);
+            z = zFrom + (zTo - zFrom) * (1 - Math.pow(1 - p, 3));
+            if (p >= 1) {
+                zooming = false;
+                if (phase === "leaving")
+                    keepPictures();
+            }
+        }
+        if (gliding)
+            glide(dt);
+        if (fade < 1)
+            fade = Math.min(1, fade + dt / 0.16);
+    }
+    FrameAnimation {
+        running: overview.shown && (overview.zooming || overview.gliding || overview.fade < 1)
+        // A frame that took long is made up for, but not a stall.
+        onTriggered: overview.tick(Math.min(0.1, frameTime))
+    }
 
     // The camera. `zoomK` is how much larger the desktop is than its row;
     // the scale runs between the two in equal ratios per step of z, which is
@@ -226,7 +326,7 @@ Scope {
         }
         follow();
         // The row gone back into is no more: nothing to zoom into.
-        if (phase === "leaving" && anchor < 0)
+        if (going && anchor < 0)
             shut();
     }
 
@@ -234,7 +334,7 @@ Scope {
     // its workspace the one the zoom ends in.
     function follow() {
         const mon = monitor;
-        if (!mon || phase === "leaving")
+        if (!mon || going)
             return;
         anchorId = mon.activeWorkspace?.id ?? -1;
         select(pinned || (Hyprland.activeToplevel?.address ?? ""), anchorId);
@@ -246,7 +346,16 @@ Scope {
     function select(addr, id) {
         const before = curWin?.top?.address ?? "";
         selectAt(addr, id);
-        quick = (curWin?.top?.address ?? "") === before;
+        if ((curWin?.top?.address ?? "") === before)
+            return;
+        travel = true;
+        // Also when the new window lies just where the old one did: the
+        // glide is what ends the travel.
+        gliding = settled;
+        if (settled) {
+            faded = before;
+            fade = 0;
+        }
     }
     function selectAt(addr, id) {
         const g = addr ? geo[addr] : null;
@@ -280,27 +389,60 @@ Scope {
     }
 
     // Hyprland hands out no picture of a window that lies wholly off its
-    // screen, which on a strip is every column out of sight. The last
-    // picture taken of each window is kept (address -> ItemGrabResult) and
-    // shown in its place; a window never seen yet gets its icon and title.
+    // screen, which on a strip is every column out of sight. A thumbnail
+    // holds on to the last frame it was given; for the next time the
+    // overview opens a still of each is kept (address -> ItemGrabResult), and
+    // a window never seen yet gets its icon and title. The stills are taken
+    // on the way out, back on the desktop with nothing of the overview left
+    // to see: reading a picture back stalls the HUD for a few frames, which
+    // while the overview was up showed as a hitch every time.
     property var kept: ({})
     property int keptRev: 0
+    property int keeping: 0
     function keep(addr, grab) {
         kept[addr] = grab;
         ++keptRev;
+        if (phase === "keeping" && --keeping <= 0)
+            shut();
+    }
+    function keepPictures() {
+        phase = "keeping";
+        keeping = 0;
+        for (let i = 0; i < tiles.count; ++i)
+            if (tiles.itemAt(i)?.keepPicture())
+                ++keeping;
+        if (keeping === 0)
+            shut();
+        else
+            keepWait.restart();
+    }
+    // Neither the stills nor the move back in may hold the sheet up: the
+    // move is stepped by frames, and an output that stops giving them (it
+    // was turned off) would leave it lying over the desktop.
+    Timer {
+        id: keepWait
+        interval: 300
+        onTriggered: {
+            if (overview.phase === "keeping")
+                overview.shut();
+        }
+    }
+    Timer {
+        interval: 800
+        running: overview.phase === "leaving"
+        onTriggered: overview.shut()
     }
 
     function hypr(lua) {
         Quickshell.execDetached(["hyprctl", "eval", lua]);
     }
-    // A click on a window: the focus goes to it and the view follows; on the
-    // one that has it already, back in.
+    // A click on a window: the focus goes to it and the view follows. On the
+    // one that has it already nothing happens, so a double click does not
+    // zoom back in.
     function clicked(g) {
         if (!live || !g?.top?.address)
             return;
-        if (g === curWin && g.top.activated)
-            leave();
-        else
+        if (g !== curWin || !g.top.activated)
             hypr("hl.dispatch(hl.dsp.focus({ window = 'address:0x" + g.top.address.replace(/^0x/, "") + "' }))");
     }
 
@@ -341,28 +483,10 @@ Scope {
             if (overview.armed >= 32 && (!waits || overview.armed >= 160)) {
                 overview.phase = "open";
                 overview.settled = true;
-                zoom.go(1, 260);
+                overview.zoomTo(1, 200);
             }
         }
     }
-    NumberAnimation {
-        id: zoom
-        target: overview
-        property: "z"
-        easing.type: Easing.OutCubic
-        function go(end, ms) {
-            stop();
-            from = overview.z;
-            to = end;
-            duration = ms;
-            start();
-        }
-        onFinished: {
-            if (overview.phase === "leaving")
-                overview.shut();
-        }
-    }
-
     // Back into the workspace on show.
     function leave() {
         if (phase === "arming") {
@@ -372,10 +496,12 @@ Scope {
         if (phase !== "open")
             return;
         phase = "leaving";
-        zoom.go(0, 200);
+        zoomTo(0, 160);
     }
     function shut() {
-        zoom.stop();
+        zooming = false;
+        gliding = false;
+        keepWait.stop();
         relayout.stop();
         refetch.stop();
         phase = "closed";
@@ -479,6 +605,9 @@ Scope {
     IpcHandler {
         target: "overview"
         function toggle(): void {
+            // Asked for again while the last stills are being put by.
+            if (overview.phase === "keeping")
+                overview.shut();
             if (overview.shown)
                 overview.leave();
             else
@@ -497,7 +626,7 @@ Scope {
             overview.openOn(screen);
         }
         function hold(at: real): void {
-            zoom.stop();
+            overview.zooming = false;
             overview.z = at;
         }
         function pick(address: string): void {
@@ -524,12 +653,16 @@ Scope {
         WlrLayershell.namespace: "hud-overview"
         // Never the keyboard: it stays with the window in the middle.
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        // Nor the pointer while the stills are taken: the desktop is back.
+        mask: overview.phase === "keeping" ? nothing : null
+        Region { id: nothing }
         // The compositor took the surface away (its output was unplugged).
         onClosed: overview.shut()
 
         Item {
             id: box
             anchors.fill: parent
+            opacity: overview.phase === "keeping" ? 0 : 1
 
             // The wallpaper again, over the desktop: the windows are gone
             // from where they were. Sharp and bright at first, as it is on
@@ -597,34 +730,59 @@ Scope {
                     }
                     readonly property int rowAt: g?.row ?? 0
                     readonly property bool current: !!g && rowAt === overview.selRow && g.col === overview.selCol && g.win === overview.selWin
-                    // A capture that was asked for too early (a window that
-                    // has only just opened) or that broke off (some windows
-                    // on a resize) never starts again by itself: while there
-                    // is no picture it is asked for anew, less and less often
-                    // for a window that has none to give (out of sight).
+                    // A capture breaks off whenever its window changes
+                    // size (every frame of a maximize, as long as Hyprland
+                    // animates it) and one asked for too early (a window
+                    // that has only just opened) never comes; neither starts
+                    // again by itself. While there is no picture it is asked
+                    // for anew: at once and often for a window that has just
+                    // lost its own, so it is back as soon as the window has
+                    // come to rest, less and less often for one that has
+                    // none to give (out of sight). Not faster than every
+                    // third frame: an answer under way would be thrown out.
                     property int tries: 0
+                    property int fast: 0
                     property bool asking: true
                     readonly property var toplevel: {
                         tries;
                         return modelData?.wayland ?? null;
                     }
                     Timer {
-                        interval: Math.min(2400, 80 * Math.pow(2, tile.tries))
+                        interval: tile.fast > 0 ? 48 : Math.min(2400, 80 * Math.pow(2, tile.tries))
                         repeat: true
                         running: overview.shown && !!tile.g && !shot.hasContent
                         onTriggered: {
+                            if (tile.fast > 0)
+                                --tile.fast;
+                            else
+                                ++tile.tries;
                             tile.asking = false;
-                            again.restart();
-                        }
-                    }
-                    Timer {
-                        id: again
-                        interval: 40
-                        onTriggered: {
-                            ++tile.tries;
                             tile.asking = true;
                         }
                     }
+                    // The last frame the capture gave: its size in pixels
+                    // of the screen, and that there has been one.
+                    property size frame: Qt.size(0, 0)
+                    property bool seen: false
+                    function framed() {
+                        if (shot.hasContent && shot.sourceSize.width > 0 && shot.sourceSize.height > 0) {
+                            frame = shot.sourceSize;
+                            seen = true;
+                        }
+                    }
+                    // A still of it for the next time, at its size at rest.
+                    function keepPicture() {
+                        const addr = modelData?.address;
+                        if (!addr || !seen || still.width < 1 || still.height < 1)
+                            return false;
+                        const k = win.devicePixelRatio / overview.camScale;
+                        return still.grabToImage(grab => overview.keep(addr, grab),
+                            Qt.size(Math.ceil(still.width * k), Math.ceil(still.height * k)));
+                    }
+                    // The light on the window in the middle: it goes over
+                    // from the one the selection left as the view travels.
+                    readonly property real lit: current ? overview.fade
+                        : (modelData?.address ?? "-") === overview.faded ? 1 - overview.fade : 0
                     readonly property string icon: Quickshell.iconPath(DesktopEntries.heuristicLookup(toplevel?.appId ?? "")?.icon
                         ?? toplevel?.appId ?? "", "application-x-executable")
                     // On the screen of the workspace the move starts from:
@@ -654,7 +812,7 @@ Scope {
                         radius: clipped.radius + 6
                         color: "transparent"
                         border.width: 6
-                        border.color: Qt.rgba(0, 0, 0, (tile.current ? 0.22 : 0.14) * overview.z)
+                        border.color: Qt.rgba(0, 0, 0, (0.14 + 0.08 * tile.lit) * overview.z)
                         antialiasing: true
                     }
                     ClippingRectangle {
@@ -672,26 +830,40 @@ Scope {
                             anchors.fill: parent
                             captureSource: overview.shown && tile.asking ? tile.toplevel : null
                             live: true
-                            // A picture again: the next loss is asked after
-                            // as promptly as the first.
+                            onSourceSizeChanged: tile.framed()
                             onHasContentChanged: {
-                                if (hasContent)
+                                // A picture again: the next loss is asked
+                                // after as promptly as the first.
+                                if (hasContent) {
                                     tile.tries = 0;
+                                    tile.fast = 0;
+                                } else if (tile.seen && overview.shown) {
+                                    tile.fast = 12;
+                                }
+                                tile.framed();
                             }
                         }
-                        Timer {
-                            interval: 500
-                            repeat: true
-                            running: overview.live && shot.hasContent
-                            onRunningChanged: interval = 500
-                            onTriggered: {
-                                interval = 2500;
-                                const addr = tile.modelData?.address;
-                                if (addr)
-                                    shot.grabToImage(grab => overview.keep(addr, grab));
-                            }
+                        // What is drawn of the capture: its frames as they
+                        // come, and the last of them for as long as there is
+                        // none (the window is being resized, or has gone out
+                        // of sight). That one is not stretched over a window
+                        // that has changed its size since: it stays the size
+                        // it was taken at, from the window's top left corner,
+                        // and the window grows or shrinks around it.
+                        ShaderEffectSource {
+                            id: still
+                            sourceItem: shot
+                            hideSource: true
+                            live: shot.hasContent
+                            visible: tile.seen
+                            textureSize: tile.frame
+                            anchors { left: parent.left; top: parent.top }
+                            readonly property real perPixel: overview.zoomOut * overview.camScale / (overview.monitor?.scale ?? 1)
+                            width: shot.hasContent ? parent.width : tile.frame.width * perPixel
+                            height: shot.hasContent ? parent.height : tile.frame.height * perPixel
                         }
-                        // Out of sight: the last picture of it.
+                        // Not captured since the overview opened (it is out
+                        // of sight): the still kept of it the last time.
                         Image {
                             id: last
                             anchors.fill: parent
@@ -699,7 +871,7 @@ Scope {
                                 overview.keptRev;
                                 return overview.kept[tile.modelData?.address ?? ""] ?? null;
                             }
-                            visible: !shot.hasContent && !!grab
+                            visible: !tile.seen && !!grab
                             source: visible ? grab.url : ""
                             cache: false
                             // Taken at another size, perhaps: cut, not stretched.
@@ -712,7 +884,7 @@ Scope {
                             anchors.centerIn: parent
                             width: parent.width - 16
                             spacing: 8
-                            visible: !shot.hasContent && !last.visible
+                            visible: !tile.seen && !last.visible
                             // Not on the desktop: there the window itself is.
                             opacity: overview.cover
                             IconImage {
@@ -739,7 +911,7 @@ Scope {
                         Rectangle {
                             anchors.fill: parent
                             color: Theme.surface
-                            opacity: (tile.current ? 0 : hover.containsMouse ? 0.1 : 0.34) * overview.chrome
+                            opacity: (hover.containsMouse ? 0.1 : 0.34) * (1 - tile.lit) * overview.chrome
                         }
                     }
                     MouseArea {

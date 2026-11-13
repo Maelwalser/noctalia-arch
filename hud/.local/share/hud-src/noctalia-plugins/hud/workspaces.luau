@@ -253,13 +253,39 @@ local function render()
 end
 
 -- The rules only refine the drum's edges: without them the rest still shows.
-local QUERY = "hyprctl -j workspaces && echo @@ && hyprctl -j monitors && echo @@ && { hyprctl -j workspacerules || echo '[]'; }"
+--
+-- Noctalia stops a callback that runs past its CPU budget and, after a few of
+-- those, disables the widget for good: it then keeps its last picture, drum
+-- or row, whatever happens. On a throttled CPU decoding everything hyprctl
+-- says (every mode of every monitor) did run past it, so jq cuts the answers
+-- down to the fields read here before they reach the script.
+local QUERY = [[
+pick() { if command -v jq >/dev/null 2>&1; then jq -c "$1"; else cat; fi; }
+hyprctl -j workspaces | pick '[.[] | {id, windows, monitor, tiledLayout}]' && echo @@ &&
+hyprctl -j monitors | pick '[.[] | {name, scale, activeWorkspace: {id: .activeWorkspace.id}}]' && echo @@ &&
+{ hyprctl -j workspacerules 2>/dev/null || echo '[]'; } | pick '[.[] | {workspaceString, monitor}]'
+]]
+
+-- The three answers of QUERY. Plain finds: a pattern with three greedy
+-- captures backtracks through the whole output.
+local function split(out)
+  local SEP = "\n@@\n"
+  local a0, a1 = string.find(out, SEP, 1, true)
+  if not a0 then
+    return nil
+  end
+  local b0, b1 = string.find(out, SEP, a1 + 1, true)
+  if not b0 then
+    return nil
+  end
+  return string.sub(out, 1, a0 - 1), string.sub(out, a1 + 1, b0 - 1), string.sub(out, b1 + 1)
+end
 
 local refresh = common.coalesced({ "sh", "-c", QUERY }, function(r)
   if r.exitCode ~= 0 then
     return
   end
-  local a, b, c = string.match(r.stdout, "^(.*)\n@@\n(.*)\n@@\n(.*)$")
+  local a, b, c = split(r.stdout)
   local ws = a and noctalia.json.decode(a)
   local mons = b and noctalia.json.decode(b)
   local rules = c and noctalia.json.decode(c)

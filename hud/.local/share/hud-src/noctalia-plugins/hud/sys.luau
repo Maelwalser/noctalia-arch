@@ -17,12 +17,23 @@ local function field(fmt, blank, value)
   return if value then string.format(fmt, math.floor(value + 0.5)) else blank
 end
 
+-- A value turns amber at `warn` and red at `crit`: the two palette roles the
+-- bar otherwise keeps for highlights and faults.
+local function level(value, warn, crit)
+  if not value then
+    return "on_surface"
+  end
+  return if value >= crit then "error" elseif value >= warn then "tertiary" else "on_surface"
+end
+
 local function render()
   local s = noctalia.systemStats() -- nil while [system.monitor] is off
   local cpu = field("%3d%%", " --%", s and s.cpu.usagePercent)
   local tmp = field("%2d°C", "--°C", s and s.cpu.tempC)
   local mem = field("%3d%%", " --%", s and s.ram.usagePercent)
-  local key = table.concat({ cpu, tmp, mem, tostring(hovered) }, "|")
+  local tmpColor = level(s and s.cpu.tempC, 85, 95)
+  local memColor = level(s and s.ram.usagePercent, 80, 92)
+  local key = table.concat({ cpu, tmp, mem, tmpColor, memColor, tostring(hovered) }, "|")
   if key == drawn then
     return
   end
@@ -41,8 +52,8 @@ local function render()
   end
   barWidget.render(common.pill({
     text("CPU", "primary"), text(cpu, "on_surface"), divider(),
-    text("TMP", "primary"), text(tmp, "on_surface"), divider(),
-    text("MEM", "primary"), text(mem, "on_surface"),
+    text("TMP", "primary"), text(tmp, tmpColor), divider(),
+    text("MEM", "primary"), text(mem, memColor),
   }, true, 6))
   if s then
     local trim = function(v)

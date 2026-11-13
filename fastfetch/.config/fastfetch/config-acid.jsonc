@@ -74,7 +74,11 @@
         },
         {
             "type": "terminalfont",
-            "key": "▍FNT "
+            "key": "▍FNT ",
+            // fastfetch reads the size from Ghostty's main config (14) and
+            // does not follow its config-file include, where ACID//HUD sets
+            // 12 (ghostty/variants/acid.conf): keep the two in step.
+            "format": "{name} (12pt)"
         },
         {
             "type": "command",
