@@ -345,9 +345,12 @@ hl.bind("ALT + Tab", function()
         end
         -- Only where there is something out of sight to switch to: windows
         -- lying over each other (two maximized ones, say). Tiled side by
-        -- side they are all on the screen already.
+        -- side they are all on the screen already. Sent on every Tab: the
+        -- first opens the carousel, each further one while ALT is held
+        -- steps it (the bind swallows the key, so the overlay never sees
+        -- Tab itself).
         local ws = hl.get_active_workspace()
-        if ws and ws.windows > 1 and (ws.has_fullscreen or has_overlapping_windows(ws)) and not switcher_open() then
+        if ws and ws.windows > 1 and (ws.has_fullscreen or has_overlapping_windows(ws)) then
             hl.exec_cmd("noctalia msg window-switcher hold workspace")
         end
         return
