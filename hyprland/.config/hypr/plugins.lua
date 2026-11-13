@@ -42,6 +42,11 @@ end
 -- from hyprland/.local/share/hyprland/plugin-local/stackzoom.
 load("stackzoom.so")
 
+-- keepplace: windows keep their order and their size when SUPER + S changes
+-- between dwindle and the scrolling strip, and a window that fills the screen
+-- still does afterwards. Our own, from plugin-local/keepplace.
+load("keepplace.so")
+
 -- hyprglass: Liquid Glass (blur, edge refraction, specular rim) on layers.
 -- https://github.com/hyprnux/hyprglass
 -- ACID//HUD only: the notification toasts and the bar rail become clear glass.
