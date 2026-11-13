@@ -355,11 +355,13 @@ local function markUrgent(addr)
   end, 3000)
 end
 
+-- Hyprland announces most changes twice, under the old name and the v2 one.
+-- Only one of each is listened to: both made every change two runs of QUERY
+-- (seven processes each, in every bar), the second for nothing.
 local EVENTS = {
-  workspace = true, workspacev2 = true, focusedmon = true, focusedmonv2 = true,
-  createworkspace = true, createworkspacev2 = true, destroyworkspace = true, destroyworkspacev2 = true,
-  moveworkspace = true, moveworkspacev2 = true, openwindow = true, closewindow = true,
-  movewindow = true, movewindowv2 = true, monitoradded = true, monitorremoved = true,
+  workspacev2 = true, focusedmonv2 = true, createworkspacev2 = true, destroyworkspacev2 = true,
+  moveworkspacev2 = true, openwindow = true, closewindow = true, movewindowv2 = true,
+  monitoradded = true, monitorremoved = true,
   custom = true, -- bindings.lua set_layout: a layout change has no event of its own
 }
 

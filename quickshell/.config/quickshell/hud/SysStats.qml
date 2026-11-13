@@ -52,13 +52,16 @@ Singleton {
     property var _prevRc6: null
     property real _prevT: 0
 
+    // The values that are one line of one file are read by the shell itself
+    // (`read`): a `$(cat ...)` for each was thirty-odd processes per sample,
+    // most of them looking through the thermal zones and the PCI devices.
     readonly property string _script: "head -1 /proc/stat; grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo; cat /proc/uptime; "
         + "awk '{ s += $1; n++ } END { if (n) print \"MHZ\", s / n / 1000 }' /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null; "
-        + "[ -r /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq ] && echo MAXMHZ $(( $(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq) / 1000 )); "
-        + "for z in /sys/class/thermal/thermal_zone*; do [ \"$(cat $z/type)\" = x86_pkg_temp ] && { echo TEMP $(cat $z/temp); break; }; done; "
+        + "read m 2>/dev/null < /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq && echo MAXMHZ $(( m / 1000 )); "
+        + "for z in /sys/class/thermal/thermal_zone*; do read t < $z/type; [ \"$t\" = x86_pkg_temp ] && { read v < $z/temp; echo TEMP $v; break; }; done; "
         + "awk 'NR>2 && $1 !~ /^(lo|docker|veth|br-|tailscale|virbr)/ {rx+=$2; tx+=$10} END {print \"NET\", rx, tx}' /proc/net/dev; "
-        + "for g in /sys/class/drm/card*/gt/gt0; do [ -r $g/rc6_residency_ms ] && { echo IGPU $(cat $g/rc6_residency_ms $g/rps_act_freq_mhz); break; }; done; "
-        + "for d in /sys/bus/pci/devices/*; do [ \"$(cat $d/vendor)\" = 0x10de ] && case $(cat $d/class) in 0x03*) echo DGPU $(cat $d/power/runtime_status); break;; esac; done"
+        + "for g in /sys/class/drm/card*/gt/gt0; do [ -r $g/rc6_residency_ms ] && { read a < $g/rc6_residency_ms; read b < $g/rps_act_freq_mhz; echo IGPU $a $b; break; }; done; "
+        + "for d in /sys/bus/pci/devices/*; do read v < $d/vendor; [ \"$v\" = 0x10de ] && { read c < $d/class; case $c in 0x03*) read r < $d/power/runtime_status; echo DGPU $r; break;; esac; }; done"
 
     function parse(out) {
         const now = Date.now() / 1000;
