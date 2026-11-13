@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Records what a client that stopped answering was doing, for the moment
+# Hyprland puts up its "Application Not Responding" dialog (run from
+# bindings.lua when a hyprland-dialog window opens). A hung process cannot be
+# asked afterwards, and ptrace is off for non-children, so this reads what
+# /proc gives the owner: each thread's state, what it sleeps on in the kernel
+# and its CPU time. One file per event under ~/.cache/hypr-anr/.
+set -u
+out="${XDG_CACHE_HOME:-$HOME/.cache}/hypr-anr"
+mkdir -p "$out"
+file="$out/$(date +%Y%m%d-%H%M%S).txt"
+
+threads() { # pid: state, kernel wait channel and CPU ticks of every thread
+  local pid=$1 t
+  for t in /proc/"$pid"/task/*; do
+    printf '%s %s %s %s\n' "${t##*/}" "$(awk '{print $3, $14 + $15}' "$t/stat" 2>/dev/null)" \
+      "$(cat "$t/wchan" 2>/dev/null)" "$(cat "$t/comm" 2>/dev/null)"
+  done
+}
+
+{
+  date
+  echo "load $(cat /proc/loadavg)  cpu MHz $(awk '{ s += $1; n++ } END { if (n) print int(s / n / 1000) }' /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null)"
+  grep -E '^(MemAvailable|SwapFree)' /proc/meminfo
+  echo "== dialogs"
+  pgrep -a hyprland-dialog
+  echo "== windows per client and workspace"
+  hyprctl -j clients 2>/dev/null | jq -r '.[] | "\(.pid) \(.class) ws=\(.workspace.name)"' | sort | uniq -c
+  echo "== work view"
+  hyprctl eval "local v = hl.plugin.stackzoom local f = io.open('$file.view', 'w') f:write('open: ', tostring(v and v.active())) f:close()" >/dev/null 2>&1
+  cat "$file.view" 2>/dev/null && rm -f "$file.view"
+  echo
+  for pid in $(hyprctl -j clients 2>/dev/null | jq -r '.[].pid' | sort -u) $(pgrep -x Hyprland); do
+    echo "== pid $pid $(cat /proc/"$pid"/comm 2>/dev/null): main thread, and every thread that ran or is not asleep"
+    threads "$pid" >"$file.a"
+    sleep 1
+    threads "$pid" >"$file.b"
+    # tid state ticks wchan comm, with the ticks spent in that second appended
+    join <(sort "$file.a") <(sort "$file.b") -j 1 -o 1.1,1.2,1.3,2.3,1.4,1.5 2>/dev/null |
+      awk -v main="$pid" '{ d = $4 - $3; if ($1 == main || d > 0 || $2 != "S") print $1, "state", $2, "busy", d "%", $5, $6 }' | head -40
+    echo "   threads by wait: $(awk '{ print $4 }' "$file.b" | sort | uniq -c | sort -rn | head -6 | tr '\n' ';')"
+    rm -f "$file.a" "$file.b"
+  done
+  echo "== compositor log tail"
+  tail -n 60 "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log" 2>/dev/null
+} >"$file" 2>&1

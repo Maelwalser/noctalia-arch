@@ -586,6 +586,15 @@ hl.on("window.destroy", function(win)
     opening[win.address] = nil -- one that never got as far as opening
 end)
 
+-- Hyprland's "Application Not Responding" dialog: what the client that
+-- stopped answering was doing is written down while it still hangs
+-- (~/.cache/hypr-anr/), since afterwards there is nothing left to ask.
+hl.on("window.open", function(win)
+    if win.class == "hyprland-dialog" then
+        hl.exec_cmd("$HOME/.local/bin/hypr-anr-dump")
+    end
+end)
+
 local function move_vertical(down)
     if hl.get_active_window() and leaves_strip(down) then
         take_to(stack_workspace(down))

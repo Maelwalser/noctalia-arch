@@ -1540,6 +1540,18 @@ namespace {
                 g_pInputManager->simulateMouseMovement(); // and the pointer is where it looks again
             }
         } else if (e.stage == RENDER_POST) {
+            // Hyprland tells every window of the shown workspace that a frame
+            // went out, drawn or not. The other rows get the same: a surface
+            // that was drawn has been told already (and has nothing left to
+            // be told), but a window of a row out of sight, or in a column
+            // past the edge of the screen, would wait for a frame for as
+            // long as the view is up.
+            const auto NOW = Time::steadyNow();
+            for (auto const& ref : VIEW->rows) {
+                const auto ws = ref.lock();
+                if (ws && ws != e.monitor->m_activeWorkspace)
+                    g_pHyprRenderer->sendFrameEventsToWorkspace(e.monitor, ws, NOW);
+            }
             if (VIEW->animating)
                 g_pHyprRenderer->damageMonitor(e.monitor); // and so the next frame
             else if (VIEW->settled) {
