@@ -198,10 +198,14 @@ motion.apply(hl.get_config("general.layout"))
 -- the plain full-width slide it always used, only the timing is matched.
 hl.animation({ leaf = "specialWorkspace", enabled = true, speed = motion.WORKSPACE_SPEED, bezier = "wsSlide" })
 
--- Slide 5 -> 1 forwards instead of racing backwards across four workspaces.
--- Only affects the direction the animation picks, not which workspace is
--- focused.
-hl.config({ animations = { workspace_wraparound = true } })
+-- A switch always slides the way the workspaces are ordered: a higher one
+-- comes in from below on the strips (from the right elsewhere), a lower one
+-- from above. `workspace_wraparound` turns the switch between the lowest and
+-- the highest workspace round, and Hyprland 0.57 takes those from the
+-- workspaces that exist: with only two of them every switch is "between the
+-- lowest and the highest" and ran backwards, the stack moving against the
+-- order the overview (ALT + Tab) shows it in.
+hl.config({ animations = { workspace_wraparound = false } })
 
 -- Instant focus changes and border colour switches
 hl.animation({ leaf = "fade", enabled = false })

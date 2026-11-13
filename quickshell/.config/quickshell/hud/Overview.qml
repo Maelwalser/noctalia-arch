@@ -601,6 +601,17 @@ Scope {
         enabled: overview.live
         function onActiveWorkspaceChanged() { overview.follow(); }
     }
+    // The windows are placed from the monitor's corner, and what Quickshell
+    // holds of that is as old as the last refresh: after a screen was plugged
+    // in or pulled the fresh corner arrives a moment after the overview
+    // opened, and not always before the windows do.
+    Connections {
+        target: overview.monitor
+        enabled: overview.shown
+        function onXChanged() { overview.dirty(); }
+        function onYChanged() { overview.dirty(); }
+        function onScaleChanged() { overview.dirty(); }
+    }
 
     IpcHandler {
         target: "overview"

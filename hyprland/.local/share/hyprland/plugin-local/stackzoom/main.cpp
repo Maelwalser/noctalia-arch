@@ -140,6 +140,7 @@ namespace {
         bool            lastSet = false;
         PHLWORKSPACEREF locked; // the row the pointer stays in while a button is held
         std::vector<PHLWORKSPACEREF> forced; // workspaces told to draw though not shown
+        std::vector<PHLWORKSPACEREF> rows;   // the rows of the last step, top to bottom
         std::vector<SStrip>          strips;
         std::vector<PHLLSREF>        hud; // desktop HUD layers the view faded out
         bool                         undimmed = false; // the rows' windows have their dim taken off
@@ -248,6 +249,18 @@ namespace {
         return 0.0;
     }
 
+    // Has the workspace lay its windows out for the monitor it is on now.
+    // Hyprland does that for the workspace a monitor shows and leaves the
+    // others for when they are next looked at: one that was taken to another
+    // monitor while out of sight (a screen plugged in or pulled, which moves
+    // every workspace bound to it) keeps its tiled windows at the places and
+    // sizes the old monitor gave them. On the desktop nobody sees that. As a
+    // row it was drawn off the screen or across the rows beside it.
+    void settle(const PHLWORKSPACE& ws) {
+        if (ws && ws->space())
+            ws->space()->recalculate();
+    }
+
     // Brings every row's place in the plane up to date. True while one is
     // still easing over to a new anchor.
     bool placeStrips(SView& v, const std::vector<PHLWORKSPACE>& rows, double dt) {
@@ -260,6 +273,11 @@ namespace {
             if (FRESH) {
                 it     = v.strips.emplace(v.strips.end());
                 it->ws = ws;
+                // A row the view has not drawn yet: whatever happened to its
+                // monitor since it was last shown, it is laid out for it now.
+                const auto MON = ws->m_monitor.lock();
+                if (!MON || ws != MON->m_activeWorkspace)
+                    settle(ws);
             }
             auto& strip = *it;
 
@@ -526,6 +544,33 @@ namespace {
             ws->m_forceRendering = true;
             v.forced.emplace_back(ws);
         }
+
+        // A row more or less above the one in sight moves every row under it
+        // by one place in the plane: stepping onto an empty workspace gives
+        // it a row, leaving it takes the row away again. The camera goes
+        // with the row it is over, so what is on the screen stays where it
+        // is, and the way to the new focus is travelled, not jumped.
+        if (v.camSet && !v.rows.empty()) {
+            const double P    = geomOf(v, mon, ROWS).P;
+            const int    LAST = sc<int>(v.rows.size()) - 1;
+            const int    OVER = std::clamp(sc<int>(std::floor(v.cam.y / P)), 0, LAST);
+            for (int d = 0; d <= LAST; ++d) {
+                bool found = false;
+                for (const int WAS : {OVER - d, OVER + d}) {
+                    if (WAS < 0 || WAS > LAST)
+                        continue;
+                    const int IS = rowIndex(ROWS, v.rows[WAS].lock());
+                    if (IS < 0)
+                        continue;
+                    v.cam.y += (IS - WAS) * P;
+                    found = true;
+                    break;
+                }
+                if (found)
+                    break;
+            }
+        }
+        v.rows.assign(ROWS.begin(), ROWS.end());
 
         // Hyprland goes over every window after a move or a change of
         // workspace and suspends the ones that are not on a shown one. A
@@ -1227,6 +1272,17 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
             }
         }));
     }
+
+    // Needs no hook, and is right with or without the view: everything that
+    // reads where the windows of another workspace are (ALT + J/K across the
+    // strips, the HUD's overview) is told the truth.
+    g_listeners.emplace_back(Event::bus()->m_events.workspace.moveToMonitor.listen([](PHLWORKSPACE ws, PHLMONITOR mon) {
+        if (!ws || !mon || ws == mon->m_activeWorkspace)
+            return;
+        settle(ws);
+        if (const auto VIEW = viewFor(mon))
+            damage(*VIEW);
+    }));
 
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "toggle", luaToggle);
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "open", luaOpen);
