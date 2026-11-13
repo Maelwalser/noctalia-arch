@@ -54,6 +54,7 @@
 #include <cmath>
 #include <optional>
 #include <string>
+#include <typeinfo>
 #include <vector>
 
 #define private   public
@@ -335,6 +336,8 @@ namespace {
             return NODE;
         };
         // The items one after the other, each split off from what follows it.
+        // The direction of a split holds only with dwindle:preserve_split
+        // (looknfeel.lua); without it dwindle picks it from the tile's shape.
         const auto CHAIN = [&](const std::vector<SP<SDwindleNodeData>>& items, const std::vector<double>& sizes, bool top) {
             auto   node = items.back();
             double rest = sizes.back();
@@ -390,6 +393,12 @@ namespace {
         const bool  TO_DWINDLE = FROM == "scrolling" && TO == "dwindle";
         if (!TO_STRIP && !TO_DWINDLE)
             return ORIGINAL();
+        // By type as well: a layout may give itself any name, and what
+        // follows reaches into these two classes.
+        const auto& OLD = *self->m_tiled;
+        const auto& NEW = **incoming;
+        if (typeid(OLD) != (TO_STRIP ? typeid(CDwindleAlgorithm) : typeid(CScrollingAlgorithm)) || typeid(NEW) != (TO_STRIP ? typeid(CScrollingAlgorithm) : typeid(CDwindleAlgorithm)))
+            return ORIGINAL();
 
         const auto FOCUSED_WINDOW = Desktop::focusState()->window();
         const auto FOCUSED_TARGET = FOCUSED_WINDOW ? FOCUSED_WINDOW->layoutTarget() : nullptr;
@@ -400,6 +409,8 @@ namespace {
             if (const auto TARGET = t.lock())
                 targets.emplace_back(TARGET);
         }
+        if (targets.empty())
+            return ORIGINAL();
 
         // Taking a window out of a layout ends its fullscreen. Ended here
         // already: the strip then shows the column the window has under it.
@@ -422,12 +433,13 @@ namespace {
         else if (auto tiles = readDwindle(sc<CDwindleAlgorithm*>(self->m_tiled.get()), WORK, modes))
             plan = planStrip(std::move(*tiles), FOCUSED_HERE);
 
-        size_t planned = 0;
-        for (const auto& column : strip ? strip->columns : plan ? plan->columns : std::vector<SColumn>{})
-            planned += column.targets.size();
-
-        // Every window must have its place in the plan, or Hyprland places them.
-        if (planned != targets.size())
+        // Every window must have its place in the plan, and once, or Hyprland places them.
+        if (TO_DWINDLE ? !strip : !plan)
+            return ORIGINAL();
+        std::vector<SP<ITarget>> planned;
+        for (const auto& column : TO_DWINDLE ? strip->columns : plan->columns)
+            planned.insert(planned.end(), column.targets.begin(), column.targets.end());
+        if (planned.size() != targets.size() || !std::ranges::all_of(targets, [&](const SP<ITarget>& t) { return std::ranges::count(planned, t) == 1; }))
             return ORIGINAL();
 
         auto& algo     = *incoming;
@@ -459,9 +471,13 @@ namespace {
                 for (const auto& target : column.targets) {
                     const auto WINDOW = target->window();
                     const auto NODE   = DWINDLE->getNodeFromTarget(target);
-                    if (!WINDOW || !NODE)
+                    if (!WINDOW)
                         continue;
                     forget(WINDOW);
+                    // No tile yet under a fullscreen window that is not the
+                    // layout's (dwindle leaves the workspace alone then).
+                    if (!NODE || NODE->box.w <= 0 || NODE->box.h <= 0)
+                        continue;
                     g_memos.emplace_back(SMemo{WINDOW, column.width, column.x, shareOf(NODE->box, WORK)});
                 }
             }
