@@ -175,7 +175,11 @@ if hl.plugin.hyprglass ~= nil then
             blur_strength = 0.5,
             dark = { tint_color = 0xdce6f007, contrast = 0.975 },
         })
-        hg.layer("hud-glass", { preset = "acid_pane_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03 })
+        -- mask_static (patch 0009): the panes never change once drawn, but
+        -- Qt commits this window again on every frame of any animation in
+        -- the HUD, and each commit had the outline traced and the backdrop
+        -- blurred anew, 60 times a second for the same picture.
+        hg.layer("hud-glass", { preset = "acid_pane_clear", mask_mode = "contour", mask_threshold = 0.01, mask_feather = 0.03, mask_static = true })
         -- The launcher (quickshell hud, Launcher.qml) opens over whatever is
         -- on screen, so it is the toasts' glass a shade darker, dimmed further
         -- over a bright window, to keep its text readable. The selected row

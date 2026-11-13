@@ -1,9 +1,10 @@
 import QtQuick
 
-// The content drawn on one output: the hero clock, the telemetry and signal
-// blocks. Positions come from Layout (1 u = screen height / 1200, the
-// wallpaper's design grid), which also places the glass panes under the
-// three blocks (GlassScene).
+// The state of the scene on one output: the hero clock, the telemetry and
+// signal blocks. It draws nothing itself: each block has a window of its own
+// (shell.qml, SceneWindow), sized like the screen here. Positions come from
+// Layout (1 u = screen height / 1200, the wallpaper's design grid), which
+// also places the glass panes under the three blocks (GlassScene).
 Item {
     id: scene
 
@@ -19,6 +20,13 @@ Item {
         const ws = monitor ? monitor.activeWorkspace : null;
         return !ws || ws.toplevels.values.length === 0;
     }
+    // Something of the scene is on screen: it is active, or still fading out.
+    // The windows are mapped only then (shell.qml).
+    readonly property bool showing: active || fadeOpacity > 0
+    // The blocks' opacity. Faded by `fade` below, not bound: the lock-on has
+    // to be able to cut the fade short.
+    property real fadeOpacity: 0
+    Component.onCompleted: fadeOpacity = active ? 1 : 0
     readonly property rect heroCard: Layout.heroCard(width, height)
     readonly property rect telemetryCard: Layout.telemetryCard(width, height)
     readonly property rect signalCard: Layout.signalCard(width, height)
@@ -37,7 +45,7 @@ Item {
             // Coming from a covered desktop the content is fading in: the
             // line writes it in instead.
             fade.stop();
-            content.opacity = 1;
+            fadeOpacity = 1;
             lockOn.restart();
         }
         switched = false;
@@ -51,10 +59,11 @@ Item {
         fade.to = active ? 1 : 0;
         fade.restart();
     }
-    NumberAnimation { id: fade; target: content; property: "opacity"; duration: 400 }
+    NumberAnimation { id: fade; target: scene; property: "fadeOpacity"; duration: 400 }
 
     readonly property real stagger: 70  // ms between one pane's line and the next
     property real clock: 0
+    readonly property bool lockingOn: lockOn.running
     NumberAnimation {
         id: lockOn
         target: scene
@@ -62,67 +71,5 @@ Item {
         from: 0
         to: 420 + 2 * scene.stagger
         duration: to
-    }
-
-    Item {
-        id: content
-        anchors.fill: parent
-        // Faded by `fade` below, not bound: the lock-on has to be able to
-        // cut the fade short.
-        opacity: 0
-        Component.onCompleted: opacity = scene.active ? 1 : 0
-        // Fully faded content leaves the scene graph, so a covered desktop
-        // costs no render passes at all.
-        visible: opacity > 0
-
-        // Each block sits inside its glass pane, inset by the pane's padding.
-        Glitch {
-            box: scene.heroCard
-            u: scene.u
-            clock: scene.clock
-            running: lockOn.running
-            seed: 1
-
-            HeroClock {
-                u: scene.u
-                active: scene.active
-                x: scene.pad
-                y: scene.pad
-                width: parent.width - 2 * scene.pad
-                height: parent.height - 2 * scene.pad
-            }
-        }
-
-        Glitch {
-            box: scene.telemetryCard
-            u: scene.u
-            clock: scene.clock
-            running: lockOn.running
-            delay: scene.stagger
-            seed: 2
-
-            Telemetry {
-                u: scene.u
-                x: scene.pad
-                y: scene.pad
-                width: parent.width - 2 * scene.pad
-            }
-        }
-
-        Glitch {
-            box: scene.signalCard
-            u: scene.u
-            clock: scene.clock
-            running: lockOn.running
-            delay: 2 * scene.stagger
-            seed: 3
-
-            Signal {
-                u: scene.u
-                active: scene.active
-                x: scene.pad
-                y: scene.pad
-            }
-        }
     }
 }

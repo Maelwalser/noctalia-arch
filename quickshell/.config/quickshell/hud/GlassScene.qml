@@ -1,6 +1,6 @@
 import QtQuick
 
-// The liquid-glass panes of one output, and nothing else: this window's
+// One liquid-glass pane of an output, and nothing else: this window's
 // namespace is whitelisted in hyprland/plugins.lua with hyprglass's contour
 // mode, which turns every visible pixel into glass with a rim along the shape
 // it belongs to. The faint fill only marks the shapes (in the surface colour:
@@ -10,6 +10,8 @@ import QtQuick
 // bar's rail carries the same edge light (BarLight.qml).
 Item {
     id: glass
+
+    property rect box   // the pane, in this item's coordinates
 
     readonly property color fill: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.08)
     component Pane: Rectangle {
@@ -26,7 +28,5 @@ Item {
         PaneLight { anchors.fill: parent; radius: pane.radius }
     }
 
-    Pane { box: Layout.heroCard(glass.width, glass.height) }
-    Pane { box: Layout.telemetryCard(glass.width, glass.height) }
-    Pane { box: Layout.signalCard(glass.width, glass.height) }
+    Pane { box: glass.box }
 }

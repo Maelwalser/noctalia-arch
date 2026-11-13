@@ -9,10 +9,10 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 
-// ACID//HUD desktop overlay: two click-through layers per output, above
-// Noctalia's wallpaper and below every window. hud-glass carries the liquid-
-// glass panes (hyprglass renders them, see hyprland/plugins.lua), hud-overlay
-// the content on top of them. Start with `hud-overlay start`. Another window,
+// ACID//HUD desktop overlay: two click-through layers for each pane of an
+// output, above Noctalia's wallpaper and below every window. hud-glass
+// carries the liquid-glass pane (hyprglass renders it, see
+// hyprland/plugins.lua), hud-overlay the content on top of it. Start with `hud-overlay start`. Another window,
 // hud-unlock, plays the unlock reveal (UnlockFold.qml) on Noctalia's session
 // hooks: `qs -c hud ipc call lock locked|unlocked` (themes/acid.toml), and
 // its reverse on `lock close` (hud-lock), locking the session once the doors
@@ -176,43 +176,119 @@ ShellRoot {
             readonly property bool sceneActive: scene.active
             readonly property Item fold: unlock
 
-            // Declared first so it maps under hud-overlay; the `order` layer
-            // rule in hyprland/looknfeel.lua keeps it there after every remap.
-            // It is shown and hidden outright: a fade would have hyprglass
-            // rebuild the glass outline on every frame of it.
-            PanelWindow {
-                screen: output.modelData
-                anchors { top: true; bottom: true; left: true; right: true }
-                exclusionMode: ExclusionMode.Ignore
-                color: "transparent"
-                mask: Region {}
-                visible: output.sceneActive
-
-                WlrLayershell.layer: WlrLayer.Bottom
-                WlrLayershell.namespace: "hud-glass"
-                WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-
-                GlassScene { anchors.fill: parent }
+            // The scene's state. It draws nothing: every pane has two windows
+            // of its own below, as large as the pane (SceneWindow), instead
+            // of two for all three that covered the screen.
+            HudScene {
+                id: scene
+                width: output.modelData.width
+                height: output.modelData.height
+                monitor: Hyprland.monitorFor(output.modelData)
+                shown: shell.overlayOn
             }
 
-            PanelWindow {
-                id: win
+            // The glass panes. Declared first so they map under hud-overlay;
+            // the `order` layer rule in hyprland/looknfeel.lua keeps them
+            // there after every remap. They are shown and hidden outright: a
+            // fade would have hyprglass rebuild the glass outline on every
+            // frame of it.
+            SceneWindow {
                 screen: output.modelData
-                anchors { top: true; bottom: true; left: true; right: true }
-                exclusionMode: ExclusionMode.Ignore
-                color: "transparent"
-                // Empty region: no input is ever taken, clicks reach the desktop.
-                mask: Region {}
+                ns: "hud-glass"
+                card: scene.heroCard
+                visible: output.sceneActive
+                GlassScene { anchors.fill: parent; box: scene.heroCard }
+            }
+            SceneWindow {
+                screen: output.modelData
+                ns: "hud-glass"
+                card: scene.telemetryCard
+                visible: output.sceneActive
+                GlassScene { anchors.fill: parent; box: scene.telemetryCard }
+            }
+            SceneWindow {
+                screen: output.modelData
+                ns: "hud-glass"
+                card: scene.signalCard
+                visible: output.sceneActive
+                GlassScene { anchors.fill: parent; box: scene.signalCard }
+            }
 
-                WlrLayershell.layer: WlrLayer.Bottom
-                WlrLayershell.namespace: "hud-overlay"
-                WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            // The content on the panes: each block sits inside its glass
+            // pane, inset by the pane's padding. Unmapped while the desktop
+            // is covered: Qt redraws every mapped window of the process on
+            // each frame while any animation runs, so with the scene
+            // animating on one output, the covered output's windows were
+            // committed again on every frame, and the glass of the windows
+            // over them sampled and blurred anew.
+            SceneWindow {
+                screen: output.modelData
+                ns: "hud-overlay"
+                card: scene.heroCard
+                visible: scene.showing
 
-                HudScene {
-                    id: scene
-                    anchors.fill: parent
-                    monitor: Hyprland.monitorFor(output.modelData)
-                    shown: shell.overlayOn
+                Glitch {
+                    opacity: scene.fadeOpacity
+                    box: scene.heroCard
+                    u: scene.u
+                    clock: scene.clock
+                    running: scene.lockingOn
+                    seed: 1
+
+                    HeroClock {
+                        u: scene.u
+                        active: scene.active
+                        x: scene.pad
+                        y: scene.pad
+                        width: parent.width - 2 * scene.pad
+                        height: parent.height - 2 * scene.pad
+                    }
+                }
+            }
+            SceneWindow {
+                screen: output.modelData
+                ns: "hud-overlay"
+                card: scene.telemetryCard
+                visible: scene.showing
+
+                Glitch {
+                    opacity: scene.fadeOpacity
+                    box: scene.telemetryCard
+                    u: scene.u
+                    clock: scene.clock
+                    running: scene.lockingOn
+                    delay: scene.stagger
+                    seed: 2
+
+                    Telemetry {
+                        u: scene.u
+                        x: scene.pad
+                        y: scene.pad
+                        width: parent.width - 2 * scene.pad
+                    }
+                }
+            }
+            SceneWindow {
+                screen: output.modelData
+                ns: "hud-overlay"
+                card: scene.signalCard
+                visible: scene.showing
+
+                Glitch {
+                    opacity: scene.fadeOpacity
+                    box: scene.signalCard
+                    u: scene.u
+                    clock: scene.clock
+                    running: scene.lockingOn
+                    delay: 2 * scene.stagger
+                    seed: 3
+
+                    Signal {
+                        u: scene.u
+                        active: scene.active
+                        x: scene.pad
+                        y: scene.pad
+                    }
                 }
             }
 
@@ -261,7 +337,12 @@ ShellRoot {
                     anchors.fill: parent
                     screen: output.modelData
                     sceneName: unlock.sceneName ?? ""
-                    active: parent.visible
+                    // The window's own condition, not parent.visible: that is
+                    // the content item, true whether or not the window is
+                    // mapped, and it kept the reticle's FrameAnimation going
+                    // for good. A running FrameAnimation has every window of
+                    // this process redraw and commit on each frame.
+                    active: unlock.readoutsUp
                     backed: true
                     covered: unlock.covering
                     opacity: unlock.closing ? 0 : 1

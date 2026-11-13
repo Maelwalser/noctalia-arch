@@ -1,0 +1,163 @@
+mask_static: a layer whose shapes do not change is traced once.
+
+A contour layer's own commit marks its outline stale: it is traced again, and
+the backdrop sampled and blurred again, on the next frame. That is right for
+a layer whose content changes, and wasted on one that commits although
+nothing did: Qt commits every mapped window of a process, with full damage,
+on each frame while any animation runs in it. A desktop widget's panes are
+such a window (fixed shapes under an animated text layer): 70 traces and 30
+backdrop samples a second for the same picture.
+
+hg.layer("ns", { mask_static = true }) says the shapes stay as first drawn.
+The outline is still traced for the first field of a size and for
+STATIC_SETTLE (1.5 s) after it, while the app may be loading what it draws,
+and again whenever the size or anything else the field depends on changes.
+
+diff --git a/README.md b/README.md
+index 5d52e41..27f33c7 100644
+--- a/README.md
++++ b/README.md
+@@ -403,6 +403,7 @@ hg.layer("debug-panel", { exclude = true })
+ | `open_frost` | float | Contour only, with `mask_open`: extra blur the glass grows into away from its open top or bottom edge, in `blur_strength` units (`0`, the default, = none) |
+ | `open_feather` | float | Logical px over which `open_frost` grows from nothing at the open edge (default `16`) |
+ | `mask_fillet` | float | Contour only, with `mask_open`: radius in logical px of the inner corners where the shape leaves its open top or bottom edge (`0`, the default, = square) |
++| `mask_static` | bool | Contour only: the layer's shapes stay as first drawn, so its own commits stop retracing the outline 1.5 s after the first trace for its size (`false` by default). For a client that commits although nothing changed; what it draws has to be complete within that time, a shape that appears later is not traced |
+ | `edge_light` | float | Contour only: peak alpha (`0`..`1`) of a light line along the traced outline (`0`, the default, = none) |
+ | `shape` | table | Fixed glass shape: `{ inset = px or { top, right, bottom, left }, radius = px }`, both optional (`0`); `radius = -1` = pill |
+ | `exclude` | bool | Blacklist this namespace instead of whitelisting it |
+diff --git a/src/Contour.cpp b/src/Contour.cpp
+index 7affcc8..2a8ef83 100644
+--- a/src/Contour.cpp
++++ b/src/Contour.cpp
+@@ -307,6 +307,8 @@ bool CField::build(Render::CRenderContext& ctx, const SBuildKey& key, const SP<R
+ 
+     static unsigned long s_builds = 0;
+     m_serial          = ++s_builds;
++    if (m_builtKey.plan != key.plan)
++        m_heldSince = std::chrono::steady_clock::now();
+     m_builtKey        = key;
+     m_dirty           = false;
+     m_uncoveredFrames = 0;
+diff --git a/src/Contour.hpp b/src/Contour.hpp
+index 3a35e45..a5003da 100644
+--- a/src/Contour.hpp
++++ b/src/Contour.hpp
+@@ -55,6 +55,10 @@ inline constexpr int   SMOOTH_MAX_RADIUS      = 12; // texels each side; the sha
+ // of a burst is rebuilt once the interval has passed.
+ inline constexpr std::chrono::milliseconds MIN_REBUILD_INTERVAL{8};
+ 
++// mask_static: a layer's own commits retrace its outline for this long after the first field
++// for its geometry (the app may still be loading what it draws), and no longer after that.
++inline constexpr std::chrono::milliseconds STATIC_SETTLE{1500};
++
+ // While the layer fades in, its alpha is too coarse for a clean outline: that field is
+ // provisional, and rebuilt once the layer is at least this opaque.
+ inline constexpr float COMPLETE_ALPHA = 0.98f;
+@@ -230,6 +234,9 @@ class CField {
+     // gets a new serial, so a layer joined to this one (mask_join) can tell its outline moved.
+     [[nodiscard]] const SBuildKey& builtKey() const noexcept { return m_builtKey; }
+     [[nodiscard]] unsigned long    serial() const noexcept { return m_serial; }
++    // When the first field for the held geometry was built: a field built after there was
++    // none, or for another plan, starts this anew (mask_static).
++    [[nodiscard]] std::chrono::steady_clock::time_point heldSince() const noexcept { return m_heldSince; }
+ 
+     // Marks the layer as using contour, so that pending() starts to report.
+     void request() noexcept { m_requested = true; }
+@@ -243,6 +250,7 @@ class CField {
+     bool                                                      m_counted   = false; // counted in SScratch::users
+     int                                                       m_uncoveredFrames = 0;
+     std::chrono::steady_clock::time_point                     m_lastBuild{};
++    std::chrono::steady_clock::time_point                     m_heldSince{};
+     std::optional<std::chrono::steady_clock::time_point>      m_deferredAt;
+ };
+ 
+diff --git a/src/GlassLayerSurface.cpp b/src/GlassLayerSurface.cpp
+index eeb53b8..73d76fa 100644
+--- a/src/GlassLayerSurface.cpp
++++ b/src/GlassLayerSurface.cpp
+@@ -300,7 +300,18 @@ void CGlassLayerSurface::markBackgroundDirty() {
+ }
+ 
+ void CGlassLayerSurface::markContourContentChanged() {
+-    switch (m_contour.invalidate(std::chrono::steady_clock::now())) {
++    const auto now = std::chrono::steady_clock::now();
++
++    // mask_static: the app says its shapes stay as first drawn. A client that commits
++    // although nothing changed (Qt commits every mapped window of a process while any
++    // animation runs in it) would otherwise have the outline traced, and the backdrop
++    // sampled and blurred, again on every frame for the same picture.
++    if (m_contour.held() && !m_contour.pending() && now - m_contour.heldSince() > Contour::STATIC_SETTLE) {
++        if (const auto layerSurface = m_layerSurface.lock(); layerSurface && g_pGlobalState->layerNamespaceMaskStatic.contains(layerSurface->m_namespace))
++            return;
++    }
++
++    switch (m_contour.invalidate(now)) {
+         case Contour::CField::EInvalidation::Now:
+             // the field is rebuilt from a frame that redraws the whole layer
+             damageSampleRegion();
+diff --git a/src/Globals.hpp b/src/Globals.hpp
+index 44b914e..0a6ea61 100644
+--- a/src/Globals.hpp
++++ b/src/Globals.hpp
+@@ -68,6 +68,9 @@ struct SGlobalState {
+     std::unordered_set<std::string> layerNamespaceFilter;
+     // hg.layer(..., { exclude = true }) blacklist (always excluded, takes priority over whitelist)
+     std::unordered_set<std::string> layerNamespaceExclude;
++    // Per-namespace mask_static: the layer's content does not change once drawn, so its own
++    // commits do not retrace the contour (see Contour::STATIC_SETTLE)
++    std::unordered_set<std::string> layerNamespaceMaskStatic;
+     // Per-namespace preset overrides (namespace → preset name)
+     std::unordered_map<std::string, std::string> layerNamespacePresets;
+     // Per-namespace mask alpha threshold (namespace → threshold, overrides layers.mask_threshold)
+diff --git a/src/PluginConfig.cpp b/src/PluginConfig.cpp
+index c491027..bd853c6 100644
+--- a/src/PluginConfig.cpp
++++ b/src/PluginConfig.cpp
+@@ -779,6 +779,7 @@ struct SPendingLayer {
+     float                         maskFillet    = -1.0f;
+     bool                          exclude       = false;
+     int                           liveResample  = -1; // -1 = not set
++    bool                          maskStatic    = false;
+     std::optional<ELayerMaskMode> maskMode;
+     std::optional<SLayerShape>    shape;
+ };
+@@ -826,7 +827,7 @@ static std::optional<SLayerShape> readLuaLayerShape(lua_State* L, int tableIdx)
+ }
+ 
+ // What hyprglass.layer takes in its table; anything else is reported.
+-static constexpr std::array<std::string_view, 15> LAYER_SETTINGS = {"exclude", "preset", "mask_threshold", "mask_feather", "mask_nested", "nested_frost", "mask_open", "mask_join", "mask_fillet", "open_frost", "open_feather", "edge_light", "live_resample", "mask_mode", "shape"};
++static constexpr std::array<std::string_view, 16> LAYER_SETTINGS = {"exclude", "preset", "mask_static", "mask_threshold", "mask_feather", "mask_nested", "nested_frost", "mask_open", "mask_join", "mask_fillet", "open_frost", "open_feather", "edge_light", "live_resample", "mask_mode", "shape"};
+ 
+ // mask_open = "top", "top bottom", ...: the box edges the outline runs on past. Nullopt for an unknown word.
+ static std::optional<int> parseMaskOpen(std::string_view value) {
+@@ -981,6 +982,13 @@ static int handleLuaLayer(lua_State* L) {
+             typeError("live_resample", "true or false");
+         lua_pop(L, 1);
+ 
++        lua_getfield(L, 2, "mask_static");
++        if (lua_isboolean(L, -1))
++            entry.maskStatic = lua_toboolean(L, -1);
++        else if (!lua_isnil(L, -1))
++            typeError("mask_static", "true or false");
++        lua_pop(L, 1);
++
+         lua_getfield(L, 2, "mask_mode");
+         if (lua_type(L, -1) == LUA_TSTRING) {
+             entry.maskMode = parseLayerMaskMode(lua_tostring(L, -1));
+@@ -1021,6 +1029,7 @@ static void resetLayerNamespaces() {
+     g_pGlobalState->layerNamespacePresets.clear();
+     g_pGlobalState->layerNamespaceMaskThresholds.clear();
+     g_pGlobalState->layerNamespaceLiveResample.clear();
++    g_pGlobalState->layerNamespaceMaskStatic.clear();
+     g_pGlobalState->layerNamespaceMaskModes.clear();
+     g_pGlobalState->layerNamespaceMaskFeathers.clear();
+     g_pGlobalState->layerNamespaceMaskNested.clear();
+@@ -1066,6 +1075,8 @@ void commitPendingLayers() {
+                 g_pGlobalState->layerNamespaceEdgeLight[entry.ns] = entry.edgeLight;
+             if (entry.liveResample >= 0)
+                 g_pGlobalState->layerNamespaceLiveResample[entry.ns] = entry.liveResample != 0;
++            if (entry.maskStatic)
++                g_pGlobalState->layerNamespaceMaskStatic.insert(entry.ns);
+             if (entry.maskMode)
+                 g_pGlobalState->layerNamespaceMaskModes[entry.ns] = *entry.maskMode;
+             if (entry.shape)

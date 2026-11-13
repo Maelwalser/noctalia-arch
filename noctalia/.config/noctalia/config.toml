@@ -393,6 +393,13 @@ unit = "metric"
 enabled = true # v4 showCalendarEvents
 
 [system.monitor]
+# Never sample the NVIDIA card. The monitor reads it (NVML) only while it is
+# awake, but every reading keeps it awake: once anything had woken it (an app
+# listing the GPUs, nvidia-smi) it never went back to sleep, about 4 W of heat
+# in a laptop whose cooling carries little more than that. Nothing on the bar
+# or the desktop shows a figure from here: the HUD reads the Intel GPU and
+# the card's sleep state from sysfs itself.
+gpu_poll_seconds = 0
 cpu_usage_activity_threshold = 80.0
 cpu_usage_critical_threshold = 90.0
 cpu_temp_activity_threshold = 80.0

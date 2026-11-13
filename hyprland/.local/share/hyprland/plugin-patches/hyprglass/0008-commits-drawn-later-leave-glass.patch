@@ -1,0 +1,206 @@
+Commits that cannot be in a glass backdrop do not resample it.
+
+BackgroundDamageObserver marks a cached backdrop dirty whenever any other
+surface commits inside the glass's padded box. GTK and Qt clients commit with
+full damage, and Qt commits every mapped window of a process while any
+animation runs, so that test alone had glass sampled and blurred again many
+times a second with nothing behind it changing. Left out now:
+
+- For window glass, a layer on the top or overlay level: it is drawn after
+  every window. A bar redrawing a few times a second cost about 130
+  megapixels a second for one terminal on a 5120x2160 output.
+- For window glass, another window that lies beside it and not behind it
+  (further than NEIGHBOUR_REACH_PX from its box).
+- For layer glass, whatever is drawn after the layer: windows for the
+  background and bottom levels, layers on higher levels, and layers later in
+  the monitor's list on the same level. Text on a layer above its own glass
+  panes had the panes resampled on every frame of an animation.
+- The padding that reaches onto a neighbouring monitor: a window or layer
+  that is wholly on its monitor samples that monitor only, so a full-screen
+  commit on the next output no longer counts as overlapping it.
+- The same padding when the glass damages its sample region: a full-screen
+  glass layer redrawn on one monitor damaged a strip of the next one, which
+  then drew a frame for each of them (60 a second with nothing changing).
+
+diff --git a/src/BackgroundDamageObserver.cpp b/src/BackgroundDamageObserver.cpp
+index 82a6a4d..9b6d853 100644
+--- a/src/BackgroundDamageObserver.cpp
++++ b/src/BackgroundDamageObserver.cpp
+@@ -10,6 +10,7 @@
+ #include <hyprland/src/desktop/view/WLSurface.hpp>
+ #include <hyprland/src/desktop/view/window/Window.hpp>
+ #include <hyprland/src/event/EventBus.hpp>
++#include <hyprland/src/protocols/LayerShell.hpp>
+ #include <hyprland/src/protocols/XDGShell.hpp>
+ #include <hyprland/src/protocols/core/Compositor.hpp>
+ #include <hyprland/src/protocols/core/Subcompositor.hpp>
+@@ -25,6 +26,10 @@ namespace {
+     // Hyprland's own T1-parent walk guards against a cycle in the parent chain.
+     constexpr int MAX_TREE_DEPTH = 64;
+ 
++    // How far outside a window's box another window's pixels can still show
++    // in its glass (physical pixels); the sampling margin itself is wider.
++    constexpr int NEIGHBOUR_REACH_PX = 20;
++
+     bool isEnabled() {
+         return g_pGlobalState && !g_pGlobalState->observerListeners.empty();
+     }
+@@ -231,6 +236,8 @@ namespace {
+         damage.translate(box->pos());
+         const CBox damagedBox = damage.getExtents();
+ 
++        const auto committingLayer = view->type() == VIEW_TYPE_LAYER_SURFACE ? CLayerSurface::fromView(view) : nullptr;
++
+         for (const auto& [_, state] : g_pGlobalState->layerSurfaces) {
+             const auto layer = state->getLayerSurface();
+             if (!layer || !layer->mapped())
+@@ -239,6 +246,31 @@ namespace {
+             if (!state->liveResampleEnabled())
+                 continue;
+ 
++            // What is drawn after a glassed layer is not in what it samples.
++            // Windows come after the background and bottom levels; a layer
++            // comes after the ones on lower levels and the ones before it on
++            // its own level (the monitor's list is the drawing order). Qt
++            // clients commit every mapped window with full damage while any
++            // animation runs, so text on a layer above its own glass panes
++            // had the panes sampled and blurred again on every frame.
++            if (committingWindow && layer->m_layer <= ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM)
++                continue;
++            if (committingLayer && committingLayer != layer && committingLayer->m_monitor == layer->m_monitor) {
++                if (committingLayer->m_layer > layer->m_layer)
++                    continue;
++                if (committingLayer->m_layer == layer->m_layer) {
++                    if (const auto layerMonitor = layer->m_monitor.lock(); layerMonitor && layer->m_layer < layerMonitor->m_layerSurfaceLayers.size()) {
++                        const auto& level     = layerMonitor->m_layerSurfaceLayers[layer->m_layer];
++                        const auto  indexOf   = [&level](const PHLLS& wanted) { return std::ranges::find_if(level, [&wanted](const auto& ref) { return ref.lock() == wanted; }) - level.begin(); };
++                        const auto  glassAt   = indexOf(layer);
++                        const auto  commitAt  = indexOf(committingLayer);
++                        const auto  count     = static_cast<decltype(glassAt)>(level.size());
++                        if (glassAt < count && commitAt < count && commitAt > glassAt)
++                            continue;
++                    }
++                }
++            }
++
+             // PROTOCOL_REGION: a commit overlapping only the non-region part of the
+             // layer can't affect the glass sample, so test against the region's own
+             // bounding box instead of the whole layer. ALPHA_THRESHOLD/NONE unchanged.
+@@ -263,7 +295,11 @@ namespace {
+                 sampleBox.expand(GlassRenderer::SAMPLE_PADDING_PX / monScale);
+             }
+ 
+-            if (!sampleBox.overlaps(damagedBox))
++            // cut from the layer's own monitor, as for windows below
++            if (monitor)
++                sampleBox = sampleBox.intersection(CBox{monitor->m_position, monitor->m_size});
++
++            if (sampleBox.empty() || !sampleBox.overlaps(damagedBox))
+                 continue;
+ 
+             // a layer's own content is not its background
+@@ -275,7 +311,14 @@ namespace {
+ 
+         // Single global switch: unlike layers, windows have no per-namespace
+         // live-resample override to fall back on.
+-        if (windowsWantLive) {
++        // A layer on the top or overlay level is drawn after every window, so
++        // nothing it commits is in what a window's glass samples. Without this
++        // a bar that redraws a few times a second (an animated widget) had
++        // every window whose padded box reaches it sample and blur its whole
++        // backdrop again each time.
++        const bool aboveWindows = committingLayer && committingLayer->m_layer >= ZWLR_LAYER_SHELL_V1_LAYER_TOP;
++
++        if (windowsWantLive && !aboveWindows) {
+             for (const auto& decorationRef : g_pGlobalState->decorations) {
+                 auto* decoration = decorationRef.get();
+                 if (!decoration)
+@@ -288,10 +331,41 @@ namespace {
+                 if (!window || window == committingWindow)
+                     continue;
+ 
+-                const auto paddedBox = WindowGeometry::computePaddedGlobalBox(window, GlassRenderer::SAMPLE_PADDING_PX);
+-                if (!paddedBox || !paddedBox->overlaps(damagedBox))
++                auto paddedBox = WindowGeometry::computePaddedGlobalBox(window, GlassRenderer::SAMPLE_PADDING_PX);
++                // The sample is cut from the window's own monitor: the margin
++                // does not reach across the edge onto the next one. Without
++                // this a window at the edge of one monitor was sampled again
++                // for every commit near that edge on the monitor beside it.
++                // Only for a window that lies wholly on its monitor: one that
++                // spans two is drawn, and samples, on both.
++                if (paddedBox) {
++                    const auto windowMonitor = window->m_monitor.lock();
++                    const auto ownBox        = WindowGeometry::computePaddedGlobalBox(window, 0);
++                    if (windowMonitor && ownBox) {
++                        const CBox monitorBox{windowMonitor->m_position, windowMonitor->m_size};
++                        if (ownBox->intersection(monitorBox) == *ownBox)
++                            paddedBox = paddedBox->intersection(monitorBox);
++                    }
++                }
++                if (!paddedBox || paddedBox->empty() || !paddedBox->overlaps(damagedBox))
+                     continue;
+ 
++                // Another window that only reaches into the outer part of the
++                // sampling margin lies beside this one, not behind it. Its
++                // pixels there never show in the pane (measured with one
++                // terminal preset: a neighbour 28 px away switched from empty
++                // to full white changes no pixel of it; a much stronger blur
++                // may need a wider reach), but GTK and Qt clients report
++                // every commit as damage of their whole surface, so two tiled
++                // terminals had
++                // each other sample and blur their whole backdrop again on
++                // every line of output.
++                if (committingWindow) {
++                    const auto nearBox = WindowGeometry::computePaddedGlobalBox(window, NEIGHBOUR_REACH_PX);
++                    if (nearBox && !nearBox->overlaps(damagedBox))
++                        continue;
++                }
++
+                 decoration->markBackgroundDirty();
+             }
+         }
+diff --git a/src/GlassDecoration.cpp b/src/GlassDecoration.cpp
+index c0b1675..f904502 100644
+--- a/src/GlassDecoration.cpp
++++ b/src/GlassDecoration.cpp
+@@ -760,10 +760,23 @@ void CGlassDecoration::damageEntire() {
+     // other windows) in the sampling margin too. Without this, the scissored
+     // render pass leaves stale previous-frame content in the padding area,
+     // causing noise artifacts.
+-    const auto box = WindowGeometry::computePaddedGlobalBox(window, GlassRenderer::SAMPLE_PADDING_PX);
++    auto box = WindowGeometry::computePaddedGlobalBox(window, GlassRenderer::SAMPLE_PADDING_PX);
+     if (!box)
+         return;
+ 
++    // A window that lies wholly on its monitor samples that monitor only:
++    // the margin past the edge is the next monitor's, which would draw a
++    // frame for each of these. One that spans two is drawn on both.
++    const auto monitor = window->m_monitor.lock();
++    const auto ownBox  = WindowGeometry::computePaddedGlobalBox(window, 0.0f);
++    if (monitor && ownBox) {
++        const CBox monitorBox{monitor->m_position, monitor->m_size};
++        if (ownBox->intersection(monitorBox) == *ownBox)
++            box = box->intersection(monitorBox);
++    }
++    if (box->empty())
++        return;
++
+     g_pHyprRenderer->damageBox(*box);
+ }
+ 
+diff --git a/src/GlassLayerSurface.cpp b/src/GlassLayerSurface.cpp
+index 1fc25b0..eeb53b8 100644
+--- a/src/GlassLayerSurface.cpp
++++ b/src/GlassLayerSurface.cpp
+@@ -265,6 +265,11 @@ void CGlassLayerSurface::damageSampleRegion() {
+     auto box = CBox{layerSurface->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT),
+                     layerSurface->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT)};
+     box.expand(GlassRenderer::SAMPLE_PADDING_PX / scale).noNegativeSize();
++    // The sample is cut from the layer's own monitor. Past its edge the margin
++    // lies on the next monitor, and damaging it there had that one draw a
++    // frame for every frame of a full-screen glass layer on this one.
++    if (monitor)
++        box = box.intersection(CBox{monitor->m_position, monitor->m_size});
+     if (box.w > 0.0 && box.h > 0.0 &&
+         std::isfinite(box.x) && std::isfinite(box.y) && std::isfinite(box.w) && std::isfinite(box.h))
+         g_pHyprRenderer->damageBox(box);

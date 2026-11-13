@@ -207,10 +207,10 @@ hl.config({ animations = { workspace_wraparound = true } })
 hl.animation({ leaf = "fade", enabled = false })
 hl.animation({ leaf = "border", enabled = false })
 
--- ACID//HUD: the active border's gradient slowly circles the window (one turn
--- per 10 s). `loop` keeps redrawing the active window's border every frame;
--- set HUD_BORDER_LOOP = false to trade the motion for zero idle redraws.
--- Classic has no loop.
-local HUD_BORDER_LOOP = acid
+-- The active border's gradient could slowly circle the window (one turn per
+-- 10 s), but `loop` redraws the active window every frame: on the 5120x2160
+-- ultrawide that alone kept the iGPU about 70 % busy at idle, which heats the
+-- laptop into its power cap and delays typing. Off.
+local HUD_BORDER_LOOP = false
 hl.curve("hudLinear", { type = "bezier", points = { { 0, 0 }, { 1, 1 } } })
 hl.animation({ leaf = "borderangle", enabled = HUD_BORDER_LOOP, speed = 100, bezier = "hudLinear", style = "loop" })
