@@ -74,3 +74,38 @@ hl.window_rule({ match = { class = "com.mitchellh.ghostty" }, scroll_touchpad = 
 -- Enable touchpad gestures for changing workspaces
 -- See https://wiki.hypr.land/Configuring/Advanced-and-Cool/Gestures/
 -- hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
+
+-- Pinch to zoom in sioyek. It runs as Qt5 under XWayland and gets no pinch
+-- events, so each time the fingers pass another zoom step we send it the key
+-- bound to zoom_in_cursor / zoom_out_cursor (sioyek keys_user.config). The
+-- pinch still reaches every other client untouched.
+local SIOYEK_ZOOM_STEP = 1.2 -- sioyek's zoom_inc_factor, so the page tracks the fingers
+local sioyek_pinch_base = 1.0
+
+local function sioyek_pinch(e)
+    local win = hl.get_active_window()
+    if not win or win.class ~= "sioyek" or not e.scale then
+        return
+    end
+    local target = "address:" .. win.address
+    while e.scale >= sioyek_pinch_base * SIOYEK_ZOOM_STEP do
+        sioyek_pinch_base = sioyek_pinch_base * SIOYEK_ZOOM_STEP
+        hl.dispatch(hl.dsp.send_shortcut({ mods = "", key = "F2", window = target }))
+    end
+    while e.scale <= sioyek_pinch_base / SIOYEK_ZOOM_STEP do
+        sioyek_pinch_base = sioyek_pinch_base / SIOYEK_ZOOM_STEP
+        hl.dispatch(hl.dsp.send_shortcut({ mods = "", key = "F3", window = target }))
+    end
+end
+
+hl.gesture({
+    fingers = 2,
+    direction = "pinch",
+    action = {
+        start = function(e)
+            sioyek_pinch_base = 1.0
+            sioyek_pinch(e)
+        end,
+        update = sioyek_pinch,
+    },
+})
