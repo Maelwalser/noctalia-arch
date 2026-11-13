@@ -78,7 +78,8 @@ end, { description = "Toggle scrolling layout" })
 --   SUPER + J       stack the window under the column before it, or lift a
 --                   stacked window out into a column of its own
 --                   (in dwindle: flip the split, as before)
---   ALT + C         centre the column (a floating window: centre it, as before)
+--   ALT + C         centre the column (a floating window: centre it, as before);
+--                   in the work view: keep the focused window mid-screen, or not
 --   ALT + J / K     past the bottom or top of a column: the workspace below
 --                   or above, so the workspaces are strips stacked on each
 --                   other (with SHIFT the window is taken along)
@@ -244,8 +245,16 @@ hl.bind("ALT + T", hl.dsp.window.float({ action = "toggle" }))
 hl.bind("SUPER + T", hl.dsp.group.toggle())
 hl.bind("ALT + SHIFT + T", hl.dsp.window.float({ action = "disable" }))
 
--- Center window to the middle of the screen, when tiled
+-- Center window to the middle of the screen, when tiled. In the zoomed-out
+-- work view (ALT + Tab) it switches the view's centred mode instead: the
+-- camera keeps the focused window in the middle of the screen, and on the
+-- same key goes back to showing as much of the rows as it can.
 hl.bind("ALT + C", function()
+    local view = hl.plugin.stackzoom
+    if view and view.centred and view.active() then
+        view.centred()
+        return
+    end
     local win = hl.get_active_window()
     if win and not win.floating and on_strip() then
         hl.dispatch(hl.dsp.layout("center"))

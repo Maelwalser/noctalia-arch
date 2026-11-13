@@ -190,6 +190,11 @@ namespace {
         double   pixels = 0; // drawn through the damage, summed over the frames
     } g_stats;
 
+    // The camera on the focused window itself, in the middle of the screen,
+    // wherever that leaves the rows (see cameraTarget). Kept from one
+    // opening of the view to the next.
+    bool g_centred = false;
+
     std::vector<UP<SView>> g_views;
     int                    g_buttons = 0;
 
@@ -412,7 +417,8 @@ namespace {
     }
 
     // Where the camera wants to be: on the focused window, but never so far up
-    // or down that the screen shows less of the rows than it could.
+    // or down that the screen shows less of the rows than it could. Centred
+    // (g_centred), it is on the focused window and nothing holds it back.
     Vector2D cameraTarget(const SView& v, const std::vector<PHLWORKSPACE>& rows, const SGeom& g) {
         Vector2D   to      = restCam(g);
         const auto FOCUSED = Desktop::focusState()->window();
@@ -422,6 +428,8 @@ namespace {
                 const auto POS  = FOCUSED->position(Desktop::View::IGeometric::GEOMETRIC_GOAL) - g.pos;
                 const auto SIZE = FOCUSED->size(Desktop::View::IGeometric::GEOMETRIC_GOAL);
                 to              = {POS.x + SIZE.x / 2.0 + restOf(v, rows[ROW]), ROW * g.P + (POS.y - g.top) + SIZE.y / 2.0};
+                if (g_centred)
+                    return to;
             }
         }
 
@@ -1497,6 +1505,16 @@ namespace {
 
     // stats(): frames the views drew since the last call, and the megapixels
     // drawn through their damage in all of them. For measuring.
+    // centred([on]) -> on. Without an argument it is switched over. A frame
+    // is asked of every view, which then moves its camera to the new place.
+    int luaCentred(lua_State* L) {
+        g_centred = lua_isnoneornil(L, 1) ? !g_centred : lua_toboolean(L, 1);
+        for (auto const& v : g_views)
+            damage(*v);
+        lua_pushboolean(L, g_centred);
+        return 1;
+    }
+
     int luaStats(lua_State* L) {
         lua_pushinteger(L, sc<lua_Integer>(g_stats.frames));
         lua_pushnumber(L, g_stats.pixels / 1e6);
@@ -1693,6 +1711,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "probe", luaProbe);
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "precise", luaPrecise);
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "stats", luaStats);
+    HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "centred", luaCentred);
 
     return {"stackzoom", "Zoomed-out work view of a monitor's workspaces, with live windows", "mael", "1.0"};
 }
