@@ -477,7 +477,7 @@ local function filling_windows()
         return filling
     end
     for _, other in ipairs(hl.get_workspaces()) do
-        if other.id > 0 and other.monitor and other.monitor.name == ws.monitor.name then
+        if (other.id or 0) > 0 and other.monitor and other.monitor.name == ws.monitor.name then
             for _, win in ipairs(hl.get_workspace_windows(other.id)) do
                 if not win.hidden and not win.floating and fills_screen(win) then
                     filling[win.address] = true
@@ -650,7 +650,7 @@ local function overview_row(down)
     end
     local best
     for _, other in ipairs(hl.get_workspaces()) do
-        if other.id > 0 and other.windows > 0 and other.monitor and other.monitor.name == ws.monitor.name then
+        if (other.id or 0) > 0 and other.windows > 0 and other.monitor and other.monitor.name == ws.monitor.name then
             if down and other.id > ws.id and (not best or other.id < best)
                 or not down and other.id < ws.id and (not best or other.id > best) then
                 best = other.id

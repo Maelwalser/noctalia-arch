@@ -15,6 +15,14 @@ hl.config({
         -- sensitivity = 0.35,
 
         follow_mouse = 2,
+        -- follow_mouse = 2 keeps the keyboard focus off the pointer, with one
+        -- exception that is on by default: when the focused window is tiled
+        -- and the one under the pointer floating (or the other way round),
+        -- the next pointer motion hands the focus over. In the work view
+        -- (ALT + Tab) every workspace is under the pointer somewhere: after
+        -- ALT + K from a floating window to a tiled one a row up, the pointer
+        -- still lay on the row below and took the focus back down.
+        float_switch_override_focus = 0,
 
         touchpad = {
             -- Use natural (inverse) scrolling
