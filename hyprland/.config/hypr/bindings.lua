@@ -160,7 +160,7 @@ local function nearest_width(share)
     return best
 end
 
-hl.bind("ALT + F", function()
+local function maximize()
     local win = hl.get_active_window()
     -- A window that is maximized already (from another layout) is let go the same way.
     if not win or win.floating or not on_strip() or win.fullscreen ~= 0 then
@@ -182,7 +182,9 @@ hl.bind("ALT + F", function()
         -- A pixel move hands the focus to the column in the middle.
         hl.dispatch(hl.dsp.focus({ window = win }))
     end
-end, { description = "Maximize window" })
+end
+
+hl.bind("ALT + F", maximize, { description = "Maximize window" })
 
 -- The strip against the screen: whether it runs off it on the side `forward`
 -- names (a tiled window is cut off by that edge or lies beyond it), whether
@@ -241,9 +243,47 @@ hl.bind("SUPER + A", strip("fit all"), { description = "Fit all columns on scree
 hl.bind("SUPER + SHIFT + A", strip("colresize all 0.5"), { description = "Reset column widths" })
 
 -- Tiling windows
-hl.bind("ALT + T", hl.dsp.window.float({ action = "toggle" }))
+-- ALT + T fills the screen like ALT + F, and takes a floating window back
+-- into the tiles first. It used to toggle floating, which made a window that
+-- looked maximized but lay over the tiles: Hyprland floats a window at the
+-- size it last asked for, a browser's is the whole screen. New windows then
+-- opened behind it, and taken to another workspace it covered that one.
+hl.bind("ALT + T", function()
+    local win = hl.get_active_window()
+    if win and win.floating then
+        hl.dispatch(hl.dsp.window.float({ action = "disable" }))
+        win = hl.get_active_window()
+        if not win or win.floating or win.fullscreen ~= 0 or on_strip() and column_share(win) > 0.9 then
+            return
+        end
+    end
+    maximize()
+end, { description = "Fill the screen (a floating window is tiled first)" })
 hl.bind("SUPER + T", hl.dsp.group.toggle())
-hl.bind("ALT + SHIFT + T", hl.dsp.window.float({ action = "disable" }))
+
+-- Floating is ALT + SHIFT + T, on and off. A window that comes out of the
+-- tiles at (nearly) the size it had there is cut down and centred on the
+-- same spot, so that it can be told from a tiled one.
+local FLOAT_SHARE = 0.75
+
+hl.bind("ALT + SHIFT + T", function()
+    local tiled = hl.get_active_window()
+    if not tiled then
+        return
+    end
+    hl.dispatch(hl.dsp.window.float({ action = "toggle" }))
+    local win = hl.get_active_window()
+    if tiled.floating or not win or win.address ~= tiled.address or not win.floating
+        or win.size.x < 0.9 * tiled.size.x or win.size.y < 0.9 * tiled.size.y then
+        return
+    end
+    local width, height = math.floor(tiled.size.x * FLOAT_SHARE), math.floor(tiled.size.y * FLOAT_SHARE)
+    hl.dispatch(hl.dsp.window.resize({ x = width, y = height }))
+    hl.dispatch(hl.dsp.window.move({
+        x = math.floor(tiled.at.x + (tiled.size.x - width) / 2),
+        y = math.floor(tiled.at.y + (tiled.size.y - height) / 2),
+    }))
+end, { description = "Toggle floating" })
 
 -- Center window to the middle of the screen, when tiled. In the zoomed-out
 -- work view (ALT + Tab) it switches the view's centred mode instead: the
