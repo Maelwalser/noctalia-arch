@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Locks the session at the start of Hyprland (autostart.lua) and lifts the
+# black veil (boot-veil.frag) once the lock scene is on screen, so a restart
+# goes from black straight to the lock screen instead of showing the desktop
+# first. The veil is lifted on every way out of this script: a lock that
+# never comes must not leave a black screen (autostart.lua has a timer too).
+set -u
+
+lift() { hyprctl eval 'hl.config({ decoration = { screen_shader = "" } })' >/dev/null 2>&1; }
+trap lift EXIT
+
+locked() {
+  local sid="${XDG_SESSION_ID:-}"
+  [[ -n "$sid" ]] || sid=$(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="$USER" '$3 == u && $4 == "seat0" { print $1; exit }')
+  [[ -n "$sid" ]] && [[ "$(loginctl show-session "$sid" -p LockedHint --value 2>/dev/null)" == yes ]]
+}
+
+# Noctalia exits non-zero until it answers on its socket (~10 s at most).
+i=0
+until noctalia msg session lock >/dev/null 2>&1; do
+  i=$((i + 1))
+  [[ $i -ge 200 ]] && exit 1
+  sleep 0.05
+done
+
+for _ in $(seq 1 100); do
+  locked && break
+  sleep 0.05
+done
+
+# ACID//HUD draws the lock's clock and graphs above the lock surface, with an
+# opaque copy of the scene under them while Noctalia's own images load. Its
+# overlay starts alongside Noctalia and may have missed the locked hook, so
+# arm it here (again is harmless) before the veil goes.
+theme=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/theme" 2>/dev/null)
+if [[ "$theme" != classic ]] && command -v qs >/dev/null; then
+  for _ in $(seq 1 60); do
+    qs -c hud ipc call lock locked >/dev/null 2>&1 && break
+    sleep 0.05
+  done
+fi
+
+# The lock surface and the readouts need a few frames to map and paint.
+sleep 0.4
