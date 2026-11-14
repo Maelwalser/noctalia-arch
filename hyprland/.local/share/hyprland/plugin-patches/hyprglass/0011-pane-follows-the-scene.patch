@@ -1,0 +1,268 @@
+The pane is drawn where the scene draws the window, not where the workspace says.
+
+A workspace that slides out keeps the offset it slid out to: a whole monitor
+up or down (or sideways), for as long as it is not shown. Hyprland adds that
+offset to a window only in the monitor's own scene; a scene of one workspace's
+windows (a snapshot, or a view that draws several workspaces at once:
+stackzoom) is drawn without it. The glass read the workspace's offset itself,
+whatever the scene, so in such a view every pane of a workspace that had been
+left was a row away from its window: over the terminals of the row above after
+a step down, over the row below after a step up, or off the screen.
+
+- draw() hands the pass the offset Hyprland gave it for this scene
+  (workspace plus floating offset of the presentation), and renderPass(),
+  the pass's bounding box and its live-blur question all take the box from
+  that. In the monitor's scene it is the same number as before.
+- A window in real fullscreen has no decorations drawn and gets its draw()
+  from the render stage, which says nothing of the scene: a workspace that
+  is not shown and whose offset has the window off the monitor is taken
+  for a scene of its own.
+- Frost coverage is still measured where the windows are in the monitor's
+  scene (own box and the others' alike).
+
+diff --git a/src/GlassDecoration.cpp b/src/GlassDecoration.cpp
+index b4d9d19..6ea10b5 100644
+--- a/src/GlassDecoration.cpp
++++ b/src/GlassDecoration.cpp
+@@ -277,14 +277,15 @@ SDecorationPositioningInfo CGlassDecoration::getPositioningInfo() {
+ 
+ void CGlassDecoration::onPositioningReply(const SDecorationPositioningReply& reply) {}
+ 
+-void CGlassDecoration::queueGlassPass(Render::CRenderContext& ctx, float alpha, bool xray) {
++void CGlassDecoration::queueGlassPass(Render::CRenderContext& ctx, float alpha, bool xray, const Vector2D& sceneOffset) {
+     // A duplicate copy is redirected into the dedupe sink and dropped whole: it
+     // needs no glass, and stamping it would leave the surviving element stale.
+     if (g_pGlobalState->dedupe.guard)
+         return;
+ 
+     CGlassPassElement::SGlassPassData data{m_self, alpha};
+-    data.xray = xray;
++    data.xray        = xray;
++    data.sceneOffset = sceneOffset;
+ 
+     // Only the real monitor pass is de-duplicated: snapshots, screencopy and
+     // overview framebuffers render the window once, out of frame order.
+@@ -350,7 +351,7 @@ void CGlassDecoration::foldRenderFingerprint(Render::CRenderContext& ctx, const
+     m_lastFoldedFrameSerial = g_pGlobalState->frameSerial;
+ }
+ 
+-void CGlassDecoration::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, float const& alpha, const Render::SWindowRenderPresentation&) {
++void CGlassDecoration::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, float const& alpha, const Render::SWindowRenderPresentation& presentation) {
+     if (!g_pGlobalState)
+         return;
+ 
+@@ -384,7 +385,8 @@ void CGlassDecoration::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, flo
+     if (xray)
+         requestXraySnapshot(monitor);
+ 
+-    queueGlassPass(ctx, alpha, xray);
++    // The pane goes where Hyprland draws the window in this scene.
++    queueGlassPass(ctx, alpha, xray, presentation.workspaceOffset + presentation.floatingOffset);
+ 
+     // A slide translates the scene under us without any geometry change, and
+     // Hyprland's per-tick window damage carries none of our sampling padding.
+@@ -502,7 +504,7 @@ bool CGlassDecoration::wantsBackgroundResample(Render::CRenderContext& ctx, PHLM
+     return false;
+ }
+ 
+-void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monitor, const float& alpha, bool xray) {
++void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monitor, const float& alpha, bool xray, const Vector2D& sceneOffset) {
+     // Belt and braces: draw() already refuses to queue a pass element for a foreign
+     // render, but a caller that reaches renderPass() during one anyway must not sample
+     // the foreign framebuffer into this decoration's persistent background cache.
+@@ -524,7 +526,7 @@ void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monito
+     if (!source)
+         return;
+ 
+-    auto optBox = WindowGeometry::computeWindowBox(window, monitor);
++    auto optBox = WindowGeometry::computeWindowBox(window, monitor, sceneOffset);
+     if (!optBox)
+         return;
+ 
+@@ -689,8 +691,10 @@ void CGlassDecoration::renderPass(Render::CRenderContext& ctx, PHLMONITOR monito
+     GlassRenderer::SFrostInput frostInput;
+     const float                frostSetting = (xray || fsUnrounded) ? 0.0f : frostFor(resolveContext);
+     if (frostSetting > 0.0f || m_frost.active()) {
+-        const float target =
+-            frostSetting > 0.0f ? frostSetting * Frost::amountForCoverage(Frost::coveredFraction(window, monitor, *optBox)) : 0.0f;
++        // Coverage is measured where the windows are in the monitor's own
++        // scene, which is where coveredFraction() takes the others' boxes.
++        const CBox  ownPlace = WindowGeometry::computeWindowBox(window, monitor).value_or(*optBox);
++        const float target   = frostSetting > 0.0f ? frostSetting * Frost::amountForCoverage(Frost::coveredFraction(window, monitor, ownPlace)) : 0.0f;
+ 
+         // A window spanning two monitors gets a different target on each: it snaps on a
+         // monitor change, or it would ease between them and never settle.
+diff --git a/src/GlassDecoration.hpp b/src/GlassDecoration.hpp
+index 5195c42..7c3c2cf 100644
+--- a/src/GlassDecoration.hpp
++++ b/src/GlassDecoration.hpp
+@@ -27,7 +27,8 @@ class CGlassDecoration : public IHyprWindowDecoration {
+     [[nodiscard]] std::string                getDisplayName() override;
+ 
+     [[nodiscard]] PHLWINDOW getOwner();
+-    void                    renderPass(Render::CRenderContext& ctx, PHLMONITOR monitor, const float& alpha, bool xray);
++    // `sceneOffset`: see CGlassPassElement::SGlassPassData.
++    void                    renderPass(Render::CRenderContext& ctx, PHLMONITOR monitor, const float& alpha, bool xray, const Vector2D& sceneOffset);
+     void                    onFullscreenStateChanged();
+ 
+     // Content below committed damage in our sample region — resample next frame.
+@@ -162,7 +163,7 @@ class CGlassDecoration : public IHyprWindowDecoration {
+     // many duplicate copies happened to render, not on the scene.
+     uint64_t m_lastFoldedFrameSerial = 0;
+ 
+-    void               queueGlassPass(Render::CRenderContext& ctx, float alpha, bool xray);
++    void               queueGlassPass(Render::CRenderContext& ctx, float alpha, bool xray, const Vector2D& sceneOffset);
+     [[nodiscard]] bool isCurrentGlassPass(uint64_t serial, uint32_t index) const {
+         return serial == 0 || (serial == m_glassFrameSerial && index == m_glassQueueIndex);
+     }
+diff --git a/src/GlassPassElement.cpp b/src/GlassPassElement.cpp
+index 6fb9072..b3163e5 100644
+--- a/src/GlassPassElement.cpp
++++ b/src/GlassPassElement.cpp
+@@ -27,7 +27,7 @@ std::vector<UP<IPassElement>> CGlassPassElement::draw(Render::CRenderContext& ct
+     if (!m_data.decoration->isCurrentGlassPass(m_data.frameSerial, m_data.queueIndex))
+         return {};
+ 
+-    m_data.decoration->renderPass(ctx, ctx.m_data.pMonitor.lock(), m_data.alpha, m_data.xray);
++    m_data.decoration->renderPass(ctx, ctx.m_data.pMonitor.lock(), m_data.alpha, m_data.xray, m_data.sceneOffset);
+ 
+     return {};
+ }
+@@ -41,7 +41,7 @@ std::optional<CBox> CGlassPassElement::paddedLogicalBox(Render::CRenderContext&
+         return std::nullopt;
+ 
+     const auto monitor = ctx.m_data.pMonitor.lock();
+-    auto box = WindowGeometry::computeWindowBox(window, monitor);
++    auto box = WindowGeometry::computeWindowBox(window, monitor, m_data.sceneOffset);
+     if (!box)
+         return std::nullopt;
+ 
+@@ -86,7 +86,7 @@ bool CGlassPassElement::needsLiveBlur(Render::CRenderContext& ctx) {
+     if (!monitor || !window)
+         return false;
+ 
+-    auto box = WindowGeometry::computeWindowBox(window, monitor);
++    auto box = WindowGeometry::computeWindowBox(window, monitor, m_data.sceneOffset);
+     if (!box)
+         return false;
+ 
+diff --git a/src/GlassPassElement.hpp b/src/GlassPassElement.hpp
+index 762701d..8b4edac 100644
+--- a/src/GlassPassElement.hpp
++++ b/src/GlassPassElement.hpp
+@@ -3,6 +3,7 @@
+ #include <hyprland/src/render/pass/PassElement.hpp>
+ #include <hyprutils/math/Box.hpp>
+ #include <hyprutils/math/Region.hpp>
++#include <hyprutils/math/Vector2D.hpp>
+ #include <hyprland/src/helpers/memory/Memory.hpp>
+ #include <cstdint>
+ 
+@@ -18,6 +19,13 @@ class CGlassPassElement : public IPassElement {
+         uint32_t             queueIndex  = 0;
+         // Resolved once in draw(): needsLiveBlur() and renderPass() must agree on it.
+         bool                 xray        = false;
++        // How far from its own place the window is drawn in the scene this
++        // pass was queued for, as Hyprland handed it to draw(). Not read from
++        // the workspace: a scene of one workspace's windows (a snapshot, a
++        // view of several workspaces) draws them without the workspace's
++        // slide, and a workspace that is not shown keeps the offset it slid
++        // out to, a whole monitor away.
++        Vector2D             sceneOffset;
+     };
+ 
+     explicit CGlassPassElement(const SGlassPassData& data);
+diff --git a/src/WindowGeometry.hpp b/src/WindowGeometry.hpp
+index d0d3927..2efab76 100644
+--- a/src/WindowGeometry.hpp
++++ b/src/WindowGeometry.hpp
+@@ -8,26 +8,40 @@
+ 
+ namespace WindowGeometry {
+ 
+-// Monitor-local physical pixels in render space, which is also the work
+-// buffer's pixel space: Hyprland draws the whole pass unrotated, so a rotated
+-// or flipped monitor needs no conversion before sampling or drawing.
+-[[nodiscard]] inline std::optional<CBox> computeWindowBox(PHLWINDOW window, PHLMONITOR monitor) {
+-    if (!window || !monitor)
+-        return std::nullopt;
++// How far from its own place a window is drawn in the monitor's scene: the
++// slide of its workspace and its own floating offset.
++[[nodiscard]] inline Vector2D monitorSceneOffset(const PHLWINDOW& window) {
++    if (!window)
++        return {};
+ 
+     const auto workspace = window->m_workspace;
+     const auto workspaceOffset = workspace && !(window->m_state & Desktop::View::WINDOW_STATE_PINNED)
+         ? workspace->m_renderOffset->value()
+         : Vector2D();
+ 
++    return workspaceOffset + window->presentation().floatingOffset();
++}
++
++// Monitor-local physical pixels in render space, which is also the work
++// buffer's pixel space: Hyprland draws the whole pass unrotated, so a rotated
++// or flipped monitor needs no conversion before sampling or drawing.
++// `sceneOffset` is what the scene being drawn adds to the window's place.
++[[nodiscard]] inline std::optional<CBox> computeWindowBox(PHLWINDOW window, PHLMONITOR monitor, const Vector2D& sceneOffset) {
++    if (!window || !monitor)
++        return std::nullopt;
++
+     auto box = window->getWindowMainSurfaceBox();
+-    box.translate(workspaceOffset);
+-    box.translate(-monitor->m_position + window->presentation().floatingOffset());
++    box.translate(-monitor->m_position + sceneOffset);
+     box.scale(monitor->m_scale);
+     box.round();
+     return box;
+ }
+ 
++// The same in the monitor's own scene.
++[[nodiscard]] inline std::optional<CBox> computeWindowBox(PHLWINDOW window, PHLMONITOR monitor) {
++    return computeWindowBox(window, monitor, monitorSceneOffset(window));
++}
++
+ // Global-logical box (no monitor translate, no scale) — layout coordinates,
+ // not the monitor-local physical pixels computeWindowBox() returns. Shared by
+ // CGlassDecoration::damageEntire() (paddingPx = GlassRenderer::SAMPLE_PADDING_PX)
+diff --git a/src/main.cpp b/src/main.cpp
+index 2a22d54..20ea2e7 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -30,6 +30,7 @@
+ #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
+ #include <hyprland/src/plugins/PluginAPI.hpp>
+ #include <hyprland/src/render/Renderer.hpp>
++#include <hyprland/src/render/scene/SceneSelection.hpp>
+ #include <hyprland/src/render/pass/Pass.hpp>
+ #include <hyprland/src/render/pass/SurfacePassElement.hpp>
+ #include <hyprland/src/helpers/Color.hpp>
+@@ -137,8 +138,26 @@ static void drawGlassForFullscreenWindow(Render::CRenderContext& ctx, const PHLW
+     if (monitor->m_solitaryClient.lock() == window)
+         return;
+ 
+-    if (auto* deco = glassDecorationFor(window))
+-        deco->draw(ctx, monitor, 1.f, window->presentation().renderPresentation(dynamicPointerCast<Workspace::CWorkspacePresentable>(window->m_workspace))); // alpha unused, recomputed in renderPass
++    auto* deco = glassDecorationFor(window);
++    if (!deco)
++        return;
++
++    // The stage says nothing of the scene being drawn. A workspace that is
++    // not shown and whose offset has the window wholly off the monitor (where
++    // a slide out leaves it) shows nothing of it in the monitor's own scene:
++    // if the window is drawn all the same, it is as a scene of that workspace
++    // alone (a view of several workspaces), where Hyprland leaves the offset
++    // out. A workspace held part of the way by a swipe is on the monitor and
++    // keeps its offset.
++    const auto workspace = window->m_workspace;
++    bool       ownScene  = false;
++    if (workspace && !workspace->visible()) {
++        const CBox slid = window->getWindowMainSurfaceBox().translate(workspace->m_renderOffset->value());
++        ownScene        = !slid.overlaps(CBox{monitor->m_position, monitor->m_size});
++    }
++    const auto presentation = ownScene ? window->presentation().renderPresentation(Render::eSceneMode::WORKSPACE_WINDOWS) :
++                                         window->presentation().renderPresentation(dynamicPointerCast<Workspace::CWorkspacePresentable>(workspace));
++    deco->draw(ctx, monitor, 1.f, presentation); // alpha unused, recomputed in renderPass
+ }
+ 
+ // Hyprland draws X11 override-redirect and no-border windows (menus, tooltips, splash) without
