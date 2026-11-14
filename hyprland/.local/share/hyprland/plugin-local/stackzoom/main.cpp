@@ -824,6 +824,71 @@ namespace {
         (*rc<tRenderWindows>(HOOK->m_original))(self, ctx, mon, ws, now, mode);
     }
 
+    // The row whose windows are being handed to the pass right now.
+    struct SQueuedRow {
+        double   scale = 1.0;
+        Vector2D move;
+    };
+
+    std::optional<SQueuedRow> g_queued;
+
+    // A window is a picture its client drew for the size it has, and a row
+    // shows it smaller: every pixel of the screen is a mix of the pixels of
+    // the picture it covers. Where the window is drawn decides which ones. At
+    // half size, on a whole pixel, each is the mean of a block of four, and
+    // text keeps its weight; half a pixel off along one axis, it is every
+    // other pixel along that axis instead, and stems or bars of letters come
+    // out twice as heavy or not at all. Rows are placed by the camera and
+    // land anywhere, so each window is moved the last part of a pixel onto
+    // the grid, with everything drawn for it (border, shadow, glass, popups).
+    using tRenderWindow =
+        void (*)(void*, Render::CRenderContext&, PHLWINDOW, PHLMONITOR, const Render::SWindowRenderPresentation&, const steady_tp&, bool, Render::eRenderPassMode, bool, bool);
+
+    CFunctionHook* g_hookWindow = nullptr;
+
+    void hkRenderWindow(void* self, Render::CRenderContext& ctx, PHLWINDOW window, PHLMONITOR mon, const Render::SWindowRenderPresentation& presentation, const steady_tp& now,
+                        bool decorate, Render::eRenderPassMode mode, bool ignorePosition, bool standalone) {
+        const auto ORIGINAL = rc<tRenderWindow>(g_hookWindow->m_original);
+        if (!g_queued || !window || !mon || ignorePosition || standalone) {
+            (*ORIGINAL)(self, ctx, window, mon, presentation, now, decorate, mode, ignorePosition, standalone);
+            return;
+        }
+
+        // The window's box as the renderer rounds it, then as the row shows it.
+        const Vector2D REAL  = ((window->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + presentation.workspaceOffset + presentation.floatingOffset - mon->m_position) * mon->m_scale).round();
+        const Vector2D DRAWN = REAL * g_queued->scale + g_queued->move;
+        const Vector2D SNAP  = DRAWN.round() - DRAWN;
+
+        const auto     hints = [&ctx](const Vector2D& move) {
+            Render::SRenderModifData modif;
+            modif.modifs.emplace_back(Render::SRenderModifData::RMOD_TYPE_SCALE, sc<float>(g_queued->scale));
+            modif.modifs.emplace_back(Render::SRenderModifData::RMOD_TYPE_TRANSLATE, move);
+            Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRendererHintsPassElement>(CRendererHintsPassElement::SData{modif}));
+        };
+
+        hints(g_queued->move + SNAP);
+        (*ORIGINAL)(self, ctx, window, mon, presentation, now, decorate, mode, ignorePosition, standalone);
+        hints(g_queued->move);
+    }
+
+    // At a scale like 1.5 a client's picture can be a pixel off the box it is
+    // drawn into, and Hyprland then takes the nearest pixel instead of mixing
+    // (sharper at full size). Drawn smaller that drops whole lines and columns
+    // of pixels, so inside a row the picture is always mixed.
+    using tTexture = void (*)(void*, Render::CRenderContext&, SP<Render::ITexture>, const CBox&, Render::GL::CHyprOpenGLImpl::STextureRenderData);
+
+    CFunctionHook* g_hookTexture = nullptr;
+
+    void hkTexture(void* self, Render::CRenderContext& ctx, SP<Render::ITexture> tex, const CBox& box, Render::GL::CHyprOpenGLImpl::STextureRenderData data) {
+        const auto& modif   = ctx.m_data.renderModif;
+        const bool  ROW     = !g_views.empty() && modif.enabled && !modif.modifs.empty() && viewFor(ctx.m_data.pMonitor.lock());
+        const bool  NEAREST = ctx.m_data.useNearestNeighbor;
+        if (ROW)
+            ctx.m_data.useNearestNeighbor = false;
+        (*rc<tTexture>(g_hookTexture->m_original))(self, ctx, tex, box, std::move(data));
+        ctx.m_data.useNearestNeighbor = NEAREST;
+    }
+
     // Stands in for the drawing of the shown workspace's windows on a zoomed
     // monitor: all rows, each scaled and put in its place.
     bool renderRows(void* self, Render::CRenderContext& ctx, const PHLMONITOR& mon, const PHLWORKSPACE& ws, const steady_tp& now, Render::eSceneMode mode) {
@@ -859,7 +924,9 @@ namespace {
 
             // The scene of one workspace: its windows wherever they are laid
             // out, whether or not the workspace is the one shown.
+            g_queued = SQueuedRow{G.s, MOVE};
             callWindows(Fullscreen::controller()->hasFullscreen(ROW), self, ctx, mon, ROW, now, Render::eSceneMode::WORKSPACE_WINDOWS);
+            g_queued.reset();
 
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CZoomRow>());
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRendererHintsPassElement>(CRendererHintsPassElement::SData{Render::SRenderModifData{}}));
@@ -1656,6 +1723,9 @@ namespace {
         constexpr auto MOUSE_MOVE     = "_ZN13CInputManager16mouseMoveUnifiedEjbbSt8optionalIN9Hyprutils4Math8Vector2DEEb";
         constexpr auto TEXTURE_WITH_BLUR =
             "_ZN6Render2GL15CHyprOpenGLImpl29renderTextureWithBlurInternalERNS_14CRenderContextEN9Hyprutils6Memory14CSharedPointerINS_8ITextureEEERKNS4_4Math4CBoxERKNS1_18STextureRenderDataE";
+        constexpr auto RENDER_WINDOW =
+            "_ZN6Render13IHyprRenderer12renderWindowERNS_14CRenderContextEN9Hyprutils6Memory14CSharedPointerIN7Desktop4View7CWindowEEENS5_IN7Monitor8CMonitorEEERKNS_25SWindowRenderPresentationERKNSt6chrono10time_pointINSG_3_V212steady_clockENSG_8durationIlSt5ratioILl1ELl1000000000EEEEEEbNS_15eRenderPassModeEbb";
+        constexpr auto TEXTURE = "_ZN6Render2GL15CHyprOpenGLImpl13renderTextureERNS_14CRenderContextEN9Hyprutils6Memory14CSharedPointerINS_8ITextureEEERKNS4_4Math4CBoxENS1_18STextureRenderDataE";
         constexpr auto DAMAGE_SURFACE = "_ZN6Render13IHyprRenderer13damageSurfaceEN9Hyprutils6Memory14CSharedPointerI18CWLSurfaceResourceEEddd";
         constexpr auto DAMAGE_WINDOW  = "_ZN6Render13IHyprRenderer12damageWindowEN9Hyprutils6Memory14CSharedPointerIN7Desktop4View7CWindowEEEb";
         constexpr auto DAMAGE_BOX     = "_ZN6Render13IHyprRenderer9damageBoxERKN9Hyprutils4Math4CBoxEb";
@@ -1723,6 +1793,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_hookFullscreenWindow  = hook(Symbols::FULLSCREEN_WINDOW, rc<void*>(&hkFullscreenWindow));
     g_hookMouseMove         = hook(Symbols::MOUSE_MOVE, rc<void*>(&hkMouseMove));
     g_hookTextureWithBlur   = hook(Symbols::TEXTURE_WITH_BLUR, rc<void*>(&hkTextureWithBlur));
+    g_hookWindow            = hook(Symbols::RENDER_WINDOW, rc<void*>(&hkRenderWindow));
+    g_hookTexture           = hook(Symbols::TEXTURE, rc<void*>(&hkTexture));
     g_hookDamageSurface     = hook(Symbols::DAMAGE_SURFACE, rc<void*>(&hkDamageSurface));
     g_hookDamageWindow      = hook(Symbols::DAMAGE_WINDOW, rc<void*>(&hkDamageWindow));
     g_hookDamageBox         = hook(Symbols::DAMAGE_BOX, rc<void*>(&hkDamageBox));
@@ -1731,7 +1803,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_hookCommitPopup       = hook(Symbols::COMMIT_POPUP, rc<void*>(&hkCommitPopup));
     g_hookCommitState       = hook(Symbols::COMMIT_STATE, rc<void*>(&hkCommitState));
 
-    g_ready = g_hookWindows && g_hookWindowsFullscreen && g_hookWindowAt && g_hookLayerAt && g_hookLayerPopupAt && g_hookFullscreenWindow && g_hookMouseMove && g_hookTextureWithBlur && g_hookDamageSurface &&
+    g_ready = g_hookWindows && g_hookWindowsFullscreen && g_hookWindowAt && g_hookLayerAt && g_hookLayerPopupAt && g_hookFullscreenWindow && g_hookMouseMove && g_hookTextureWithBlur && g_hookWindow && g_hookTexture && g_hookDamageSurface &&
         g_hookDamageWindow && g_hookDamageBox && g_hookCommitWindow && g_hookCommitSub && g_hookCommitPopup && g_hookCommitState;
     if (!g_ready) {
         // Half a set of hooks would draw the view without its input, or the other way round.
