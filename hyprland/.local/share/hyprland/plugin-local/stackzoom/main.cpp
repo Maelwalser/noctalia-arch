@@ -755,12 +755,16 @@ namespace {
     // reaches it, gives each element up to the row's end the damage in the
     // space it cuts in: for a surface, the damage taken back through the
     // row's modifiers. What is damaged on the output is not touched.
+    // True while the pass draws the elements of a row, between its two CZoomRow.
+    bool g_inRow = false;
+
     class CZoomRow : public IPassElement {
       public:
         CZoomRow() = default; // the end of a row
         CZoomRow(double scale, const Vector2D& move) : m_begin(true), m_scale(scale), m_move(move) {}
 
         std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override {
+            g_inRow = m_begin;
             if (!m_begin || m_scale <= 0.0)
                 return {};
 
@@ -881,7 +885,7 @@ namespace {
 
     void hkTexture(void* self, Render::CRenderContext& ctx, SP<Render::ITexture> tex, const CBox& box, Render::GL::CHyprOpenGLImpl::STextureRenderData data) {
         const auto& modif   = ctx.m_data.renderModif;
-        const bool  ROW     = !g_views.empty() && modif.enabled && !modif.modifs.empty() && viewFor(ctx.m_data.pMonitor.lock());
+        const bool  ROW     = g_inRow && !g_views.empty() && modif.enabled && !modif.modifs.empty() && viewFor(ctx.m_data.pMonitor.lock());
         const bool  NEAREST = ctx.m_data.useNearestNeighbor;
         if (ROW)
             ctx.m_data.useNearestNeighbor = false;
@@ -924,9 +928,18 @@ namespace {
 
             // The scene of one workspace: its windows wherever they are laid
             // out, whether or not the workspace is the one shown.
-            g_queued = SQueuedRow{G.s, MOVE};
-            callWindows(Fullscreen::controller()->hasFullscreen(ROW), self, ctx, mon, ROW, now, Render::eSceneMode::WORKSPACE_WINDOWS);
-            g_queued.reset();
+            {
+                // Left set, every window drawn afterwards would be moved as one of this row's.
+                struct SQueued {
+                    SQueued(double scale, const Vector2D& move) {
+                        g_queued = SQueuedRow{scale, move};
+                    }
+                    ~SQueued() {
+                        g_queued.reset();
+                    }
+                } queued{G.s, MOVE};
+                callWindows(Fullscreen::controller()->hasFullscreen(ROW), self, ctx, mon, ROW, now, Render::eSceneMode::WORKSPACE_WINDOWS);
+            }
 
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CZoomRow>());
             Render::IHyprRenderer::addPassElement(ctx, makeUnique<CRendererHintsPassElement>(CRendererHintsPassElement::SData{Render::SRenderModifData{}}));
