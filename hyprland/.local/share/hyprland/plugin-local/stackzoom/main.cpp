@@ -2,7 +2,8 @@
 // bindings.lua).
 //
 // Every workspace of the monitor that has windows is a row, and the view
-// draws back until about two of them fit on the screen. The rows lie the way
+// draws back until about two of them fit on the screen (further back or
+// closer with ALT + minus and ALT + ^). The rows lie the way
 // the workspaces do on the scrolling layout, where each is a strip and
 // ALT + J/K goes up and down between them: under one another. On any other
 // layout there is no such view (toggle() answers false, and the binding
@@ -96,8 +97,15 @@ namespace {
 
     HANDLE PHANDLE = nullptr;
 
-    // How far the view draws back: windows are shown at this share of their size.
-    constexpr double ZOOM = 0.5;
+    // How far the view draws back: windows are shown at this share of their
+    // size. From there it goes further back or closer in steps (zoom()),
+    // each this many times the one before, no further than the two ends.
+    constexpr double ZOOM       = 0.5;
+    constexpr double ZOOM_STEP  = 1.25;
+    constexpr int    ZOOM_FAR   = -4; // 0.2
+    constexpr int    ZOOM_CLOSE = 3;  // 0.98: next to the desktop's own size
+    // The scale goes over to a new step at this rate.
+    constexpr double ZOOM_RATE = 14.0;
     // Logical pixels between two rows, on top of the gaps the rows have already.
     constexpr double ROW_GAP = 0.0;
     // Milliseconds the view takes out and back in.
@@ -157,6 +165,7 @@ namespace {
         PHLMONITORREF   mon;
         bool            open = false;
         double          z = 0, zFrom = 0, zTo = 0; // 0 = the desktop as it is, 1 = drawn back
+        double          zoom = ZOOM; // the share of their size the windows have when drawn back, now
         steady_tp       zStart;
         Vector2D        cam, vel, target; // world coordinates, logical pixels
         bool            camSet    = false;
@@ -194,6 +203,14 @@ namespace {
     // wherever that leaves the rows (see cameraTarget). Kept from one
     // opening of the view to the next.
     bool g_centred = false;
+
+    // How many steps closer (or, below 0, further back) than ZOOM the views
+    // are to be. Kept from one opening of the view to the next.
+    int g_zoomStep = 0;
+
+    double zoomGoal() {
+        return ZOOM * std::pow(ZOOM_STEP, g_zoomStep);
+    }
 
     std::vector<UP<SView>> g_views;
     int                    g_buttons = 0;
@@ -405,7 +422,7 @@ namespace {
         g.pitch        = Vector2D{0.0, g.P};
         g.n            = sc<int>(rows.size());
         g.active       = std::max(0, rowIndex(rows, mon->m_activeWorkspace));
-        g.s            = 1.0 + (ZOOM - 1.0) * v.z;
+        g.s            = 1.0 + (v.zoom - 1.0) * v.z;
         g.C            = {g.W / 2.0, g.top + g.Hu / 2.0};
         const auto REST = restCam(g);
         g.cam           = v.camSet ? REST + (v.cam - REST) * v.z : REST;
@@ -442,12 +459,15 @@ namespace {
             if (s.held)
                 widest = std::max(widest, s.right - s.left);
         }
-        const double ACROSS = g.W / ZOOM; // world width the screen shows
+        // (At the scale the view is going to: the camera sets off for where
+        // it belongs then, while the scale is on its way.)
+        const double ZOOM_TO = zoomGoal();
+        const double ACROSS  = g.W / ZOOM_TO; // world width the screen shows
         const double REACH  = std::max(0.0, (widest + 2.0 * EDGE - ACROSS) / 2.0);
         to.x                = std::clamp(to.x, g.W / 2.0 - REACH, g.W / 2.0 + REACH);
 
         const double SPAN = g.n * g.P - ROW_GAP;   // all the rows
-        const double SEEN = g.Hu / ZOOM;           // world height the screen shows
+        const double SEEN = g.Hu / ZOOM_TO;        // world height the screen shows
         if (SPAN <= SEEN)
             to.y = SPAN / 2.0;
         else
@@ -573,6 +593,15 @@ namespace {
         if (!ZOOMING)
             v.z = v.zTo;
 
+        // Another step closer or further back: the scale runs over to it,
+        // by ratio, so that each step looks the same length.
+        const double ZOOM_TO = zoomGoal();
+        if (v.zoom != ZOOM_TO) {
+            const double LEFT = std::log(v.zoom / ZOOM_TO) * std::exp(-ZOOM_RATE * dt);
+            v.zoom            = std::abs(LEFT) < 0.001 ? ZOOM_TO : ZOOM_TO * std::exp(LEFT);
+        }
+        const bool SCALING = v.zoom != ZOOM_TO;
+
         const auto ROWS = rowsOf(mon);
         for (auto const& ws : ROWS) {
             if (ws->m_forceRendering)
@@ -651,7 +680,7 @@ namespace {
         }
 
         const bool WAS = v.animating;
-        v.animating    = ZOOMING || moving || EASING;
+        v.animating    = ZOOMING || SCALING || moving || EASING;
         v.settled      = WAS && !v.animating;
 
         // The frame this step makes. Rows that are drawn somewhere else than
@@ -1423,8 +1452,9 @@ namespace {
             // A window in real fullscreen is drawn alone, past the scene: there is nothing to draw back from.
             if (realFullscreen(mon) || !hasStrips(mon))
                 return false;
-            view      = g_views.emplace_back(makeUnique<SView>()).get();
-            view->mon = mon;
+            view       = g_views.emplace_back(makeUnique<SView>()).get();
+            view->mon  = mon;
+            view->zoom = zoomGoal();
         }
         if (view->open == open)
             return true;
@@ -1512,6 +1542,26 @@ namespace {
         for (auto const& v : g_views)
             damage(*v);
         lua_pushboolean(L, g_centred);
+        return 1;
+    }
+
+    // zoom([steps]) -> the share of their size the windows are shown at.
+    // Steps above 0 are closer, below 0 further back; without an argument
+    // nothing changes. The views run over to it from their next frame.
+    int luaZoom(lua_State* L) {
+        const int STEPS = sc<int>(luaL_optinteger(L, 1, 0));
+        const int TO    = std::clamp(g_zoomStep + STEPS, ZOOM_FAR, ZOOM_CLOSE);
+        if (TO != g_zoomStep) {
+            g_zoomStep = TO;
+            for (auto const& v : g_views) {
+                // A view at rest has drawn no frame for a while: the run
+                // starts with the frame this asks for, not somewhere along.
+                if (!v->animating)
+                    v->lastSet = false;
+                damage(*v);
+            }
+        }
+        lua_pushnumber(L, zoomGoal());
         return 1;
     }
 
@@ -1724,6 +1774,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "precise", luaPrecise);
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "stats", luaStats);
     HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "centred", luaCentred);
+    HyprlandAPI::addLuaFunction(PHANDLE, "stackzoom", "zoom", luaZoom);
 
     return {"stackzoom", "Zoomed-out work view of a monitor's workspaces, with live windows", "mael", "1.0"};
 }

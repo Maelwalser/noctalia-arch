@@ -263,6 +263,21 @@ hl.bind("ALT + C", function()
     end
 end)
 
+-- In the work view: ALT + minus draws it a step further back, ALT + ^ a step
+-- closer (stackzoom keeps the step for the next time the view opens). The
+-- ^ key is a dead key on the Swiss layout, so it is bound by its keycode.
+local function view_zoom(steps)
+    return function()
+        local view = hl.plugin.stackzoom
+        if view and view.zoom and view.active() then
+            view.zoom(steps)
+        end
+    end
+end
+
+hl.bind("ALT + minus", view_zoom(-1), { repeating = true, description = "Work view: zoom out" })
+hl.bind("ALT + code:21", view_zoom(1), { repeating = true, description = "Work view: zoom in" })
+
 -- --- Window Switcher ---
 -- In fullscreen, Alt+Tab opens Noctalia's switcher overlay (style/MRU in
 -- noctalia config.toml). "hold" keeps it open while Alt is down; each
