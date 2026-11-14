@@ -29,6 +29,11 @@ quit-after-last-window-closed-delay = 5m
 keybind = shift+enter=text:\x1b\r
 # Let ctrl+shift+enter reach Claude Code (send now) instead of zooming splits
 keybind = ctrl+shift+enter=unbind
+# ctrl + ^ makes the font larger (ctrl + - makes it smaller already). On the
+# Swiss layout ^ is a dead key that gives no character, so the default
+# ctrl+= never matches: bound by the physical key instead (`equal` is where
+# = sits on a US keyboard, the key left of backspace).
+keybind = ctrl+equal=increase_font_size:1
 
 # Slowdown mouse scrolling
 mouse-scroll-multiplier = 0.95
